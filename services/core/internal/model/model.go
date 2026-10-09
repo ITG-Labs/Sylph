@@ -17,8 +17,8 @@ type Node struct {
 	UsersVersion  int64      `json:"users_version"`
 	Enabled       bool       `json:"enabled"`
 	LastHeartbeat *time.Time `json:"last_heartbeat"`
-	AgentVersion  string     `json:"agent_version"`
-	XrayVersion   string     `json:"xray_version"`
+	AgentVersion  *string    `json:"agent_version"`
+	XrayVersion   *string    `json:"xray_version"`
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
