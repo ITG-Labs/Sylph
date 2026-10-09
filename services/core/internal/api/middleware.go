@@ -17,4 +17,3 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		plain.ServeHTTP(w, r)
 	})
 }
-

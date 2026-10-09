@@ -66,9 +66,9 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Deltas []struct {
-			KeyUUID    string `json:"key_uuid"`
-			BytesUp    int64  `json:"bytes_up"`
-			BytesDown  int64  `json:"bytes_down"`
+			KeyUUID   string `json:"key_uuid"`
+			BytesUp   int64  `json:"bytes_up"`
+			BytesDown int64  `json:"bytes_down"`
 		} `json:"deltas"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
