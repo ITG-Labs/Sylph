@@ -13,11 +13,8 @@ import (
 
 func setupService(t *testing.T) *Service {
 	t.Helper()
-	pool := store.TestPool(t)
+	pool := store.TestPoolWithSchema(t, "service_test")
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

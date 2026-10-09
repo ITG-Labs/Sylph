@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -21,12 +22,25 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("load migrations: %w", err)
 	}
-	db, err := sql.Open("pgx/v5", pool.Config().ConnString())
+	connString := pool.Config().ConnString()
+	db, err := sql.Open("pgx/v5", connString)
 	if err != nil {
 		return fmt.Errorf("open sql for migrations: %w", err)
 	}
 	defer db.Close()
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	var schemaName string
+	if err := db.QueryRow("SHOW search_path").Scan(&schemaName); err != nil {
+		return fmt.Errorf("resolve schema: %w", err)
+	}
+	schemaName = strings.TrimSpace(schemaName)
+	if schemaName != "public" && schemaName != `"$user", public` {
+		if _, err := db.Exec(fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, schemaName)); err != nil {
+			return fmt.Errorf("ensure schema: %w", err)
+		}
+	} else {
+		schemaName = "public"
+	}
+	driver, err := postgres.WithInstance(db, &postgres.Config{SchemaName: schemaName})
 	if err != nil {
 		return fmt.Errorf("migrate driver: %w", err)
 	}
