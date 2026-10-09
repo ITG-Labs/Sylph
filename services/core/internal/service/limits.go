@@ -1,0 +1,109 @@
+package service
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
+)
+
+func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, deltas []model.TrafficDelta) error {
+	node, err := s.store.GetNodeByCN(ctx, nodeCN)
+	if err != nil {
+		return err
+	}
+	if err := s.store.RecordDeltas(ctx, node.ID, deltas); err != nil {
+		return err
+	}
+	keyOwners := make(map[string]int64)
+	for _, d := range deltas {
+		keyOwners[d.KeyUUID] = 0
+	}
+	uuids := make([]string, 0, len(keyOwners))
+	for uuid := range keyOwners {
+		uuids = append(uuids, uuid)
+	}
+	users, err := s.store.ListUsersByKeys(ctx, uuids)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		sub, err := s.store.GetActiveSubscription(ctx, u.ID)
+		if err != nil {
+			if err == store.ErrNotFound {
+				continue
+			}
+			return err
+		}
+		used, err := s.store.SumTrafficSince(ctx, u.ID, sub.StartsAt)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetTrafficUsed(ctx, sub.ID, used); err != nil {
+			return err
+		}
+		plan, err := s.store.GetPlan(ctx, sub.PlanID)
+		if err != nil {
+			return err
+		}
+		if plan.TrafficLimitBytes != nil && used > *plan.TrafficLimitBytes {
+			if err := s.store.SetUserStatus(ctx, u.ID, "expired_traffic"); err != nil {
+				return err
+			}
+			s.log.LogAttrs(ctx, slog.LevelInfo, "user_traffic_expired",
+				slog.Int64("user_id", u.ID),
+				slog.Int64("used", used),
+				slog.Int64("limit", *plan.TrafficLimitBytes))
+		}
+	}
+	return nil
+}
+
+func (s *Service) RegisterDevice(ctx context.Context, subToken string, fingerprint string, userAgent string) (bool, error) {
+	u, err := s.store.GetUserBySubToken(ctx, subToken)
+	if err != nil {
+		return false, err
+	}
+	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
+	if err != nil {
+		return false, err
+	}
+	plan, err := s.store.GetPlan(ctx, sub.PlanID)
+	if err != nil {
+		return false, err
+	}
+	if plan.DeviceLimit == nil {
+		return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
+	}
+	count, err := s.store.CountDevices(ctx, u.ID)
+	if err != nil {
+		return false, err
+	}
+	if count >= *plan.DeviceLimit {
+		existing, err := s.store.HasDevice(ctx, u.ID, fingerprint)
+		if err != nil {
+			return false, err
+		}
+		if existing {
+			return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
+		}
+		s.log.LogAttrs(ctx, slog.LevelInfo, "device_limit_rejected",
+			slog.Int64("user_id", u.ID),
+			slog.String("fingerprint", fingerprint))
+		return false, nil
+	}
+	return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
+}
+
+func (s *Service) CheckAndExpire(ctx context.Context, now time.Time) (int64, error) {
+	n, err := s.store.ExpireOverdue(ctx, now)
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "subscriptions_expired", slog.Int64("count", n))
+	}
+	return n, nil
+}

@@ -127,3 +127,8 @@ func (s *Store) SetPaymentStatus(ctx context.Context, paymentID string, status s
 	}
 	return nil
 }
+
+func (s *Store) SetTrafficUsed(ctx context.Context, subID int64, used int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE subscriptions SET traffic_used_bytes = $2 WHERE id = $1`, subID, used)
+	return err
+}

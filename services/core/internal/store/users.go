@@ -88,3 +88,28 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (*model.User, error) 
 	return s.scanUser(s.pool.QueryRow(ctx,
 		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE id = $1`, id))
 }
+
+func (s *Store) ListUsersByKeys(ctx context.Context, uuids []string) ([]model.User, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT u.id, u.telegram_id, u.email, u.sub_token, u.status, u.created_at
+		 FROM users u JOIN user_keys uk ON uk.user_id = u.id
+		 WHERE uk.uuid = ANY($1)`, uuids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []model.User
+	for rows.Next() {
+		u, err := s.scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, *u)
+	}
+	return users, rows.Err()
+}
+
+func (s *Store) SetUserStatus(ctx context.Context, userID int64, status string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET status = $2 WHERE id = $1`, userID, status)
+	return err
+}

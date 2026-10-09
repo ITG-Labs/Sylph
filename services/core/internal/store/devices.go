@@ -22,3 +22,11 @@ func (s *Store) ResetDevices(ctx context.Context, userID int64) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM devices WHERE user_id = $1`, userID)
 	return err
 }
+
+func (s *Store) HasDevice(ctx context.Context, userID int64, fingerprint string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM devices WHERE user_id = $1 AND fingerprint = $2)`,
+		userID, fingerprint).Scan(&exists)
+	return exists, err
+}
