@@ -9,28 +9,28 @@ type LocationGroup struct {
 }
 
 type Node struct {
-	ID             int64      `json:"id"`
-	CertCN         string     `json:"cert_cn"`
-	Name           string     `json:"name"`
-	GroupID        *int64     `json:"group_id"`
-	Config         string     `json:"config"`
-	UsersVersion   int64      `json:"users_version"`
-	Enabled        bool       `json:"enabled"`
-	LastHeartbeat  *time.Time `json:"last_heartbeat"`
-	AgentVersion   string     `json:"agent_version"`
-	XrayVersion    string     `json:"xray_version"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID            int64      `json:"id"`
+	CertCN        string     `json:"cert_cn"`
+	Name          string     `json:"name"`
+	GroupID       *int64     `json:"group_id"`
+	Config        string     `json:"config"`
+	UsersVersion  int64      `json:"users_version"`
+	Enabled       bool       `json:"enabled"`
+	LastHeartbeat *time.Time `json:"last_heartbeat"`
+	AgentVersion  string     `json:"agent_version"`
+	XrayVersion   string     `json:"xray_version"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type Plan struct {
-	ID               int64     `json:"id"`
-	Name             string    `json:"name"`
-	PriceRub         int64     `json:"price_rub"`
-	PeriodDays       int       `json:"period_days"`
-	TrafficLimitBytes *int64   `json:"traffic_limit_bytes"`
-	LocationGroupID  *int64    `json:"location_group_id"`
-	DeviceLimit      *int      `json:"device_limit"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID                int64     `json:"id"`
+	Name              string    `json:"name"`
+	PriceRub          int64     `json:"price_rub"`
+	PeriodDays        int       `json:"period_days"`
+	TrafficLimitBytes *int64    `json:"traffic_limit_bytes"`
+	LocationGroupID   *int64    `json:"location_group_id"`
+	DeviceLimit       *int      `json:"device_limit"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type User struct {
@@ -50,14 +50,14 @@ type UserKey struct {
 }
 
 type Subscription struct {
-	ID                int64     `json:"id"`
-	UserID            int64     `json:"user_id"`
-	PlanID            int64     `json:"plan_id"`
-	StartsAt          time.Time `json:"starts_at"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	Canceled          bool      `json:"canceled"`
-	TrafficUsedBytes  int64     `json:"traffic_used_bytes"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID               int64     `json:"id"`
+	UserID           int64     `json:"user_id"`
+	PlanID           int64     `json:"plan_id"`
+	StartsAt         time.Time `json:"starts_at"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	Canceled         bool      `json:"canceled"`
+	TrafficUsedBytes int64     `json:"traffic_used_bytes"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 type Payment struct {
