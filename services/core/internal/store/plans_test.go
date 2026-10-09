@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -60,8 +61,15 @@ func TestNodesUpsertAndHeartbeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "Frankfurt-1-re" || got.Config != `{"x":1}` || got.ID != n.ID {
+	if got.Name != "Frankfurt-1-re" || got.ID != n.ID {
 		t.Fatalf("got %+v", got)
+	}
+	var cfgObj map[string]any
+	if err := json.Unmarshal([]byte(got.Config), &cfgObj); err != nil {
+		t.Fatalf("config not json: %v", err)
+	}
+	if v, ok := cfgObj["x"].(float64); !ok || v != 1 {
+		t.Fatalf("config = %s", got.Config)
 	}
 	if err := s.TouchNodeHeartbeat(ctx, got.ID, "0.1.0", "25.1.1"); err != nil {
 		t.Fatal(err)
