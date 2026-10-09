@@ -58,7 +58,7 @@ func (s *Server) handleUserGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "get failed")
 		return
 	}
-	u, err := s.svc.GetUserByTelegramIDTest(r.Context(), tg)
+	u, err := s.svc.GetUserByTelegramID(r.Context(), tg)
 	if err != nil {
 		s.log.Error("user_get_failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal", "get failed")

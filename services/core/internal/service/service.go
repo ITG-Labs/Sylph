@@ -18,23 +18,23 @@ func NewService(st *store.Store, log *slog.Logger) *Service {
 	return &Service{store: st, log: log}
 }
 
-func (s *Service) UpsertNodeTest(ctx context.Context, n *model.Node) error {
+func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {
 	return s.store.UpsertNode(ctx, n)
 }
 
-func (s *Service) GetNodeByCNTest(ctx context.Context, cn string) (*model.Node, error) {
+func (s *Service) GetNodeByCN(ctx context.Context, cn string) (*model.Node, error) {
 	return s.store.GetNodeByCN(ctx, cn)
 }
 
-func (s *Service) CreatePlanTest(ctx context.Context, p *model.Plan) error {
+func (s *Service) CreatePlan(ctx context.Context, p *model.Plan) error {
 	return s.store.CreatePlan(ctx, p)
 }
 
-func (s *Service) RenewSubscriptionTest(ctx context.Context, userID int64, planID int64) (int64, error) {
+func (s *Service) RenewSubscription(ctx context.Context, userID int64, planID int64) (int64, error) {
 	return s.store.RenewSubscription(ctx, userID, planID, time.Now().UTC())
 }
 
-func (s *Service) GetUserByTelegramIDTest(ctx context.Context, tg int64) (*model.User, error) {
+func (s *Service) GetUserByTelegramID(ctx context.Context, tg int64) (*model.User, error) {
 	return s.store.GetUserByTelegramID(ctx, tg)
 }
 

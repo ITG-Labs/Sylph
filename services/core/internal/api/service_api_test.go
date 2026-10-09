@@ -52,10 +52,10 @@ func TestUsersGetEndpoint(t *testing.T) {
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 800)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
-	if err := svc.CreatePlanTest(ctx, p); err != nil {
+	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RenewSubscriptionTest(ctx, u.ID, p.ID); err != nil {
+	if _, err := svc.RenewSubscription(ctx, u.ID, p.ID); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := client.Get(ts.URL + "/v1/users/800")
@@ -92,7 +92,7 @@ func TestPaymentsEndpointIdempotent(t *testing.T) {
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 900)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
-	if err := svc.CreatePlanTest(ctx, p); err != nil {
+	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := json.Marshal(map[string]any{"payment_id": "pay-api-1", "user_id": u.ID, "plan_id": p.ID, "amount_rub": 100})
@@ -113,10 +113,10 @@ func TestUserByTokenEndpoint(t *testing.T) {
 	ctx := context.Background()
 	u, key, _ := svc.RegisterUser(ctx, 1000)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
-	if err := svc.CreatePlanTest(ctx, p); err != nil {
+	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RenewSubscriptionTest(ctx, u.ID, p.ID); err != nil {
+	if _, err := svc.RenewSubscription(ctx, u.ID, p.ID); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := client.Get(ts.URL + "/v1/users/by-token/" + u.SubToken)

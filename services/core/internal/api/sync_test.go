@@ -14,15 +14,15 @@ func TestSyncUsersEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := svc.UpsertNodeTest(ctx, n); err != nil {
+	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
 	u, key, _ := svc.RegisterUser(ctx, 600)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
-	if err := svc.CreatePlanTest(ctx, p); err != nil {
+	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RenewSubscriptionTest(ctx, u.ID, p.ID); err != nil {
+	if _, err := svc.RenewSubscription(ctx, u.ID, p.ID); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := json.Marshal(map[string]int64{"known_version": 0})
@@ -71,7 +71,7 @@ func TestSyncDeltasEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := svc.UpsertNodeTest(ctx, n); err != nil {
+	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
 	u, key, _ := svc.RegisterUser(ctx, 601)
@@ -102,7 +102,7 @@ func TestHeartbeatEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := svc.UpsertNodeTest(ctx, n); err != nil {
+	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := json.Marshal(map[string]string{"agent_version": "0.1.0", "xray_version": "25.1.1"})
@@ -114,7 +114,7 @@ func TestHeartbeatEndpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	got, err := svc.GetNodeByCNTest(ctx, "node-1")
+	got, err := svc.GetNodeByCN(ctx, "node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
