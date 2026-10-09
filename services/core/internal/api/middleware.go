@@ -18,8 +18,3 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
-}
-
-func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
-}

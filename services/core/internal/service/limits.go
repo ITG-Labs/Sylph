@@ -107,3 +107,25 @@ func (s *Service) CheckAndExpire(ctx context.Context, now time.Time) (int64, err
 	}
 	return n, nil
 }
+
+type TrafficDeltaInput struct {
+	KeyUUID   string
+	BytesUp   int64
+	BytesDown int64
+}
+
+func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, deltas []TrafficDeltaInput) error {
+	models := make([]model.TrafficDelta, 0, len(deltas))
+	for _, d := range deltas {
+		models = append(models, model.TrafficDelta{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
+	}
+	return s.RecordNodeDeltas(ctx, nodeCN, models)
+}
+
+func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, agentVer string, xrayVer string) error {
+	node, err := s.store.GetNodeByCN(ctx, nodeCN)
+	if err != nil {
+		return err
+	}
+	return s.store.TouchNodeHeartbeat(ctx, node.ID, agentVer, xrayVer)
+}

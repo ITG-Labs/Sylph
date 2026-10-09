@@ -81,8 +81,7 @@ func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, e
 		 JOIN plans p ON p.id = sub.plan_id
 		 JOIN nodes n ON n.id = $1
 		 WHERE u.status = 'active'
-		   AND n.group_id IS NOT NULL
-		   AND p.location_group_id = n.group_id`,
+		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)`,
 		nodeID)
 	if err != nil {
 		return nil, err
