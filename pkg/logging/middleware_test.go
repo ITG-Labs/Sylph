@@ -65,6 +65,29 @@ func TestMiddlewareReusesIncomingRequestID(t *testing.T) {
 	}
 }
 
+func TestMiddlewareReplacesOversizedRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewWithWriter("test", "info", &buf)
+	var ctxID string
+	h := Middleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctxID = RequestIDFromContext(r.Context())
+	}))
+	oversized := strings.Repeat("x", 200)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(HeaderRequestID, oversized)
+	h.ServeHTTP(rec, req)
+	if ctxID == oversized {
+		t.Fatal("oversized request id should not pass through")
+	}
+	if len(ctxID) != 36 {
+		t.Fatalf("replaced id len = %d, want 36", len(ctxID))
+	}
+	if rec.Header().Get(HeaderRequestID) != ctxID {
+		t.Fatalf("response header = %q, want %q", rec.Header().Get(HeaderRequestID), ctxID)
+	}
+}
+
 func TestMiddlewarePanicPropagates(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewWithWriter("test", "info", &buf)
