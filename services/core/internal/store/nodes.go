@@ -71,3 +71,30 @@ func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, agentVer s
 		nodeID, agentVer, xrayVer)
 	return err
 }
+
+func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT uk.uuid
+		 FROM user_keys uk
+		 JOIN users u ON u.id = uk.user_id
+		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.expires_at > now()
+		 JOIN plans p ON p.id = sub.plan_id
+		 JOIN nodes n ON n.id = $1
+		 WHERE u.status = 'active'
+		   AND n.group_id IS NOT NULL
+		   AND p.location_group_id = n.group_id`,
+		nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
