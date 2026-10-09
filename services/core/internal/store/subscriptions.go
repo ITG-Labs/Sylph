@@ -118,7 +118,7 @@ func (s *Store) GetPayment(ctx context.Context, paymentID string) (*model.Paymen
 }
 
 func (s *Store) SetPaymentStatus(ctx context.Context, paymentID string, status string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE payments SET status = $2 WHERE payment_id = $1`, status, paymentID)
+	tag, err := s.pool.Exec(ctx, `UPDATE payments SET status = $2 WHERE payment_id = $1`, paymentID, status)
 	if err != nil {
 		return err
 	}

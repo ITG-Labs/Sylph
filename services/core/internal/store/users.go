@@ -83,3 +83,8 @@ func (s *Store) RotateUserKeys(ctx context.Context, userID int64) ([]model.UserK
 	}
 	return []model.UserKey{{UserID: userID, UUID: uuid}}, nil
 }
+
+func (s *Store) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
+	return s.scanUser(s.pool.QueryRow(ctx,
+		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE id = $1`, id))
+}
