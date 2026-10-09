@@ -22,12 +22,16 @@ func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 }
 
 func (s *Store) UpsertNode(ctx context.Context, n *model.Node) error {
+	config := n.Config
+	if config == "" {
+		config = "{}"
+	}
 	return s.pool.QueryRow(ctx,
 		`INSERT INTO nodes (cert_cn, name, group_id, config)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (cert_cn) DO UPDATE SET name = $2, group_id = $3, config = $4
 		 RETURNING id, users_version, enabled, created_at`,
-		n.CertCN, n.Name, n.GroupID, n.Config,
+		n.CertCN, n.Name, n.GroupID, config,
 	).Scan(&n.ID, &n.UsersVersion, &n.Enabled, &n.CreatedAt)
 }
 
