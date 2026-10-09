@@ -40,6 +40,27 @@ func main() {
 				err = issueCert(*dir, *name, usage, *ttl, time.Now())
 			}
 		}
+	case "revoke":
+		name := fs.String("name", "", "certificate name")
+		err = fs.Parse(os.Args[2:])
+		if err == nil {
+			if *name == "" {
+				err = fmt.Errorf("--name is required")
+			} else {
+				err = revokeCert(*dir, *name)
+			}
+		}
+	case "list":
+		err = fs.Parse(os.Args[2:])
+		if err == nil {
+			var infos []certInfo
+			infos, err = listCerts(*dir)
+			if err == nil {
+				for _, ci := range infos {
+					fmt.Printf("%-24s %-7s %-40s %s\n", ci.Name, ci.Type, ci.Serial, ci.NotAfter.Format(time.DateOnly))
+				}
+			}
+		}
 	default:
 		printUsage()
 		os.Exit(2)
