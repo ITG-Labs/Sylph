@@ -17,6 +17,7 @@ type fakeCore struct {
 	syncUsers   []SyncUser
 	deltasSeen  []Delta
 	heartbeats  int
+	failDeltas  bool
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +35,10 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion, "users": f.syncUsers, "config": "{}"})
 	case "/v1/sync/deltas":
+		if f.failDeltas {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		var body struct {
 			Deltas []Delta `json:"deltas"`
 		}
