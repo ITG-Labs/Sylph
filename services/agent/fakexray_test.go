@@ -3,19 +3,20 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 )
 
 type fakeXray struct {
 	mu       sync.Mutex
 	users    map[string]bool
-	stats    map[string]StatsValue
+	stats    map[string]int64
 	addErr   error
 	inbounds map[string]string
 }
 
 func newFakeXray() *fakeXray {
-	return &fakeXray{users: map[string]bool{}, stats: map[string]StatsValue{}, inbounds: map[string]string{}}
+	return &fakeXray{users: map[string]bool{}, stats: map[string]int64{}, inbounds: map[string]string{}}
 }
 
 func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
@@ -35,12 +36,14 @@ func (f *fakeXray) RemoveUser(ctx context.Context, tag string, uuid string) erro
 	return nil
 }
 
-func (f *fakeXray) QueryStats(ctx context.Context, pattern string) (map[string]StatsValue, error) {
+func (f *fakeXray) QueryStats(ctx context.Context, pattern string) (map[string]int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := map[string]StatsValue{}
+	out := map[string]int64{}
 	for k, v := range f.stats {
-		out[k] = v
+		if strings.HasPrefix(k, pattern) {
+			out[k] = v
+		}
 	}
 	return out, nil
 }
@@ -68,7 +71,7 @@ func (f *fakeXray) RemoveInbound(ctx context.Context, tag string) error {
 	return nil
 }
 
-func (f *fakeXray) setStats(stats map[string]StatsValue) {
+func (f *fakeXray) setStats(stats map[string]int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stats = stats
