@@ -80,9 +80,10 @@ func (e *Engine) applyDiff(ctx context.Context, want []SyncUser) error {
 			continue
 		}
 		if err := e.xray.RemoveUser(ctx, e.cfg.InboundTag, uuid); err != nil {
-			e.logger.Error("xray_remove_failed", "uuid", uuid, "error", err.Error())
+			msg := redactKey(err.Error(), uuid)
+			e.logger.Error("xray_remove_failed", "key_ref", keyRef(uuid), "error", msg)
 			if firstErr == nil {
-				firstErr = fmt.Errorf("remove user %s: %w", uuid, err)
+				firstErr = fmt.Errorf("remove user %s: %s", keyRef(uuid), msg)
 			}
 			continue
 		}
@@ -93,9 +94,10 @@ func (e *Engine) applyDiff(ctx context.Context, want []SyncUser) error {
 			continue
 		}
 		if err := e.xray.AddUser(ctx, e.cfg.InboundTag, uuid); err != nil {
-			e.logger.Error("xray_add_failed", "uuid", uuid, "error", err.Error())
+			msg := redactKey(err.Error(), uuid)
+			e.logger.Error("xray_add_failed", "key_ref", keyRef(uuid), "error", msg)
 			if firstErr == nil {
-				firstErr = fmt.Errorf("add user %s: %w", uuid, err)
+				firstErr = fmt.Errorf("add user %s: %s", keyRef(uuid), msg)
 			}
 			continue
 		}

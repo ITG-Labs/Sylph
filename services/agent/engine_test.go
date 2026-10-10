@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -180,5 +183,42 @@ func TestPartialRemoveDoesNotWedge(t *testing.T) {
 	}
 	if !fx.hasUser("vless-in", "c") || fx.userCount() != 1 {
 		t.Fatalf("expected only c, count = %d", fx.userCount())
+	}
+}
+
+func TestKeyRefIsStableAndOpaque(t *testing.T) {
+	uuid := "4f1d2c3b-aaaa-4bbb-8ccc-0123456789ab"
+	ref := keyRef(uuid)
+	if len(ref) != 12 {
+		t.Fatalf("len = %d, want 12", len(ref))
+	}
+	if ref != keyRef(uuid) {
+		t.Fatal("keyRef must be deterministic")
+	}
+	if strings.Contains(uuid, ref) {
+		t.Fatal("keyRef must not be a substring of the key")
+	}
+}
+
+func TestApplyFailureDoesNotLeakKey(t *testing.T) {
+	var buf bytes.Buffer
+	fx := newFakeXray()
+	secret := "4f1d2c3b-aaaa-4bbb-8ccc-0123456789ab"
+	fx.failAdd = map[string]bool{secret: true}
+	ts := httptestOf(&fakeCore{}, t)
+	cfg := &Config{CoreURL: ts.URL, InboundTag: "vless-in", CachePath: filepath.Join(t.TempDir(), "c.json")}
+	e := NewEngine(cfg, newCoreClientForTest(cfg, discardLogger()), fx, slog.New(slog.NewJSONHandler(&buf, nil)))
+	err := e.applyDiff(context.Background(), []SyncUser{{UUID: secret}})
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error leaks key: %v", err)
+	}
+	if strings.Contains(buf.String(), secret) {
+		t.Fatalf("log leaks key: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), keyRef(secret)) {
+		t.Fatalf("log lacks key ref for correlation: %s", buf.String())
 	}
 }
