@@ -1,13 +1,15 @@
 .PHONY: build test vet lint ca-init cert revoke
 
+PKGS := ./... ./services/core/... ./services/agent/...
+
 build:
-	go build ./...
+	go build $(PKGS)
 
 test:
-	go test ./...
+	go test $(PKGS)
 
 vet:
-	go vet ./...
+	go vet $(PKGS)
 
 lint:
 	golangci-lint run
@@ -28,5 +30,5 @@ test-db-down:
 	docker compose -f deploy/test/docker-compose.yml down -v
 
 test-db: test-db-up
-	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test ./services/core/... -count=1
+	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test -race -count=1 $(PKGS)
 	$(MAKE) test-db-down
