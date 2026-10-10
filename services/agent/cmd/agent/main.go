@@ -42,7 +42,11 @@ func run(logger *slog.Logger) error {
 	if err := engine.LoadState(cfg.CachePath); err != nil {
 		logger.Error("cache_load_failed", slog.String("error", err.Error()))
 	}
-	loop := agent.NewLoop(engine, agent.NewStatsCollector(xray, logger), core, cfg, logger)
+	stats := agent.NewStatsCollector(xray, logger)
+	if err := stats.Load(cfg.StatsPath); err != nil {
+		return fmt.Errorf("stats state: %w", err)
+	}
+	loop := agent.NewLoop(engine, stats, core, cfg, logger)
 	logger.Info("loop_started", slog.String("interval", cfg.SyncInterval.String()))
 	return loop.Run(ctx)
 }

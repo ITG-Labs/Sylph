@@ -26,8 +26,8 @@ func TestCacheMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != 0 || got.Users != nil {
-		t.Fatalf("empty cache expected, got %+v", got)
+	if got.Version != -1 || got.Users != nil {
+		t.Fatalf("absent cache must be version -1, got %+v", got)
 	}
 }
 

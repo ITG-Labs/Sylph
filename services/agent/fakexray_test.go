@@ -8,12 +8,14 @@ import (
 )
 
 type fakeXray struct {
-	mu       sync.Mutex
-	users    map[string]bool
-	stats    map[string]int64
-	addErr   error
-	failAdd  map[string]bool
-	inbounds map[string]string
+	mu         sync.Mutex
+	users      map[string]bool
+	stats      map[string]int64
+	addErr     error
+	failAdd    map[string]bool
+	failRemove map[string]bool
+	listErr    error
+	inbounds   map[string]string
 }
 
 func newFakeXray() *fakeXray {
@@ -36,8 +38,39 @@ func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
 func (f *fakeXray) RemoveUser(ctx context.Context, tag string, uuid string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failRemove[uuid] {
+		return errors.New("remove failed for " + uuid)
+	}
 	delete(f.users, tag+"/"+uuid)
 	return nil
+}
+
+func (f *fakeXray) ListUsers(ctx context.Context, tag string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []string
+	for k := range f.users {
+		if strings.HasPrefix(k, tag+"/") {
+			out = append(out, strings.TrimPrefix(k, tag+"/"))
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeXray) wipe() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.users = map[string]bool{}
+	f.stats = map[string]int64{}
+}
+
+func (f *fakeXray) set(field func(*fakeXray)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	field(f)
 }
 
 func (f *fakeXray) QueryStats(ctx context.Context, pattern string) (map[string]int64, error) {

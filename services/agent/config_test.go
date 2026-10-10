@@ -23,6 +23,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.CachePath != "cache.json" {
 		t.Fatalf("cache = %q", cfg.CachePath)
 	}
+	if cfg.StatsPath != "stats.json" {
+		t.Fatalf("stats = %q", cfg.StatsPath)
+	}
 	if cfg.InboundTag != "vless-in" {
 		t.Fatalf("tag = %q", cfg.InboundTag)
 	}

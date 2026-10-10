@@ -18,7 +18,7 @@ func LoadCache(path string) (*Cache, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return &Cache{}, nil
+			return &Cache{Version: -1}, nil
 		}
 		return nil, fmt.Errorf("read cache: %w", err)
 	}
@@ -30,12 +30,16 @@ func LoadCache(path string) (*Cache, error) {
 }
 
 func SaveCache(path string, c *Cache) error {
+	return writeJSONAtomic(path, c)
+}
+
+func writeJSONAtomic(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("cache dir: %w", err)
+		return fmt.Errorf("state dir: %w", err)
 	}
-	data, err := json.Marshal(c)
+	data, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Errorf("encode cache: %w", err)
+		return fmt.Errorf("encode state: %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {

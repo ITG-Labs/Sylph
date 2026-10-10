@@ -13,6 +13,7 @@ type Config struct {
 	CACert       string
 	ServerName   string
 	CachePath    string
+	StatsPath    string
 	InboundTag   string
 	ListenAPI    string
 	SyncInterval time.Duration
@@ -26,6 +27,7 @@ func LoadConfig() (*Config, error) {
 		CACert:       os.Getenv("SYLPH_CA_CERT"),
 		ServerName:   envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
 		CachePath:    envOr("SYLPH_CACHE_PATH", "cache.json"),
+		StatsPath:    envOr("SYLPH_STATS_PATH", "stats.json"),
 		InboundTag:   envOr("SYLPH_INBOUND_TAG", "vless-in"),
 		ListenAPI:    envOr("SYLPH_LISTEN_API", ""),
 		SyncInterval: 30 * time.Second,
