@@ -12,6 +12,7 @@ type fakeXray struct {
 	users    map[string]bool
 	stats    map[string]int64
 	addErr   error
+	failAdd  map[string]bool
 	inbounds map[string]string
 }
 
@@ -24,6 +25,9 @@ func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
 	defer f.mu.Unlock()
 	if f.addErr != nil {
 		return f.addErr
+	}
+	if f.failAdd[uuid] {
+		return errors.New("add failed for " + uuid)
 	}
 	f.users[tag+"/"+uuid] = true
 	return nil

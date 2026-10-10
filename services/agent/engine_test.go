@@ -136,3 +136,49 @@ func TestLoadStateAppliesCache(t *testing.T) {
 		t.Fatalf("version = %d", e.CurrentVersion())
 	}
 }
+
+func TestPartialApplyDoesNotLeakRevokedUser(t *testing.T) {
+	fx := newFakeXray()
+	fx.failAdd = map[string]bool{"y": true}
+	e := testEngine(t, fx, &fakeCore{})
+	ctx := context.Background()
+	if err := e.applyDiff(ctx, []SyncUser{{UUID: "x"}, {UUID: "y"}}); err == nil {
+		t.Fatal("want error from failed add of y")
+	}
+	if !fx.hasUser("vless-in", "x") {
+		t.Fatal("x should be in xray after partial apply")
+	}
+	if !e.ActiveUsers()["x"] {
+		t.Fatal("engine must track x, it is live in xray")
+	}
+	fx.failAdd = nil
+	if err := e.applyDiff(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasUser("vless-in", "x") {
+		t.Fatal("revoked user x still has access")
+	}
+}
+
+func TestPartialRemoveDoesNotWedge(t *testing.T) {
+	fx := newFakeXray()
+	e := testEngine(t, fx, &fakeCore{})
+	ctx := context.Background()
+	if err := e.applyDiff(ctx, []SyncUser{{UUID: "a"}, {UUID: "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	fx.failAdd = map[string]bool{"c": true}
+	if err := e.applyDiff(ctx, []SyncUser{{UUID: "c"}}); err == nil {
+		t.Fatal("want error from failed add of c")
+	}
+	if e.ActiveUsers()["a"] || e.ActiveUsers()["b"] {
+		t.Fatalf("removed users still tracked: %v", e.ActiveUsers())
+	}
+	fx.failAdd = nil
+	if err := e.applyDiff(ctx, []SyncUser{{UUID: "c"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("vless-in", "c") || fx.userCount() != 1 {
+		t.Fatalf("expected only c, count = %d", fx.userCount())
+	}
+}

@@ -79,21 +79,27 @@ func (e *Engine) applyDiff(ctx context.Context, want []SyncUser) error {
 		if wantSet[uuid] {
 			continue
 		}
-		if err := e.xray.RemoveUser(ctx, e.cfg.InboundTag, uuid); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("remove user %s: %w", uuid, err)
+		if err := e.xray.RemoveUser(ctx, e.cfg.InboundTag, uuid); err != nil {
+			e.logger.Error("xray_remove_failed", "uuid", uuid, "error", err.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("remove user %s: %w", uuid, err)
+			}
+			continue
 		}
+		delete(e.users, uuid)
 	}
 	for uuid := range wantSet {
 		if e.users[uuid] {
 			continue
 		}
-		if err := e.xray.AddUser(ctx, e.cfg.InboundTag, uuid); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("add user %s: %w", uuid, err)
+		if err := e.xray.AddUser(ctx, e.cfg.InboundTag, uuid); err != nil {
+			e.logger.Error("xray_add_failed", "uuid", uuid, "error", err.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("add user %s: %w", uuid, err)
+			}
+			continue
 		}
+		e.users[uuid] = true
 	}
-	if firstErr != nil {
-		return firstErr
-	}
-	e.users = wantSet
-	return nil
+	return firstErr
 }
