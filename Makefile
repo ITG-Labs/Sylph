@@ -1,4 +1,4 @@
-.PHONY: build test vet lint ca-init cert revoke proto
+.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray
 
 PKGS := ./... ./services/core/... ./services/agent/...
 
@@ -32,6 +32,16 @@ test-db-down:
 test-db: test-db-up
 	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test -race -count=1 $(PKGS)
 	$(MAKE) test-db-down
+
+test-xray-up:
+	docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
+
+test-xray-down:
+	docker compose -f deploy/test/xray/docker-compose.yml down
+
+test-xray: test-xray-up
+	SYLPH_TEST_XRAY=127.0.0.1:55085 go test -race -count=1 ./services/agent/...
+	$(MAKE) test-xray-down
 
 PROTOC_GEN_GO := v1.36.12
 PROTOC_GEN_GO_GRPC := v1.6.2
