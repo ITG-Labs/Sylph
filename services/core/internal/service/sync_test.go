@@ -15,7 +15,7 @@ func TestSyncNodeUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := &model.Node{CertCN: "node-1", Name: "n1", GroupID: &g.ID, Config: `{"inbounds":[]}`}
+	n := &model.Node{CertCN: "node-1", Name: "n1", GroupID: &g.ID}
 	if err := svc.store.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}

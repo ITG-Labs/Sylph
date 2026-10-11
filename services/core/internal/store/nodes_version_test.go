@@ -55,23 +55,17 @@ func TestGroupChangeBumpsOnlyThatNode(t *testing.T) {
 	}
 }
 
-func TestConfigChangeBumpsAndEquivalentJSONDoesNot(t *testing.T) {
+func TestAddressAndEnabledDoNotBump(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	n1, _ := twoNodes(t, s)
 	before := nodeVersion(t, s, "node-1")
-	if err := s.UpdateNodeConfig(ctx, n1.ID, `{"inbounds":[{"tag":"vless-in"}]}`); err != nil {
+	n1.Address, n1.Enabled = "other.example.com", false
+	if err := s.UpdateNode(ctx, n1); err != nil {
 		t.Fatal(err)
 	}
-	afterChange := nodeVersion(t, s, "node-1")
-	if afterChange <= before {
-		t.Fatalf("config change did not bump: %d -> %d", before, afterChange)
-	}
-	if err := s.UpdateNodeConfig(ctx, n1.ID, `{ "inbounds" : [ { "tag" : "vless-in" } ] }`); err != nil {
-		t.Fatal(err)
-	}
-	if got := nodeVersion(t, s, "node-1"); got != afterChange {
-		t.Fatalf("equivalent json bumped: %d -> %d", afterChange, got)
+	if got := nodeVersion(t, s, "node-1"); got != before {
+		t.Fatalf("address/enabled change bumped: %d -> %d", before, got)
 	}
 }
 
@@ -80,7 +74,7 @@ func TestUpsertWithoutChangesDoesNotBump(t *testing.T) {
 	ctx := context.Background()
 	twoNodes(t, s)
 	before := nodeVersion(t, s, "node-1")
-	again := &model.Node{CertCN: "node-1", Name: "renamed", Config: "{}"}
+	again := &model.Node{CertCN: "node-1", Name: "renamed"}
 	if err := s.UpsertNode(ctx, again); err != nil {
 		t.Fatal(err)
 	}

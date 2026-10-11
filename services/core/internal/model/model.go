@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type LocationGroup struct {
 	ID        int64     `json:"id"`
@@ -13,9 +16,10 @@ type Node struct {
 	CertCN         string     `json:"cert_cn"`
 	Name           string     `json:"name"`
 	GroupID        *int64     `json:"group_id"`
-	Config         string     `json:"config"`
+	Address        string     `json:"address"`
 	UsersVersion   int64      `json:"users_version"`
 	Enabled        bool       `json:"enabled"`
+	ConfigError    *string    `json:"config_error"`
 	LastHeartbeat  *time.Time `json:"last_heartbeat"`
 	AgentVersion   *string    `json:"agent_version"`
 	XrayVersion    *string    `json:"xray_version"`
@@ -32,6 +36,20 @@ type NodeHeartbeat struct {
 	AgentUptimeSec int64
 	XrayUptimeSec  *int64
 	ActiveUsers    *int
+	ConfigError    *string
+}
+
+type NodeInbound struct {
+	ID        int64           `json:"id"`
+	NodeID    int64           `json:"node_id"`
+	Tag       string          `json:"tag"`
+	Port      int             `json:"port"`
+	Protocol  string          `json:"protocol"`
+	Transport string          `json:"transport"`
+	Security  string          `json:"security"`
+	Label     string          `json:"label"`
+	Settings  json.RawMessage `json:"-"`
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 type Plan struct {

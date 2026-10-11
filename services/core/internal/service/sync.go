@@ -14,7 +14,6 @@ type NodeUser struct {
 type SyncResponse struct {
 	Version int64      `json:"version"`
 	Users   []NodeUser `json:"users"`
-	Config  string     `json:"config"`
 }
 
 func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64) (*SyncResponse, error) {
@@ -46,5 +45,5 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 	for _, k := range keys {
 		nodeUsers = append(nodeUsers, NodeUser{UUID: k})
 	}
-	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers, Config: node.Config}, nil
+	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers}, nil
 }
