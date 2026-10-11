@@ -38,20 +38,21 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 }
 
 func (l *Loop) reportTraffic(ctx context.Context) {
-	deltas, err := l.stats.Collect(ctx)
+	batch, err := l.stats.Collect(ctx)
 	if err != nil {
 		l.logger.Error("stats_failed", "error", err.Error())
 		return
 	}
-	if len(deltas) == 0 {
+	if batch == nil {
 		return
 	}
-	if err := l.core.ReportDeltas(ctx, deltas); err != nil {
-		l.logger.Error("deltas_report_failed", "error", err.Error(), "pending", len(deltas))
+	duplicate, err := l.core.ReportDeltas(ctx, batch)
+	if err != nil {
+		l.logger.Error("deltas_report_failed", "error", err.Error(), "batch_id", batch.ID, "count", len(batch.Deltas))
 		return
 	}
-	l.stats.Commit(deltas)
-	l.logger.Info("deltas_reported", "count", len(deltas))
+	l.stats.Commit(batch.ID)
+	l.logger.Info("deltas_reported", "batch_id", batch.ID, "count", len(batch.Deltas), "duplicate", duplicate)
 }
 
 func (l *Loop) Run(ctx context.Context) error {

@@ -71,23 +71,90 @@ func TestLoopStartsWithCoreDown(t *testing.T) {
 	}
 }
 
-func TestFailedReportKeepsTrafficForNextTick(t *testing.T) {
+func countedUp(fc *fakeCore) int64 {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	var total int64
+	for _, d := range fc.deltasSeen {
+		total += d.BytesUp
+	}
+	return total
+}
+
+func setCore(fc *fakeCore, f func(*fakeCore)) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	f(fc)
+}
+
+func tick(t *testing.T, loop *Loop) {
+	t.Helper()
+	if err := loop.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFailedReportResendsSameBatch(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 42})
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failDeltas: true}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
-	if err := loop.RunOnce(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	fc.mu.Lock()
-	fc.failDeltas = false
-	fc.mu.Unlock()
+	tick(t, loop)
+	setCore(fc, func(f *fakeCore) { f.failDeltas = false })
 	fx.setStats(map[string]int64{uplink("u-1"): 100})
-	if err := loop.RunOnce(context.Background()); err != nil {
+	tick(t, loop)
+	tick(t, loop)
+	fc.mu.Lock()
+	attempts := append([]string(nil), fc.batchAttempts...)
+	fc.mu.Unlock()
+	if len(attempts) != 3 || attempts[0] != attempts[1] || attempts[1] == attempts[2] {
+		t.Fatalf("batch ids = %v, want retry of the same id then a new one", attempts)
+	}
+	if got := countedUp(fc); got != 100 {
+		t.Fatalf("counted %d bytes, want 100", got)
+	}
+}
+
+func TestLostResponseNotDoubleCounted(t *testing.T) {
+	fx := newFakeXray()
+	fx.setStats(map[string]int64{uplink("u-1"): 42})
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failAfterCommit: true}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	tick(t, loop)
+	setCore(fc, func(f *fakeCore) { f.failAfterCommit = false })
+	fx.setStats(map[string]int64{uplink("u-1"): 100})
+	tick(t, loop)
+	tick(t, loop)
+	if got := countedUp(fc); got != 100 {
+		t.Fatalf("counted %d bytes, want 100 (core committed, response lost)", got)
+	}
+}
+
+func TestCrashAfterSendResendsSameBatch(t *testing.T) {
+	fx := newFakeXray()
+	fx.setStats(map[string]int64{uplink("u-1"): 42})
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failAfterCommit: true}
+	url := httptestOf(fc, t).URL
+	statsPath := filepath.Join(t.TempDir(), "stats.json")
+	first, _ := testLoop(t, fx, url)
+	if err := first.stats.Load(statsPath); err != nil {
 		t.Fatal(err)
 	}
-	if len(fc.deltasSeen) != 1 || fc.deltasSeen[0].BytesUp != 100 {
-		t.Fatalf("traffic lost across failed report: %+v", fc.deltasSeen)
+	tick(t, first)
+	setCore(fc, func(f *fakeCore) { f.failAfterCommit = false })
+	restarted, _ := testLoop(t, fx, url)
+	if err := restarted.stats.Load(statsPath); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, restarted)
+	fc.mu.Lock()
+	attempts := append([]string(nil), fc.batchAttempts...)
+	fc.mu.Unlock()
+	if len(attempts) != 2 || attempts[0] != attempts[1] {
+		t.Fatalf("batch ids = %v, want the same id after restart", attempts)
+	}
+	if got := countedUp(fc); got != 42 {
+		t.Fatalf("counted %d bytes, want 42", got)
 	}
 }
 

@@ -12,12 +12,15 @@ import (
 )
 
 type fakeCore struct {
-	mu          sync.Mutex
-	syncVersion int64
-	syncUsers   []SyncUser
-	deltasSeen  []Delta
-	heartbeats  int
-	failDeltas  bool
+	mu              sync.Mutex
+	syncVersion     int64
+	syncUsers       []SyncUser
+	deltasSeen      []Delta
+	batchAttempts   []string
+	batchesSeen     map[string]bool
+	heartbeats      int
+	failDeltas      bool
+	failAfterCommit bool
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -35,17 +38,27 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion, "users": f.syncUsers, "config": "{}"})
 	case "/v1/sync/deltas":
+		var body Batch
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		f.batchAttempts = append(f.batchAttempts, body.ID)
 		if f.failDeltas {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		var body struct {
-			Deltas []Delta `json:"deltas"`
+		if f.batchesSeen == nil {
+			f.batchesSeen = map[string]bool{}
 		}
-		b, _ := io.ReadAll(r.Body)
-		json.Unmarshal(b, &body)
-		f.deltasSeen = append(f.deltasSeen, body.Deltas...)
-		json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
+		duplicate := f.batchesSeen[body.ID]
+		if !duplicate {
+			f.batchesSeen[body.ID] = true
+			f.deltasSeen = append(f.deltasSeen, body.Deltas...)
+		}
+		if f.failAfterCommit {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"accepted": true, "duplicate": duplicate})
 	case "/v1/sync/heartbeat":
 		f.heartbeats++
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -99,14 +112,20 @@ func TestSyncUsersNoChange(t *testing.T) {
 func TestReportDeltas(t *testing.T) {
 	fc := &fakeCore{}
 	cc := testCoreClient(t, fc)
-	err := cc.ReportDeltas(context.Background(), []Delta{
-		{KeyUUID: "u-1", BytesUp: 100, BytesDown: 200},
-	})
-	if err != nil {
-		t.Fatal(err)
+	batch := &Batch{ID: "b-1", Deltas: []Delta{{KeyUUID: "u-1", BytesUp: 100, BytesDown: 200}}}
+	dup, err := cc.ReportDeltas(context.Background(), batch)
+	if err != nil || dup {
+		t.Fatalf("dup = %v, err = %v", dup, err)
 	}
 	if len(fc.deltasSeen) != 1 || fc.deltasSeen[0].BytesUp != 100 {
 		t.Fatalf("deltas = %+v", fc.deltasSeen)
+	}
+	if len(fc.batchAttempts) != 1 || fc.batchAttempts[0] != "b-1" {
+		t.Fatalf("batch ids = %v", fc.batchAttempts)
+	}
+	dup, err = cc.ReportDeltas(context.Background(), batch)
+	if err != nil || !dup {
+		t.Fatalf("repeat: dup = %v, err = %v; want duplicate", dup, err)
 	}
 }
 

@@ -76,8 +76,14 @@ func (c *CoreClient) SyncUsers(ctx context.Context, knownVersion int64) (*SyncRe
 	return &resp, nil
 }
 
-func (c *CoreClient) ReportDeltas(ctx context.Context, deltas []Delta) error {
-	return c.api.Do(ctx, http.MethodPost, "/v1/sync/deltas", map[string]any{"deltas": deltas}, nil)
+func (c *CoreClient) ReportDeltas(ctx context.Context, batch *Batch) (bool, error) {
+	var resp struct {
+		Duplicate bool `json:"duplicate"`
+	}
+	if err := c.api.Do(ctx, http.MethodPost, "/v1/sync/deltas", batch, &resp); err != nil {
+		return false, err
+	}
+	return resp.Duplicate, nil
 }
 
 func (c *CoreClient) Heartbeat(ctx context.Context, agentVersion string, xrayVersion string) error {
