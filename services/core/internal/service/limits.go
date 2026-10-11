@@ -132,10 +132,10 @@ func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, batc
 	return s.RecordNodeDeltas(ctx, nodeCN, batchID, models)
 }
 
-func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, agentVer string, xrayVer string) error {
+func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, hb model.NodeHeartbeat) error {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return err
 	}
-	return s.store.TouchNodeHeartbeat(ctx, node.ID, agentVer, xrayVer)
+	return s.store.TouchNodeHeartbeat(ctx, node.ID, hb)
 }

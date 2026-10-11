@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
@@ -109,14 +111,30 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AgentVersion string `json:"agent_version"`
-		XrayVersion  string `json:"xray_version"`
+		AgentVersion   string `json:"agent_version"`
+		XrayVersion    string `json:"xray_version"`
+		AgentUptimeSec int64  `json:"agent_uptime_sec"`
+		XrayUptimeSec  *int64 `json:"xray_uptime_sec"`
+		ActiveUsers    *int   `json:"active_users"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if err := s.svc.NodeHeartbeat(r.Context(), cn, body.AgentVersion, body.XrayVersion); err != nil {
+	if body.AgentUptimeSec < 0 ||
+		(body.XrayUptimeSec != nil && *body.XrayUptimeSec < 0) ||
+		(body.ActiveUsers != nil && (*body.ActiveUsers < 0 || *body.ActiveUsers > math.MaxInt32)) {
+		writeError(w, http.StatusBadRequest, "bad_request", "uptime and active_users must be non-negative")
+		return
+	}
+	hb := model.NodeHeartbeat{
+		AgentVersion:   body.AgentVersion,
+		XrayVersion:    body.XrayVersion,
+		AgentUptimeSec: body.AgentUptimeSec,
+		XrayUptimeSec:  body.XrayUptimeSec,
+		ActiveUsers:    body.ActiveUsers,
+	}
+	if err := s.svc.NodeHeartbeat(r.Context(), cn, hb); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
 			return

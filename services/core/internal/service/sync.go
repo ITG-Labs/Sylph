@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"log/slog"
+
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 type NodeUser struct {
@@ -19,6 +22,19 @@ func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion
 	if err != nil {
 		return nil, err
 	}
+	resp, err := s.syncResponse(ctx, node, knownVersion)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.TouchNodeSync(ctx, node.ID); err != nil {
+		s.log.LogAttrs(ctx, slog.LevelError, "node_sync_mark_failed",
+			slog.String("node", nodeCN),
+			slog.String("error", err.Error()))
+	}
+	return resp, nil
+}
+
+func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersion int64) (*SyncResponse, error) {
 	if node.UsersVersion == knownVersion {
 		return &SyncResponse{Version: node.UsersVersion}, nil
 	}

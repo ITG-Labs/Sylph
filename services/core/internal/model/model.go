@@ -9,17 +9,29 @@ type LocationGroup struct {
 }
 
 type Node struct {
-	ID            int64      `json:"id"`
-	CertCN        string     `json:"cert_cn"`
-	Name          string     `json:"name"`
-	GroupID       *int64     `json:"group_id"`
-	Config        string     `json:"config"`
-	UsersVersion  int64      `json:"users_version"`
-	Enabled       bool       `json:"enabled"`
-	LastHeartbeat *time.Time `json:"last_heartbeat"`
-	AgentVersion  *string    `json:"agent_version"`
-	XrayVersion   *string    `json:"xray_version"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID             int64      `json:"id"`
+	CertCN         string     `json:"cert_cn"`
+	Name           string     `json:"name"`
+	GroupID        *int64     `json:"group_id"`
+	Config         string     `json:"config"`
+	UsersVersion   int64      `json:"users_version"`
+	Enabled        bool       `json:"enabled"`
+	LastHeartbeat  *time.Time `json:"last_heartbeat"`
+	AgentVersion   *string    `json:"agent_version"`
+	XrayVersion    *string    `json:"xray_version"`
+	ActiveUsers    *int       `json:"active_users"`
+	AgentUptimeSec *int64     `json:"agent_uptime_sec"`
+	XrayUptimeSec  *int64     `json:"xray_uptime_sec"`
+	LastSyncAt     *time.Time `json:"last_sync_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+type NodeHeartbeat struct {
+	AgentVersion   string
+	XrayVersion    string
+	AgentUptimeSec int64
+	XrayUptimeSec  *int64
+	ActiveUsers    *int
 }
 
 type Plan struct {

@@ -9,9 +9,13 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
+const nodeColumns = `id, cert_cn, name, group_id, config, users_version, enabled, last_heartbeat, agent_version, xray_version,
+	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, created_at`
+
 func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 	n := &model.Node{}
-	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupID, &n.Config, &n.UsersVersion, &n.Enabled, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion, &n.CreatedAt)
+	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupID, &n.Config, &n.UsersVersion, &n.Enabled, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
+		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -36,15 +40,11 @@ func (s *Store) UpsertNode(ctx context.Context, n *model.Node) error {
 }
 
 func (s *Store) GetNodeByCN(ctx context.Context, cn string) (*model.Node, error) {
-	return s.scanNode(s.pool.QueryRow(ctx,
-		`SELECT id, cert_cn, name, group_id, config, users_version, enabled, last_heartbeat, agent_version, xray_version, created_at
-		 FROM nodes WHERE cert_cn = $1`, cn))
+	return s.scanNode(s.pool.QueryRow(ctx, `SELECT `+nodeColumns+` FROM nodes WHERE cert_cn = $1`, cn))
 }
 
 func (s *Store) ListNodes(ctx context.Context) ([]model.Node, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, cert_cn, name, group_id, config, users_version, enabled, last_heartbeat, agent_version, xray_version, created_at
-		 FROM nodes ORDER BY id`)
+	rows, err := s.pool.Query(ctx, `SELECT `+nodeColumns+` FROM nodes ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +65,17 @@ func (s *Store) UpdateNodeConfig(ctx context.Context, nodeID int64, config strin
 	return err
 }
 
-func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, agentVer string, xrayVer string) error {
+func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.NodeHeartbeat) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = $3 WHERE id = $1`,
-		nodeID, agentVer, xrayVer)
+		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
+		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6
+		 WHERE id = $1`,
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers)
+	return err
+}
+
+func (s *Store) TouchNodeSync(ctx context.Context, nodeID int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE nodes SET last_sync_at = now() WHERE id = $1`, nodeID)
 	return err
 }
 

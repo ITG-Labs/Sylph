@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -108,21 +109,57 @@ func TestHeartbeatEndpoint(t *testing.T) {
 	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(map[string]string{"agent_version": "0.1.0", "xray_version": "25.1.1"})
-	resp, err := client.Post(ts.URL+"/v1/sync/heartbeat", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
+	body := map[string]any{"agent_version": "0.1.0", "xray_version": "25.1.1", "agent_uptime_sec": 3600, "xray_uptime_sec": 86400, "active_users": 412}
+	if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusOK {
+		t.Fatalf("status = %d", status)
 	}
 	got, err := svc.GetNodeByCN(ctx, "node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AgentVersion == nil || *got.AgentVersion != "0.1.0" {
-		t.Fatalf("agent version not saved: %+v", got)
+	if got.AgentVersion == nil || *got.AgentVersion != "0.1.0" ||
+		got.XrayVersion == nil || *got.XrayVersion != "25.1.1" ||
+		got.AgentUptimeSec == nil || *got.AgentUptimeSec != 3600 ||
+		got.XrayUptimeSec == nil || *got.XrayUptimeSec != 86400 ||
+		got.ActiveUsers == nil || *got.ActiveUsers != 412 {
+		t.Fatalf("heartbeat not saved: %+v", got)
+	}
+}
+
+func TestHeartbeatUnknownXrayState(t *testing.T) {
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
+	ctx := context.Background()
+	if err := svc.UpsertNode(ctx, &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"agent_version": "0.1.0", "xray_version": "", "agent_uptime_sec": 5, "xray_uptime_sec": nil, "active_users": nil}
+	if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	got, err := svc.GetNodeByCN(ctx, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveUsers != nil || got.XrayUptimeSec != nil || got.XrayVersion != nil {
+		t.Fatalf("unknown xray state must be stored as NULL: %+v", got)
+	}
+}
+
+func TestHeartbeatValidation(t *testing.T) {
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
+	if err := svc.UpsertNode(context.Background(), &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]map[string]any{
+		"negative agent uptime": {"agent_version": "v", "agent_uptime_sec": -1},
+		"negative xray uptime":  {"agent_version": "v", "xray_uptime_sec": -1},
+		"negative users":        {"agent_version": "v", "active_users": -1},
+		"users overflow int":    {"agent_version": "v", "active_users": int64(math.MaxInt32) + 1},
+	}
+	for name, body := range cases {
+		if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", name, status)
+		}
 	}
 }
 
