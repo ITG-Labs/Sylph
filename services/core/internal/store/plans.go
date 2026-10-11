@@ -16,7 +16,7 @@ func (s *Store) CreateLocationGroup(ctx context.Context, name string) (*model.Lo
 		name,
 	).Scan(&g.ID, &g.CreatedAt)
 	if err != nil {
-		return nil, err
+		return nil, mapWriteErr(err)
 	}
 	return g, nil
 }
@@ -52,11 +52,26 @@ func (s *Store) scanPlan(row pgxRow) (*model.Plan, error) {
 }
 
 func (s *Store) CreatePlan(ctx context.Context, p *model.Plan) error {
-	return s.pool.QueryRow(ctx,
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit)
 		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
 		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit,
 	).Scan(&p.ID, &p.CreatedAt)
+	return mapWriteErr(err)
+}
+
+func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE plans SET name = $2, price_rub = $3, period_days = $4, traffic_limit_bytes = $5,
+		 location_group_id = $6, device_limit = $7 WHERE id = $1`,
+		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit)
+	if err != nil {
+		return mapWriteErr(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) GetPlan(ctx context.Context, id int64) (*model.Plan, error) {

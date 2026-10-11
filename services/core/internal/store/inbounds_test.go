@@ -50,7 +50,7 @@ func TestInboundCRUD(t *testing.T) {
 	ctx := context.Background()
 	n := mkNode(t, s, "node-1")
 	in := realityInbound(n.ID, "reality-tcp")
-	if err := s.CreateInbound(ctx, in); err != nil {
+	if err := s.CreateInbound(ctx, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	if in.ID == 0 || in.CreatedAt.IsZero() {
@@ -66,7 +66,7 @@ func TestInboundCRUD(t *testing.T) {
 	}
 	got.Label = "Main"
 	got.Settings = json.RawMessage(`{"dest":"www.other.com:443"}`)
-	if err := s.UpdateInbound(ctx, got); err != nil {
+	if err := s.UpdateInbound(ctx, got, nil); err != nil {
 		t.Fatal(err)
 	}
 	list, err := s.ListNodeInbounds(ctx, n.ID)
@@ -85,7 +85,7 @@ func TestInboundCRUD(t *testing.T) {
 	if err := s.DeleteInbound(ctx, in.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete twice: %v, want ErrNotFound", err)
 	}
-	if err := s.UpdateInbound(ctx, got); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateInbound(ctx, got, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("update deleted: %v, want ErrNotFound", err)
 	}
 }
@@ -95,7 +95,7 @@ func TestInboundListOrderedByTag(t *testing.T) {
 	ctx := context.Background()
 	n := mkNode(t, s, "node-1")
 	for _, tag := range []string{"b", "a", "c"} {
-		if err := s.CreateInbound(ctx, realityInbound(n.ID, tag)); err != nil {
+		if err := s.CreateInbound(ctx, realityInbound(n.ID, tag), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,28 +112,28 @@ func TestInboundTagUniquePerNode(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	n1, n2 := mkNode(t, s, "node-1"), mkNode(t, s, "node-2")
-	if err := s.CreateInbound(ctx, realityInbound(n1.ID, "main")); err != nil {
+	if err := s.CreateInbound(ctx, realityInbound(n1.ID, "main"), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateInbound(ctx, realityInbound(n1.ID, "main")); !errors.Is(err, ErrConflict) {
+	if err := s.CreateInbound(ctx, realityInbound(n1.ID, "main"), nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate tag: %v, want ErrConflict", err)
 	}
-	if err := s.CreateInbound(ctx, realityInbound(n2.ID, "main")); err != nil {
+	if err := s.CreateInbound(ctx, realityInbound(n2.ID, "main"), nil); err != nil {
 		t.Fatalf("same tag on another node: %v", err)
 	}
 	other := realityInbound(n1.ID, "second")
-	if err := s.CreateInbound(ctx, other); err != nil {
+	if err := s.CreateInbound(ctx, other, nil); err != nil {
 		t.Fatal(err)
 	}
 	other.Tag = "main"
-	if err := s.UpdateInbound(ctx, other); !errors.Is(err, ErrConflict) {
+	if err := s.UpdateInbound(ctx, other, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("rename onto taken tag: %v, want ErrConflict", err)
 	}
 }
 
 func TestInboundForUnknownNode(t *testing.T) {
 	s := setupStore(t)
-	if err := s.CreateInbound(context.Background(), realityInbound(424242, "main")); !errors.Is(err, ErrInvalidReference) {
+	if err := s.CreateInbound(context.Background(), realityInbound(424242, "main"), nil); !errors.Is(err, ErrInvalidReference) {
 		t.Fatalf("unknown node: %v, want ErrInvalidReference", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestInboundChangesBumpOnlyItsNode(t *testing.T) {
 	mkNode(t, s, "node-2")
 	v1, v2 := nodeVersion(t, s, "node-1"), nodeVersion(t, s, "node-2")
 	in := realityInbound(n1.ID, "main")
-	if err := s.CreateInbound(ctx, in); err != nil {
+	if err := s.CreateInbound(ctx, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	afterCreate := nodeVersion(t, s, "node-1")
@@ -156,7 +156,7 @@ func TestInboundChangesBumpOnlyItsNode(t *testing.T) {
 		t.Fatalf("create bumped node-2: %d -> %d", v2, got)
 	}
 	in.Settings = json.RawMessage(`{"dest":"www.example.com:443","server_names":["www.example.com"],"short_ids":["0123456789abcdef"],"fingerprint":"firefox","private_key":"k"}`)
-	if err := s.UpdateInbound(ctx, in); err != nil {
+	if err := s.UpdateInbound(ctx, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	afterUpdate := nodeVersion(t, s, "node-1")
@@ -164,7 +164,7 @@ func TestInboundChangesBumpOnlyItsNode(t *testing.T) {
 		t.Fatalf("update did not bump: %d -> %d", afterCreate, afterUpdate)
 	}
 	in.Settings = json.RawMessage(`{ "private_key":"k", "fingerprint":"firefox", "short_ids":["0123456789abcdef"], "server_names":["www.example.com"], "dest":"www.example.com:443" }`)
-	if err := s.UpdateInbound(ctx, in); err != nil {
+	if err := s.UpdateInbound(ctx, in, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := nodeVersion(t, s, "node-1"); got != afterUpdate {
@@ -178,5 +178,49 @@ func TestInboundChangesBumpOnlyItsNode(t *testing.T) {
 	}
 	if got := nodeVersion(t, s, "node-2"); got != v2 {
 		t.Fatalf("node-2 moved: %d -> %d", v2, got)
+	}
+}
+
+func TestInboundGuardSeesOthersAndCanReject(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	n := mkNode(t, s, "node-1")
+	a := realityInbound(n.ID, "a")
+	if err := s.CreateInbound(ctx, a, nil); err != nil {
+		t.Fatal(err)
+	}
+	b := realityInbound(n.ID, "b")
+	if err := s.CreateInbound(ctx, b, nil); err != nil {
+		t.Fatal(err)
+	}
+	stop := errors.New("guard says no")
+	var seen []string
+	b.Label = "changed"
+	err := s.UpdateInbound(ctx, b, func(others []model.NodeInbound) error {
+		for _, o := range others {
+			seen = append(seen, o.Tag)
+		}
+		return stop
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("err = %v, want guard error", err)
+	}
+	if len(seen) != 1 || seen[0] != "a" {
+		t.Fatalf("guard saw %v, want only the other inbound", seen)
+	}
+	got, err := s.GetInbound(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Label != "REALITY" {
+		t.Fatal("rejected update was written")
+	}
+	c := realityInbound(n.ID, "c")
+	if err := s.CreateInbound(ctx, c, func([]model.NodeInbound) error { return stop }); !errors.Is(err, stop) {
+		t.Fatalf("create err = %v, want guard error", err)
+	}
+	list, _ := s.ListNodeInbounds(ctx, n.ID)
+	if len(list) != 2 {
+		t.Fatalf("rejected create was written: %d inbounds", len(list))
 	}
 }
