@@ -296,3 +296,63 @@ func TestSubscriptionStatusOrder(t *testing.T) {
 		t.Fatalf("expired must win over everything, got %s", v.Status)
 	}
 }
+
+func TestSubscriptionSkipsNodeWithoutAddress(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	ctx := context.Background()
+	legacy := &model.Node{CertCN: "legacy", Name: "legacy", GroupID: &f.group.ID}
+	if err := f.svc.store.UpsertNode(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	spec := inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.legacy.com:443", ServerNames: []string{"www.legacy.com"}}}
+	if _, err := f.svc.CreateInbound(ctx, legacy.ID, spec); err != nil {
+		t.Fatal(err)
+	}
+	f.node(t, "alpha", &f.group.ID, true, "main")
+	v := f.view(t, "")
+	if len(v.Connections) != 1 || v.Connections[0].Address != "alpha.example.com" {
+		t.Fatalf("connections = %+v, want only the node with an address", v.Connections)
+	}
+}
+
+func TestSubscriptionConnectionNamesAreUnique(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	ctx := context.Background()
+	add := func(cn, name, tag, label string) {
+		t.Helper()
+		n, err := f.svc.store.GetNodeByCN(ctx, cn)
+		if errors.Is(err, store.ErrNotFound) {
+			n = &model.Node{CertCN: cn, Name: name, Address: cn + ".example.com", GroupID: &f.group.ID, Enabled: true}
+			if err := f.svc.CreateNode(ctx, n); err != nil {
+				t.Fatal(err)
+			}
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		spec := inbound.Spec{Tag: tag, Port: 443, Label: label, Reality: &inbound.Reality{Dest: "x.example.org:443", ServerNames: []string{tag + "." + cn + ".example.org"}}}
+		if _, err := f.svc.CreateInbound(ctx, n.ID, spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("de-1", "Германия", "a", "REALITY")
+	add("de-1", "Германия", "b", "REALITY")
+	add("de-2", "Германия", "main", "")
+	add("de-3", "Германия", "main", "")
+	v := f.view(t, "")
+	if len(v.Connections) != 4 {
+		t.Fatalf("connections = %+v", v.Connections)
+	}
+	seen := map[string]bool{}
+	for _, c := range v.Connections {
+		if seen[c.Name] {
+			t.Fatalf("duplicate name %q in %+v", c.Name, v.Connections)
+		}
+		seen[c.Name] = true
+	}
+	again := f.view(t, "")
+	for i := range v.Connections {
+		if again.Connections[i].Name != v.Connections[i].Name {
+			t.Fatalf("names are not stable between requests: %q vs %q", v.Connections[i].Name, again.Connections[i].Name)
+		}
+	}
+}

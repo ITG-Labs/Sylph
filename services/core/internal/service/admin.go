@@ -169,9 +169,15 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		return nil, err
 	}
 	if patch.Name != nil {
+		if err := validName("name", *patch.Name); err != nil {
+			return nil, err
+		}
 		n.Name = *patch.Name
 	}
 	if patch.Address != nil {
+		if !inbound.IsAddress(*patch.Address) {
+			return nil, fieldErr("address", "must be a hostname or an IP")
+		}
 		n.Address = *patch.Address
 	}
 	if patch.GroupID.Set {
@@ -179,9 +185,6 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	}
 	if patch.Enabled != nil {
 		n.Enabled = *patch.Enabled
-	}
-	if err := validateNode(n); err != nil {
-		return nil, err
 	}
 	if err := s.store.UpdateNode(ctx, n); err != nil {
 		return nil, referenceOr(err, "group_id", "group not found")
@@ -324,15 +327,7 @@ type InboundPatch struct {
 	Reality *RealityPatch `json:"reality"`
 }
 
-func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatch) (*InboundView, error) {
-	current, err := s.store.GetInbound(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	spec, err := SpecOf(current)
-	if err != nil {
-		return nil, err
-	}
+func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
 	if patch.Tag != nil {
 		spec.Tag = *patch.Tag
 	}
@@ -342,38 +337,52 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 	if patch.Label != nil {
 		spec.Label = *patch.Label
 	}
-	if rp := patch.Reality; rp != nil {
-		if spec.Reality == nil {
-			return nil, fieldErr("reality", "inbound has no reality settings")
-		}
-		if rp.Dest != nil {
-			spec.Reality.Dest = *rp.Dest
-		}
-		if rp.ServerNames != nil {
-			spec.Reality.ServerNames = *rp.ServerNames
-		}
-		if rp.ShortIDs != nil {
-			spec.Reality.ShortIDs = *rp.ShortIDs
-		}
-		if rp.Fingerprint != nil {
-			spec.Reality.Fingerprint = *rp.Fingerprint
-		}
-		if rp.PrivateKey != nil {
-			spec.Reality.PrivateKey = *rp.PrivateKey
-		}
+	rp := patch.Reality
+	if rp == nil {
+		return nil
 	}
-	if err := inbound.Normalize(&spec); err != nil {
-		return nil, err
+	if spec.Reality == nil {
+		return fieldErr("reality", "inbound has no reality settings")
 	}
-	in, err := modelOf(current.NodeID, &spec)
+	if rp.Dest != nil {
+		spec.Reality.Dest = *rp.Dest
+	}
+	if rp.ServerNames != nil {
+		spec.Reality.ServerNames = *rp.ServerNames
+	}
+	if rp.ShortIDs != nil {
+		spec.Reality.ShortIDs = *rp.ShortIDs
+	}
+	if rp.Fingerprint != nil {
+		spec.Reality.Fingerprint = *rp.Fingerprint
+	}
+	if rp.PrivateKey != nil {
+		spec.Reality.PrivateKey = *rp.PrivateKey
+	}
+	return nil
+}
+
+func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatch) (*InboundView, error) {
+	updated, err := s.store.ModifyInbound(ctx, id, func(current *model.NodeInbound, others []model.NodeInbound) (*model.NodeInbound, error) {
+		spec, err := SpecOf(current)
+		if err != nil {
+			return nil, err
+		}
+		if err := applyInboundPatch(&spec, patch); err != nil {
+			return nil, err
+		}
+		if err := inbound.Normalize(&spec); err != nil {
+			return nil, err
+		}
+		if err := sniGuard(inbound.ServerNames(&spec))(others); err != nil {
+			return nil, err
+		}
+		return modelOf(current.NodeID, &spec)
+	})
 	if err != nil {
-		return nil, err
-	}
-	in.ID, in.CreatedAt = current.ID, current.CreatedAt
-	if err := s.store.UpdateInbound(ctx, in, sniGuard(inbound.ServerNames(&spec))); err != nil {
 		return nil, conflictOr(err, "tag", "tag already used on this node")
 	}
-	return ViewOf(in)
+	return ViewOf(updated)
 }
 
 func (s *Service) DeleteInbound(ctx context.Context, id int64) error {

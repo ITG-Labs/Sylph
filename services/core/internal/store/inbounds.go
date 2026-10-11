@@ -98,24 +98,66 @@ func (s *Store) CreateInbound(ctx context.Context, in *model.NodeInbound, guard 
 	return mapWriteErr(err)
 }
 
-func (s *Store) UpdateInbound(ctx context.Context, in *model.NodeInbound, guard InboundGuard) error {
-	current, err := s.GetInbound(ctx, in.ID)
-	if err != nil {
-		return err
+type InboundChange func(current *model.NodeInbound, others []model.NodeInbound) (*model.NodeInbound, error)
+
+func (s *Store) ModifyInbound(ctx context.Context, id int64, change InboundChange) (*model.NodeInbound, error) {
+	var nodeID int64
+	if err := s.pool.QueryRow(ctx, `SELECT node_id FROM node_inbounds WHERE id = $1`, id).Scan(&nodeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
 	}
-	err = s.withLockedNode(ctx, current.NodeID, in.ID, guard, func(tx pgx.Tx) error {
+	var result *model.NodeInbound
+	err := s.withLockedNode(ctx, nodeID, 0, nil, func(tx pgx.Tx) error {
+		current, err := scanInbound(tx.QueryRow(ctx, `SELECT `+inboundColumns+` FROM node_inbounds WHERE id = $1`, id))
+		if err != nil {
+			return err
+		}
+		all, err := listInbounds(ctx, tx, nodeID)
+		if err != nil {
+			return err
+		}
+		others := make([]model.NodeInbound, 0, len(all))
+		for _, in := range all {
+			if in.ID != id {
+				others = append(others, in)
+			}
+		}
+		next, err := change(current, others)
+		if err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx,
 			`UPDATE node_inbounds SET tag = $2, port = $3, label = $4, settings = $5 WHERE id = $1`,
-			in.ID, in.Tag, in.Port, in.Label, in.Settings)
+			id, next.Tag, next.Port, next.Label, next.Settings)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
+		next.ID, next.NodeID, next.CreatedAt = current.ID, current.NodeID, current.CreatedAt
+		result = next
 		return nil
 	})
-	return mapWriteErr(err)
+	if err != nil {
+		return nil, mapWriteErr(err)
+	}
+	return result, nil
+}
+
+func (s *Store) UpdateInbound(ctx context.Context, in *model.NodeInbound, guard InboundGuard) error {
+	_, err := s.ModifyInbound(ctx, in.ID, func(_ *model.NodeInbound, others []model.NodeInbound) (*model.NodeInbound, error) {
+		if guard != nil {
+			if err := guard(others); err != nil {
+				return nil, err
+			}
+		}
+		next := *in
+		return &next, nil
+	})
+	return err
 }
 
 func (s *Store) GetInbound(ctx context.Context, id int64) (*model.NodeInbound, error) {
@@ -148,7 +190,7 @@ func (s *Store) ListVisibleEndpoints(ctx context.Context, groupID *int64) ([]End
 		`SELECT n.name, n.address, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
 		 FROM nodes n
 		 JOIN node_inbounds i ON i.node_id = n.id
-		 WHERE n.enabled AND (n.group_id IS NULL OR n.group_id = $1)
+		 WHERE n.enabled AND n.address <> '' AND (n.group_id IS NULL OR n.group_id = $1)
 		 ORDER BY n.name, n.id, i.tag`,
 		groupID)
 	if err != nil {

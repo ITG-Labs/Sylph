@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -160,7 +161,20 @@ func (s *Service) connections(ctx context.Context, groupID *int64, uuid string) 
 		}
 		out = append(out, c)
 	}
+	uniqueNames(out)
 	return out, nil
+}
+
+func uniqueNames(conns []Connection) {
+	taken := make(map[string]bool, len(conns))
+	for i := range conns {
+		name := conns[i].Name
+		for n := 2; taken[name]; n++ {
+			name = fmt.Sprintf("%s %d", conns[i].Name, n)
+		}
+		taken[name] = true
+		conns[i].Name = name
+	}
 }
 
 func clientFamily(ua string) string {

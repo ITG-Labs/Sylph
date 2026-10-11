@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 type adminResp struct {
@@ -363,4 +365,31 @@ func TestAdminRejectsBadBodies(t *testing.T) {
 
 func itoa(id int64) string {
 	return strconv.FormatInt(id, 10)
+}
+
+func TestAdminLegacyNodeCanBeFixedAndDisabled(t *testing.T) {
+	e := newAdminEnv(t)
+	legacy := &model.Node{CertCN: "legacy node", Name: "legacy"}
+	if err := e.svc.UpsertNode(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/v1/admin/nodes/%d", legacy.ID)
+	r := e.call(t, http.MethodPatch, path, map[string]any{"enabled": false})
+	mustStatus(t, r, http.StatusOK)
+	var n struct {
+		Enabled bool   `json:"enabled"`
+		Address string `json:"address"`
+	}
+	r.decode(t, &n)
+	if n.Enabled {
+		t.Fatal("legacy node not disabled")
+	}
+	r = e.call(t, http.MethodPatch, path, map[string]any{"address": "legacy.example.com"})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &n)
+	if n.Address != "legacy.example.com" {
+		t.Fatalf("address = %q", n.Address)
+	}
+	mustField(t, e.call(t, http.MethodPatch, path, map[string]any{"address": "bad host"}), http.StatusBadRequest, "bad_request", "address")
+	mustField(t, e.call(t, http.MethodPatch, path, map[string]any{"name": ""}), http.StatusBadRequest, "bad_request", "name")
 }
