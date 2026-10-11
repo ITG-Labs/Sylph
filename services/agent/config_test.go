@@ -32,6 +32,24 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SyncInterval != 30*time.Second {
 		t.Fatalf("interval = %v", cfg.SyncInterval)
 	}
+	if cfg.XrayVersion != "" {
+		t.Fatalf("xray version = %q, want empty by default", cfg.XrayVersion)
+	}
+}
+
+func TestLoadConfigXrayVersion(t *testing.T) {
+	t.Setenv("SYLPH_CORE_URL", "https://core:8443")
+	t.Setenv("SYLPH_TLS_CERT", "a")
+	t.Setenv("SYLPH_TLS_KEY", "b")
+	t.Setenv("SYLPH_CA_CERT", "c")
+	t.Setenv("SYLPH_XRAY_VERSION", "25.9.11")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.XrayVersion != "25.9.11" {
+		t.Fatalf("xray version = %q", cfg.XrayVersion)
+	}
 }
 
 func TestLoadConfigMissingRequired(t *testing.T) {

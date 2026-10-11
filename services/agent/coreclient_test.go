@@ -19,6 +19,7 @@ type fakeCore struct {
 	batchAttempts   []string
 	batchesSeen     map[string]bool
 	heartbeats      int
+	lastHeartbeat   map[string]any
 	failDeltas      bool
 	failAfterCommit bool
 }
@@ -61,6 +62,8 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]bool{"accepted": true, "duplicate": duplicate})
 	case "/v1/sync/heartbeat":
 		f.heartbeats++
+		f.lastHeartbeat = map[string]any{}
+		_ = json.NewDecoder(r.Body).Decode(&f.lastHeartbeat)
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	default:
 		w.WriteHeader(http.StatusNotFound)
@@ -132,10 +135,19 @@ func TestReportDeltas(t *testing.T) {
 func TestHeartbeat(t *testing.T) {
 	fc := &fakeCore{}
 	cc := testCoreClient(t, fc)
-	if err := cc.Heartbeat(context.Background(), "0.1.0", "25.1.1"); err != nil {
+	users := 7
+	hb := Heartbeat{AgentVersion: "0.1.0", XrayVersion: "25.1.1", AgentUptimeSec: 30, ActiveUsers: &users}
+	if err := cc.Heartbeat(context.Background(), hb); err != nil {
 		t.Fatal(err)
 	}
 	if fc.heartbeats != 1 {
 		t.Fatalf("heartbeats = %d", fc.heartbeats)
+	}
+	got := fc.lastHeartbeat
+	if got["agent_version"] != "0.1.0" || got["xray_version"] != "25.1.1" || got["agent_uptime_sec"] != float64(30) || got["active_users"] != float64(7) {
+		t.Fatalf("heartbeat body = %v", got)
+	}
+	if v, ok := got["xray_uptime_sec"]; !ok || v != nil {
+		t.Fatalf("unknown xray uptime must be sent as null, got %v (present %v)", v, ok)
 	}
 }

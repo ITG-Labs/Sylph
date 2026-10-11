@@ -46,7 +46,7 @@ func run(logger *slog.Logger) error {
 	if err := stats.Load(cfg.StatsPath); err != nil {
 		return fmt.Errorf("stats state: %w", err)
 	}
-	loop := agent.NewLoop(engine, stats, core, cfg, logger)
+	loop := agent.NewLoop(engine, stats, core, xray, cfg, logger)
 	logger.Info("loop_started", slog.String("interval", cfg.SyncInterval.String()))
 	return loop.Run(ctx)
 }

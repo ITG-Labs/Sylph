@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ITG-Labs/sylph/internal/version"
 )
 
 func testLoop(t *testing.T, fx *fakeXray, coreURL string) (*Loop, *Engine) {
@@ -13,7 +16,7 @@ func testLoop(t *testing.T, fx *fakeXray, coreURL string) (*Loop, *Engine) {
 	core := newCoreClientForTest(cfg, discardLogger())
 	e := NewEngine(cfg, core, fx, discardLogger())
 	sc := NewStatsCollector(fx, discardLogger())
-	return NewLoop(e, sc, core, cfg, discardLogger()), e
+	return NewLoop(e, sc, core, fx, cfg, discardLogger()), e
 }
 
 func deadCoreURL(t *testing.T) string {
@@ -180,5 +183,58 @@ func TestRunStopsOnCancel(t *testing.T) {
 	fc.mu.Unlock()
 	if beats < 2 {
 		t.Fatalf("loop ticked %d times, want several", beats)
+	}
+}
+
+func lastHeartbeat(fc *fakeCore) (map[string]any, int) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	return fc.lastHeartbeat, fc.heartbeats
+}
+
+func TestHeartbeatReportsXrayState(t *testing.T) {
+	fx := newFakeXray()
+	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	loop.cfg.XrayVersion = "25.9.11"
+	loop.started = time.Now().Add(-2 * time.Minute)
+	tick(t, loop)
+	hb, beats := lastHeartbeat(fc)
+	if beats != 1 {
+		t.Fatalf("heartbeats = %d", beats)
+	}
+	if hb["agent_version"] != version.Version || hb["xray_version"] != "25.9.11" {
+		t.Fatalf("versions = %v", hb)
+	}
+	if hb["active_users"] != float64(2) {
+		t.Fatalf("active_users = %v, want 2 users live in xray", hb["active_users"])
+	}
+	if hb["xray_uptime_sec"] != float64(90) {
+		t.Fatalf("xray_uptime_sec = %v, want 90", hb["xray_uptime_sec"])
+	}
+	if up, _ := hb["agent_uptime_sec"].(float64); up < 120 {
+		t.Fatalf("agent_uptime_sec = %v, want >= 120", hb["agent_uptime_sec"])
+	}
+}
+
+func TestHeartbeatSentWhenXrayProbesFail(t *testing.T) {
+	fx := newFakeXray()
+	fx.set(func(f *fakeXray) {
+		f.listErr = errors.New("xray api down")
+		f.uptimeErr = errors.New("xray api down")
+	})
+	fc := &fakeCore{syncVersion: 2}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	_ = loop.RunOnce(context.Background())
+	hb, beats := lastHeartbeat(fc)
+	if beats != 1 {
+		t.Fatalf("heartbeats = %d, want heartbeat even with xray down", beats)
+	}
+	if v, ok := hb["active_users"]; !ok || v != nil {
+		t.Fatalf("active_users = %v (present %v), want null", v, ok)
+	}
+	if v, ok := hb["xray_uptime_sec"]; !ok || v != nil {
+		t.Fatalf("xray_uptime_sec = %v (present %v), want null", v, ok)
 	}
 }

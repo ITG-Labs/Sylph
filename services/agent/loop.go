@@ -10,15 +10,17 @@ import (
 )
 
 type Loop struct {
-	engine *Engine
-	stats  *StatsCollector
-	core   *CoreClient
-	cfg    *Config
-	logger *slog.Logger
+	engine  *Engine
+	stats   *StatsCollector
+	core    *CoreClient
+	xray    XrayClient
+	cfg     *Config
+	logger  *slog.Logger
+	started time.Time
 }
 
-func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, cfg *Config, logger *slog.Logger) *Loop {
-	return &Loop{engine: e, stats: sc, core: core, cfg: cfg, logger: logger}
+func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, cfg *Config, logger *slog.Logger) *Loop {
+	return &Loop{engine: e, stats: sc, core: core, xray: xray, cfg: cfg, logger: logger, started: time.Now()}
 }
 
 func (l *Loop) RunOnce(ctx context.Context) error {
@@ -31,10 +33,31 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	if applyErr != nil {
 		l.logger.Error("reconcile_failed", "error", applyErr.Error())
 	}
-	if err := l.core.Heartbeat(ctx, version.Version, ""); err != nil {
+	if err := l.core.Heartbeat(ctx, l.heartbeat(ctx)); err != nil {
 		l.logger.Error("heartbeat_failed", "error", err.Error())
 	}
 	return errors.Join(syncErr, applyErr)
+}
+
+func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
+	hb := Heartbeat{
+		AgentVersion:   version.Version,
+		XrayVersion:    l.cfg.XrayVersion,
+		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
+	}
+	if users, err := l.xray.ListUsers(ctx, l.cfg.InboundTag); err != nil {
+		l.logger.Error("heartbeat_xray_probe_failed", "probe", "list_users", "error", err.Error())
+	} else {
+		count := len(users)
+		hb.ActiveUsers = &count
+	}
+	if uptime, err := l.xray.Uptime(ctx); err != nil {
+		l.logger.Error("heartbeat_xray_probe_failed", "probe", "uptime", "error", err.Error())
+	} else {
+		sec := int64(uptime / time.Second)
+		hb.XrayUptimeSec = &sec
+	}
+	return hb
 }
 
 func (l *Loop) reportTraffic(ctx context.Context) {

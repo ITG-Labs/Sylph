@@ -27,6 +27,14 @@ type Delta struct {
 	BytesDown int64  `json:"bytes_down"`
 }
 
+type Heartbeat struct {
+	AgentVersion   string `json:"agent_version"`
+	XrayVersion    string `json:"xray_version"`
+	AgentUptimeSec int64  `json:"agent_uptime_sec"`
+	XrayUptimeSec  *int64 `json:"xray_uptime_sec"`
+	ActiveUsers    *int   `json:"active_users"`
+}
+
 type CoreClient struct {
 	api *apiclient.Client
 }
@@ -86,6 +94,6 @@ func (c *CoreClient) ReportDeltas(ctx context.Context, batch *Batch) (bool, erro
 	return resp.Duplicate, nil
 }
 
-func (c *CoreClient) Heartbeat(ctx context.Context, agentVersion string, xrayVersion string) error {
-	return c.api.Do(ctx, http.MethodPost, "/v1/sync/heartbeat", map[string]string{"agent_version": agentVersion, "xray_version": xrayVersion}, nil)
+func (c *CoreClient) Heartbeat(ctx context.Context, hb Heartbeat) error {
+	return c.api.Do(ctx, http.MethodPost, "/v1/sync/heartbeat", hb, nil)
 }
