@@ -71,42 +71,6 @@ func (s *Service) applyTrafficLimits(ctx context.Context, deltas []model.Traffic
 	return nil
 }
 
-func (s *Service) RegisterDevice(ctx context.Context, subToken string, fingerprint string, userAgent string) (bool, error) {
-	u, err := s.store.GetUserBySubToken(ctx, subToken)
-	if err != nil {
-		return false, err
-	}
-	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
-	if err != nil {
-		return false, err
-	}
-	plan, err := s.store.GetPlan(ctx, sub.PlanID)
-	if err != nil {
-		return false, err
-	}
-	if plan.DeviceLimit == nil {
-		return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
-	}
-	count, err := s.store.CountDevices(ctx, u.ID)
-	if err != nil {
-		return false, err
-	}
-	if count >= *plan.DeviceLimit {
-		existing, err := s.store.HasDevice(ctx, u.ID, fingerprint)
-		if err != nil {
-			return false, err
-		}
-		if existing {
-			return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
-		}
-		s.log.LogAttrs(ctx, slog.LevelInfo, "device_limit_rejected",
-			slog.Int64("user_id", u.ID),
-			slog.String("fingerprint", fingerprint))
-		return false, nil
-	}
-	return true, s.store.AddDevice(ctx, u.ID, fingerprint, userAgent)
-}
-
 func (s *Service) CheckAndExpire(ctx context.Context, now time.Time) (int64, error) {
 	n, err := s.store.ExpireOverdue(ctx, now)
 	if err != nil {

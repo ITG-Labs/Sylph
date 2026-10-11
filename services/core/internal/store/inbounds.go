@@ -136,3 +136,34 @@ func (s *Store) DeleteInbound(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+
+type Endpoint struct {
+	NodeName    string
+	NodeAddress string
+	Inbound     model.NodeInbound
+}
+
+func (s *Store) ListVisibleEndpoints(ctx context.Context, groupID *int64) ([]Endpoint, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT n.name, n.address, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
+		 FROM nodes n
+		 JOIN node_inbounds i ON i.node_id = n.id
+		 WHERE n.enabled AND (n.group_id IS NULL OR n.group_id = $1)
+		 ORDER BY n.name, n.id, i.tag`,
+		groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Endpoint
+	for rows.Next() {
+		var e Endpoint
+		in := &e.Inbound
+		if err := rows.Scan(&e.NodeName, &e.NodeAddress, &in.ID, &in.NodeID, &in.Tag, &in.Port, &in.Protocol, &in.Transport,
+			&in.Security, &in.Label, &in.Settings, &in.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

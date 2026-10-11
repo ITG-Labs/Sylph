@@ -57,7 +57,8 @@ func TestNoSecretsInLogs(t *testing.T) {
 	cron := e.client(t, "cron", mtls.RoleCron)
 	panel := e.client(t, "panel", mtls.RolePanel)
 	node := e.client(t, "node-1", mtls.RoleNode)
-	if err := e.svc.UpsertNode(ctx, &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+	nodeRow := &model.Node{CertCN: "node-1", Name: "n1", Address: "n1.example.com", Enabled: true}
+	if err := e.svc.CreateNode(ctx, nodeRow); err != nil {
 		t.Fatal(err)
 	}
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
@@ -89,8 +90,20 @@ func TestNoSecretsInLogs(t *testing.T) {
 	if status := postJSON(t, subs, e.ts.URL+"/v1/users/by-token", map[string]string{"sub_token": "wrong-token-that-must-not-leak"}, nil); status != http.StatusNotFound {
 		t.Fatalf("wrong token status = %d, want 404", status)
 	}
-	if status := postJSON(t, subs, e.ts.URL+"/v1/devices", map[string]string{"sub_token": created.SubToken, "fingerprint": "fp-1", "user_agent": "Happ/1.0"}, nil); status != http.StatusOK {
-		t.Fatalf("device status = %d", status)
+	privateKey := "kBhuJbKHFP3JcX9AD-CjqMh7S83kM_fuhJJ1xLhkY1M"
+	var inb struct {
+		ID int64 `json:"id"`
+	}
+	inbBody := map[string]any{"tag": "main", "port": 443, "reality": map[string]any{"dest": "www.example.com:443", "server_names": []string{"www.example.com"}, "private_key": privateKey}}
+	if status := postJSON(t, panel, fmt.Sprintf("%s/v1/admin/nodes/%d/inbounds", e.ts.URL, nodeRow.ID), inbBody, &inb); status != http.StatusOK {
+		t.Fatalf("inbound status = %d", status)
+	}
+	secrets = append(secrets, privateKey, "hwid-must-not-leak")
+	if status := postJSON(t, subs, e.ts.URL+"/v1/subscription", map[string]string{"sub_token": created.SubToken, "hwid": "hwid-must-not-leak", "user_agent": "Happ/1.0"}, nil); status != http.StatusOK {
+		t.Fatalf("subscription status = %d", status)
+	}
+	if status := postJSON(t, subs, e.ts.URL+"/v1/subscription", map[string]string{"sub_token": "wrong-token-that-must-not-leak"}, nil); status != http.StatusNotFound {
+		t.Fatalf("subscription wrong token status = %d, want 404", status)
 	}
 	if status := postJSON(t, node, e.ts.URL+"/v1/sync/users", map[string]int64{"known_version": -1}, nil); status != http.StatusOK {
 		t.Fatalf("sync status = %d", status)

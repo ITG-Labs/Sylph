@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -358,4 +359,8 @@ func TestAdminRejectsBadBodies(t *testing.T) {
 	huge := `{"name":"` + strings.Repeat("a", 70<<10) + `"}`
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/groups", huge), http.StatusRequestEntityTooLarge, "too_large", "")
 	mustField(t, e.call(t, http.MethodPatch, "/v1/admin/nodes/abc", map[string]any{"name": "x"}), http.StatusBadRequest, "bad_request", "id")
+}
+
+func itoa(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
