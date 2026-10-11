@@ -14,6 +14,20 @@ import (
 
 const maxDeltaBytes = 1 << 50
 
+const maxConfigErrorRunes = 512
+
+func truncateRunes(s *string, n int) *string {
+	if s == nil {
+		return nil
+	}
+	r := []rune(*s)
+	if len(r) <= n {
+		return s
+	}
+	out := string(r[:n])
+	return &out
+}
+
 func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/sync/users", s.handleSyncUsers, mtls.RoleNode)
 	s.route(mux, "POST /v1/sync/deltas", s.handleSyncDeltas, mtls.RoleNode)
@@ -113,11 +127,12 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AgentVersion   string `json:"agent_version"`
-		XrayVersion    string `json:"xray_version"`
-		AgentUptimeSec int64  `json:"agent_uptime_sec"`
-		XrayUptimeSec  *int64 `json:"xray_uptime_sec"`
-		ActiveUsers    *int   `json:"active_users"`
+		AgentVersion   string  `json:"agent_version"`
+		XrayVersion    string  `json:"xray_version"`
+		AgentUptimeSec int64   `json:"agent_uptime_sec"`
+		XrayUptimeSec  *int64  `json:"xray_uptime_sec"`
+		ActiveUsers    *int    `json:"active_users"`
+		ConfigError    *string `json:"config_error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
@@ -135,6 +150,7 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		AgentUptimeSec: body.AgentUptimeSec,
 		XrayUptimeSec:  body.XrayUptimeSec,
 		ActiveUsers:    body.ActiveUsers,
+		ConfigError:    truncateRunes(body.ConfigError, maxConfigErrorRunes),
 	}
 	if err := s.svc.NodeHeartbeat(r.Context(), cn, hb); err != nil {
 		if errors.Is(err, store.ErrNotFound) {

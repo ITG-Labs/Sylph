@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
@@ -11,9 +12,20 @@ type NodeUser struct {
 	UUID string `json:"uuid"`
 }
 
+type SyncInbound struct {
+	Tag       string           `json:"tag"`
+	Port      int              `json:"port"`
+	Protocol  string           `json:"protocol"`
+	Transport string           `json:"transport"`
+	Security  string           `json:"security"`
+	Flow      string           `json:"flow"`
+	Reality   *inbound.Reality `json:"reality,omitempty"`
+}
+
 type SyncResponse struct {
-	Version int64      `json:"version"`
-	Users   []NodeUser `json:"users"`
+	Version  int64         `json:"version"`
+	Users    []NodeUser    `json:"users"`
+	Inbounds []SyncInbound `json:"inbounds"`
 }
 
 func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64) (*SyncResponse, error) {
@@ -45,5 +57,20 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 	for _, k := range keys {
 		nodeUsers = append(nodeUsers, NodeUser{UUID: k})
 	}
-	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers}, nil
+	stored, err := s.store.ListNodeInbounds(ctx, node.ID)
+	if err != nil {
+		return nil, err
+	}
+	inbounds := make([]SyncInbound, 0, len(stored))
+	for i := range stored {
+		spec, err := SpecOf(&stored[i])
+		if err != nil {
+			return nil, err
+		}
+		inbounds = append(inbounds, SyncInbound{
+			Tag: spec.Tag, Port: spec.Port, Protocol: spec.Protocol, Transport: spec.Transport,
+			Security: spec.Security, Flow: inbound.Flow(spec.Transport, spec.Security), Reality: spec.Reality,
+		})
+	}
+	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers, Inbounds: inbounds}, nil
 }

@@ -55,6 +55,12 @@ func TestSyncUsersEndpoint(t *testing.T) {
 	if !found {
 		t.Fatalf("key %s not in sync response", key)
 	}
+	if inbounds, ok := m["inbounds"].([]any); !ok || len(inbounds) != 0 {
+		t.Fatalf("inbounds = %#v, want empty list on full sync", m["inbounds"])
+	}
+	if _, ok := m["config"]; ok {
+		t.Fatalf("legacy config field still sent: %v", m)
+	}
 }
 
 func TestSyncUsersUnknownNode(t *testing.T) {
@@ -262,5 +268,33 @@ func TestSyncDeltasAcceptsLargeHonestBatch(t *testing.T) {
 	body := map[string]any{"batch_id": "b-long-outage", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": int64(1) << 50, "bytes_down": int64(1) << 44}}}
 	if status := postJSON(t, client, ts.URL+"/v1/sync/deltas", body, nil); status != http.StatusOK {
 		t.Fatalf("status = %d, want 200 for a batch accumulated over a long core outage", status)
+	}
+}
+
+func TestHeartbeatConfigError(t *testing.T) {
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
+	ctx := context.Background()
+	if err := svc.UpsertNode(ctx, &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("я", 600)
+	body := map[string]any{"agent_version": "v", "agent_uptime_sec": 1, "config_error": long}
+	if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	got, err := svc.GetNodeByCN(ctx, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ConfigError == nil || *got.ConfigError != strings.Repeat("я", 512) {
+		t.Fatalf("config_error not stored truncated to 512 characters: %v", got.ConfigError)
+	}
+	body = map[string]any{"agent_version": "v", "agent_uptime_sec": 1, "config_error": nil}
+	if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	got, _ = svc.GetNodeByCN(ctx, "node-1")
+	if got.ConfigError != nil {
+		t.Fatalf("config_error not cleared: %q", *got.ConfigError)
 	}
 }
