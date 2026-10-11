@@ -2,9 +2,12 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
+
+const visionFlow = "xtls-rprx-vision"
 
 type Config struct {
 	CoreURL      string
@@ -17,6 +20,9 @@ type Config struct {
 	InboundTag   string
 	ListenAPI    string
 	XrayVersion  string
+	XrayAPI      string
+	XrayTimeout  time.Duration
+	VLESSFlow    string
 	SyncInterval time.Duration
 }
 
@@ -32,6 +38,9 @@ func LoadConfig() (*Config, error) {
 		InboundTag:   envOr("SYLPH_INBOUND_TAG", "vless-in"),
 		ListenAPI:    envOr("SYLPH_LISTEN_API", ""),
 		XrayVersion:  os.Getenv("SYLPH_XRAY_VERSION"),
+		XrayAPI:      envOr("SYLPH_XRAY_API", "127.0.0.1:10085"),
+		XrayTimeout:  5 * time.Second,
+		VLESSFlow:    visionFlow,
 		SyncInterval: 30 * time.Second,
 	}
 	if cfg.CoreURL == "" {
@@ -46,6 +55,22 @@ func LoadConfig() (*Config, error) {
 			return nil, errors.New("SYLPH_SYNC_INTERVAL: " + err.Error())
 		}
 		cfg.SyncInterval = d
+	}
+	if v := os.Getenv("SYLPH_XRAY_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, errors.New("SYLPH_XRAY_TIMEOUT: " + err.Error())
+		}
+		if d <= 0 {
+			return nil, errors.New("SYLPH_XRAY_TIMEOUT must be positive")
+		}
+		cfg.XrayTimeout = d
+	}
+	if v, ok := os.LookupEnv("SYLPH_VLESS_FLOW"); ok {
+		cfg.VLESSFlow = v
+	}
+	if cfg.VLESSFlow != "" && cfg.VLESSFlow != visionFlow {
+		return nil, fmt.Errorf("SYLPH_VLESS_FLOW must be empty or %s, got %q", visionFlow, cfg.VLESSFlow)
 	}
 	return cfg, nil
 }

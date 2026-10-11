@@ -16,6 +16,12 @@ Telegram-бот, подписки и планировщик — по серви�
     make test
     make vet
     make lint
+    make test-db
+    make test-xray
+    make proto
+
+test-db и test-xray поднимают в docker Postgres и xray, прогоняют тесты с -race и гасят
+контейнеры. proto перегенерирует Go-код клиента xray из services/agent/xrayproto.
 
 ## Сертификаты
 

@@ -1,9 +1,26 @@
 package agent
 
 import (
+	"os"
 	"testing"
 	"time"
 )
+
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("SYLPH_CORE_URL", "https://core:8443")
+	t.Setenv("SYLPH_TLS_CERT", "a")
+	t.Setenv("SYLPH_TLS_KEY", "b")
+	t.Setenv("SYLPH_CA_CERT", "c")
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	t.Setenv(key, "")
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("SYLPH_CORE_URL", "https://core.example:8443")
@@ -71,5 +88,71 @@ func TestLoadConfigCustomInterval(t *testing.T) {
 	}
 	if cfg.SyncInterval != 15*time.Second {
 		t.Fatalf("interval = %v", cfg.SyncInterval)
+	}
+}
+
+func TestLoadConfigXrayDefaults(t *testing.T) {
+	setRequiredEnv(t)
+	unsetEnv(t, "SYLPH_XRAY_API")
+	unsetEnv(t, "SYLPH_XRAY_TIMEOUT")
+	unsetEnv(t, "SYLPH_VLESS_FLOW")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.XrayAPI != "127.0.0.1:10085" {
+		t.Fatalf("xray api = %q", cfg.XrayAPI)
+	}
+	if cfg.XrayTimeout != 5*time.Second {
+		t.Fatalf("xray timeout = %v", cfg.XrayTimeout)
+	}
+	if cfg.VLESSFlow != "xtls-rprx-vision" {
+		t.Fatalf("flow = %q", cfg.VLESSFlow)
+	}
+}
+
+func TestLoadConfigXrayOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SYLPH_XRAY_API", "10.0.0.5:10085")
+	t.Setenv("SYLPH_XRAY_TIMEOUT", "2s")
+	t.Setenv("SYLPH_VLESS_FLOW", "xtls-rprx-vision")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.XrayAPI != "10.0.0.5:10085" || cfg.XrayTimeout != 2*time.Second || cfg.VLESSFlow != "xtls-rprx-vision" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestLoadConfigEmptyFlowMeansNoFlow(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SYLPH_VLESS_FLOW", "")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VLESSFlow != "" {
+		t.Fatalf("flow = %q, want empty", cfg.VLESSFlow)
+	}
+}
+
+func TestLoadConfigRejectsUnknownFlow(t *testing.T) {
+	setRequiredEnv(t)
+	for _, flow := range []string{"xtls-rprx-direct", "xtls-rprx-vision-udp443", "vision", " xtls-rprx-vision"} {
+		t.Setenv("SYLPH_VLESS_FLOW", flow)
+		if _, err := LoadConfig(); err == nil {
+			t.Fatalf("flow %q accepted", flow)
+		}
+	}
+}
+
+func TestLoadConfigRejectsBadXrayTimeout(t *testing.T) {
+	setRequiredEnv(t)
+	for _, v := range []string{"abc", "0s", "-1s", "5"} {
+		t.Setenv("SYLPH_XRAY_TIMEOUT", v)
+		if _, err := LoadConfig(); err == nil {
+			t.Fatalf("timeout %q accepted", v)
+		}
 	}
 }
