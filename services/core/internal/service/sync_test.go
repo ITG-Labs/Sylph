@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
@@ -15,7 +16,7 @@ func TestSyncNodeUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := &model.Node{CertCN: "node-1", Name: "n1", GroupID: &g.ID, Config: `{"inbounds":[]}`}
+	n := &model.Node{CertCN: "node-1", Name: "n1", GroupID: &g.ID}
 	if err := svc.store.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
@@ -93,5 +94,76 @@ func TestSyncMarksLastSyncWithoutBump(t *testing.T) {
 	}
 	if second.UsersVersion != resp.Version {
 		t.Fatalf("version moved by no-change sync: %d -> %d", resp.Version, second.UsersVersion)
+	}
+}
+
+func addReality(t *testing.T, svc *Service, nodeID int64, tag, sni string) {
+	t.Helper()
+	spec := inbound.Spec{Tag: tag, Port: 443, Label: tag, Reality: &inbound.Reality{Dest: sni + ":443", ServerNames: []string{sni}}}
+	if _, err := svc.CreateInbound(context.Background(), nodeID, spec); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncReturnsInbounds(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n := &model.Node{CertCN: "node-1", Name: "n1", Address: "n1.example.com", Enabled: true}
+	if err := svc.CreateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := svc.SyncNodeUsers(ctx, "node-1", -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Inbounds == nil || len(empty.Inbounds) != 0 {
+		t.Fatalf("full sync without inbounds must carry an empty list, got %#v", empty.Inbounds)
+	}
+	addReality(t, svc, n.ID, "b-second", "www.second.com")
+	addReality(t, svc, n.ID, "a-first", "www.first.com")
+	resp, err := svc.SyncNodeUsers(ctx, "node-1", empty.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Version == empty.Version {
+		t.Fatal("inbound changes must bump the node version")
+	}
+	if len(resp.Inbounds) != 2 || resp.Inbounds[0].Tag != "a-first" || resp.Inbounds[1].Tag != "b-second" {
+		t.Fatalf("inbounds = %+v", resp.Inbounds)
+	}
+	a := resp.Inbounds[0]
+	if a.Port != 443 || a.Protocol != "vless" || a.Transport != "tcp" || a.Security != "reality" || a.Flow != "xtls-rprx-vision" {
+		t.Fatalf("inbound = %+v", a)
+	}
+	if a.Reality == nil || a.Reality.PrivateKey == "" || a.Reality.Dest != "www.first.com:443" ||
+		len(a.Reality.ServerNames) != 1 || len(a.Reality.ShortIDs) != 1 || a.Reality.Fingerprint != "chrome" {
+		t.Fatalf("reality = %+v", a.Reality)
+	}
+	same, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Inbounds != nil || same.Users != nil {
+		t.Fatalf("no-change sync must not carry inbounds or users: %+v", same)
+	}
+}
+
+func TestSyncInboundsAreNodeScoped(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n1 := &model.Node{CertCN: "node-1", Name: "n1", Address: "n1.example.com", Enabled: true}
+	n2 := &model.Node{CertCN: "node-2", Name: "n2", Address: "n2.example.com", Enabled: true}
+	for _, n := range []*model.Node{n1, n2} {
+		if err := svc.CreateNode(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addReality(t, svc, n1.ID, "main", "www.one.com")
+	resp, err := svc.SyncNodeUsers(ctx, "node-2", -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Inbounds) != 0 {
+		t.Fatalf("node-2 got node-1 inbounds: %+v", resp.Inbounds)
 	}
 }

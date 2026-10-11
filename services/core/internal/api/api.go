@@ -29,6 +29,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.registerSyncRoutes(mux)
 	s.registerServiceRoutes(mux)
+	s.registerAdminRoutes(mux)
 	return s.middleware(mux)
 }
 

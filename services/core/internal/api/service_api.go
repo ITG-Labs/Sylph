@@ -18,7 +18,7 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/payments", s.handlePayment, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/rotate", s.handleRotate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
-	s.route(mux, "POST /v1/devices", s.handleDeviceRegister, mtls.RoleSubs, mtls.RolePanel)
+	s.route(mux, "POST /v1/subscription", s.handleSubscription, mtls.RoleSubs, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/expire", s.handleMaintenanceExpire, mtls.RoleCron, mtls.RolePanel)
 }
 
@@ -155,33 +155,6 @@ func (s *Server) handleDevicesReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleDeviceRegister(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		SubToken    string `json:"sub_token"`
-		Fingerprint string `json:"fingerprint"`
-		UserAgent   string `json:"user_agent"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	if body.SubToken == "" || body.Fingerprint == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "sub_token and fingerprint are required")
-		return
-	}
-	allowed, err := s.svc.RegisterDevice(r.Context(), body.SubToken, body.Fingerprint, body.UserAgent)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "user not found")
-			return
-		}
-		s.log.Error("device_register_failed", "error", err.Error())
-		writeError(w, http.StatusInternalServerError, "internal", "register failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"allowed": allowed})
 }
 
 func (s *Server) handleMaintenanceExpire(w http.ResponseWriter, r *http.Request) {

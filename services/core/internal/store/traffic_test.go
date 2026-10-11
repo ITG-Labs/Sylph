@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sync"
 	"testing"
@@ -38,32 +39,42 @@ func TestRecordAndSumTraffic(t *testing.T) {
 	}
 }
 
-func TestDevicesUpsert(t *testing.T) {
+func TestRegisterDevice(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	u := mkUser(t, s)
-	if err := s.AddDevice(ctx, u.ID, "fp1", "Happ/1.0"); err != nil {
+	limit := 2
+	for _, d := range []DeviceInfo{{HWID: "hw1", UserAgent: "Happ/1.0"}, {HWID: "hw1", UserAgent: "Happ/1.1", OS: "iOS", Model: "iPhone"}, {HWID: "hw2"}} {
+		ok, err := s.RegisterDevice(ctx, u.ID, d, &limit)
+		if err != nil || !ok {
+			t.Fatalf("%+v: ok=%v err=%v", d, ok, err)
+		}
+	}
+	if ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: "hw3"}, &limit); err != nil || ok {
+		t.Fatalf("over limit: ok=%v err=%v", ok, err)
+	}
+	if ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: "hw3"}, nil); err != nil || !ok {
+		t.Fatalf("no limit: ok=%v err=%v", ok, err)
+	}
+	var ua, osName, model string
+	if err := s.pool.QueryRow(ctx, `SELECT user_agent, device_os, device_model FROM devices WHERE user_id = $1 AND fingerprint = 'hw1'`, u.ID).Scan(&ua, &osName, &model); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDevice(ctx, u.ID, "fp1", "Happ/1.1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddDevice(ctx, u.ID, "fp2", "v2rayNG/1.8"); err != nil {
-		t.Fatal(err)
+	if ua != "Happ/1.1" || osName != "iOS" || model != "iPhone" {
+		t.Fatalf("device row = %q %q %q", ua, osName, model)
 	}
 	count, err := s.CountDevices(ctx, u.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
+	if err != nil || count != 3 {
+		t.Fatalf("count = %d, err = %v", count, err)
 	}
 	if err := s.ResetDevices(ctx, u.ID); err != nil {
 		t.Fatal(err)
 	}
-	count, _ = s.CountDevices(ctx, u.ID)
-	if count != 0 {
+	if count, _ = s.CountDevices(ctx, u.ID); count != 0 {
 		t.Fatalf("after reset count = %d", count)
+	}
+	if _, err := s.RegisterDevice(ctx, 424242, DeviceInfo{HWID: "x"}, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown user: %v, want ErrNotFound", err)
 	}
 }
 

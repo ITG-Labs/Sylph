@@ -39,35 +39,6 @@ func TestTrafficLimitDisablesUser(t *testing.T) {
 	}
 }
 
-func TestRegisterDeviceLimit(t *testing.T) {
-	svc := setupService(t)
-	ctx := context.Background()
-	u, _, _ := svc.RegisterUser(ctx, 400)
-	devices := 2
-	p := &model.Plan{Name: "dev", PriceRub: 100, PeriodDays: 30, DeviceLimit: &devices}
-	if err := svc.store.CreatePlan(ctx, p); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.store.RenewSubscription(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	ok, err := svc.RegisterDevice(ctx, u.SubToken, "fp1", "Happ/1")
-	if err != nil || !ok {
-		t.Fatalf("first device: ok=%v err=%v", ok, err)
-	}
-	ok, err = svc.RegisterDevice(ctx, u.SubToken, "fp2", "Happ/1")
-	if err != nil || !ok {
-		t.Fatalf("second device: ok=%v err=%v", ok, err)
-	}
-	ok, err = svc.RegisterDevice(ctx, u.SubToken, "fp3", "v2rayNG")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Fatal("third device should be rejected")
-	}
-}
-
 func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, string, *model.Node) {
 	t.Helper()
 	ctx := context.Background()
