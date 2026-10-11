@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -143,5 +144,34 @@ func TestRecordDeltaBatchConcurrentRepeats(t *testing.T) {
 	}
 	if sum != 10 {
 		t.Fatalf("sum = %d, want 10", sum)
+	}
+}
+
+func TestSumTrafficSaturatesInsteadOfFailing(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s)
+	k := model.NewUUID()
+	if err := s.AddUserKey(ctx, u.ID, k); err != nil {
+		t.Fatal(err)
+	}
+	n := &model.Node{CertCN: "node-1", Name: "n1"}
+	if err := s.UpsertNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	huge := int64(1) << 62
+	forged := []model.TrafficDelta{
+		{KeyUUID: k, BytesUp: huge, BytesDown: huge},
+		{KeyUUID: k, BytesUp: huge, BytesDown: 0},
+	}
+	if _, err := s.RecordDeltaBatch(ctx, n.ID, "b-forged", forged); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := s.SumTrafficSince(ctx, u.ID, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("sum over int64 must saturate, not fail: %v", err)
+	}
+	if sum != math.MaxInt64 {
+		t.Fatalf("sum = %d, want MaxInt64", sum)
 	}
 }

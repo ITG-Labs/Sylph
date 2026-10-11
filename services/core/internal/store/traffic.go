@@ -35,7 +35,7 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 func (s *Store) SumTrafficSince(ctx context.Context, userID int64, since time.Time) (int64, error) {
 	var sum int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(bytes_up + bytes_down), 0)
+		`SELECT LEAST(COALESCE(SUM(td.bytes_up::numeric + td.bytes_down), 0), 9223372036854775807)::bigint
 		 FROM traffic_deltas td JOIN user_keys uk ON uk.uuid = td.key_uuid
 		 WHERE uk.user_id = $1 AND td.reported_at >= $2`,
 		userID, since).Scan(&sum)

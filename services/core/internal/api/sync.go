@@ -12,6 +12,8 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
+const maxDeltaBytes = 1 << 50
+
 func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/sync/users", s.handleSyncUsers, mtls.RoleNode)
 	s.route(mux, "POST /v1/sync/deltas", s.handleSyncDeltas, mtls.RoleNode)
@@ -85,8 +87,8 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 	}
 	deltas := make([]service.TrafficDeltaInput, 0, len(body.Deltas))
 	for _, d := range body.Deltas {
-		if d.BytesUp < 0 || d.BytesDown < 0 {
-			writeError(w, http.StatusBadRequest, "bad_request", "traffic bytes must not be negative")
+		if d.BytesUp < 0 || d.BytesDown < 0 || d.BytesUp > maxDeltaBytes || d.BytesDown > maxDeltaBytes {
+			writeError(w, http.StatusBadRequest, "bad_request", "traffic bytes must be between 0 and 1 PiB")
 			return
 		}
 		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})

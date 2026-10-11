@@ -209,6 +209,8 @@ func TestSyncDeltasValidation(t *testing.T) {
 		"negative up":    {"batch_id": "b-neg-up", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": -1, "bytes_down": 0}}},
 		"negative down":  {"batch_id": "b-neg-down", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": 0, "bytes_down": -5}}},
 		"not an integer": {"batch_id": "b-float", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": 1.5, "bytes_down": 0}}},
+		"up over 1 PiB":  {"batch_id": "b-huge-up", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": int64(1)<<50 + 1, "bytes_down": 0}}},
+		"down max int64": {"batch_id": "b-huge-down", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": 0, "bytes_down": int64(math.MaxInt64)}}},
 	}
 	for name, body := range cases {
 		if status := postJSON(t, client, ts.URL+"/v1/sync/deltas", body, nil); status != http.StatusBadRequest {
@@ -249,5 +251,16 @@ func TestSyncDeltasUnknownNodeWritesNothing(t *testing.T) {
 	}
 	if status := postJSON(t, ghost, e.ts.URL+"/v1/sync/deltas", body, &resp); status != http.StatusOK || resp["duplicate"] != false {
 		t.Fatalf("after registration: status %d resp %v; rejected batch must not have been recorded", status, resp)
+	}
+}
+
+func TestSyncDeltasAcceptsLargeHonestBatch(t *testing.T) {
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
+	if err := svc.UpsertNode(context.Background(), &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"batch_id": "b-long-outage", "deltas": []map[string]any{{"key_uuid": "k", "bytes_up": int64(1) << 50, "bytes_down": int64(1) << 44}}}
+	if status := postJSON(t, client, ts.URL+"/v1/sync/deltas", body, nil); status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a batch accumulated over a long core outage", status)
 	}
 }

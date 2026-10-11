@@ -150,3 +150,27 @@ func TestDuplicateBatchFinishesRecompute(t *testing.T) {
 		t.Fatalf("status = %q, want expired_traffic after retry", got.Status)
 	}
 }
+
+func TestForgedHugeDeltaDoesNotBlockHonestNode(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	u, key, n := limitedUserOnNode(t, svc, 312)
+	huge := int64(1) << 62
+	if _, err := svc.store.RecordDeltaBatch(ctx, n.ID, "b-forged", []model.TrafficDelta{
+		{KeyUUID: key, BytesUp: huge, BytesDown: huge},
+		{KeyUUID: key, BytesUp: huge, BytesDown: huge},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dup, err := svc.RecordNodeDeltas(ctx, "node-1", "b-honest", []model.TrafficDelta{{KeyUUID: key, BytesUp: 10, BytesDown: 10}})
+	if err != nil || dup {
+		t.Fatalf("honest batch after forged one: dup = %v, err = %v; accounting must not get stuck", dup, err)
+	}
+	got, err := svc.store.GetUserBySubToken(ctx, u.SubToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "expired_traffic" {
+		t.Fatalf("status = %q, want expired_traffic for the inflated user", got.Status)
+	}
+}
