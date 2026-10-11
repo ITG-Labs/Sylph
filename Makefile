@@ -18,7 +18,7 @@ ca-init:
 	go run ./tools/sylphca init --dir ca
 
 cert:
-	go run ./tools/sylphca issue --dir ca --name $(NAME) --type $(TYPE)
+	go run ./tools/sylphca issue --dir ca --name $(NAME) --type $(TYPE) --role=$(ROLE)
 
 revoke:
 	go run ./tools/sylphca revoke --dir ca --name $(NAME)

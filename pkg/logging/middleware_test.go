@@ -2,6 +2,9 @@ package logging
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -104,4 +107,34 @@ func TestMiddlewarePanicPropagates(t *testing.T) {
 	}()
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/p", nil))
 	t.Fatal("unreachable")
+}
+
+func TestMiddlewareLogsPeerCN(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewWithWriter("test", "info", &buf)
+	h := Middleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/x", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Subject: pkix.Name{CommonName: "bot-2027"}}}}
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if m["peer"] != "bot-2027" {
+		t.Fatalf("peer = %v, want bot-2027", m["peer"])
+	}
+}
+
+func TestMiddlewareLogsEmptyPeerWithoutTLS(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewWithWriter("test", "info", &buf)
+	h := Middleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health", nil))
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if m["peer"] != "" {
+		t.Fatalf("peer = %v, want empty", m["peer"])
+	}
 }

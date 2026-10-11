@@ -3,16 +3,21 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 
+	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
+const maxDeltaBytes = 1 << 50
+
 func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/sync/users", s.handleSyncUsers)
-	mux.HandleFunc("POST /v1/sync/deltas", s.handleSyncDeltas)
-	mux.HandleFunc("POST /v1/sync/heartbeat", s.handleSyncHeartbeat)
+	s.route(mux, "POST /v1/sync/users", s.handleSyncUsers, mtls.RoleNode)
+	s.route(mux, "POST /v1/sync/deltas", s.handleSyncDeltas, mtls.RoleNode)
+	s.route(mux, "POST /v1/sync/heartbeat", s.handleSyncHeartbeat, mtls.RoleNode)
 }
 
 func clientCN(r *http.Request) string {
@@ -65,7 +70,8 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Deltas []struct {
+		BatchID string `json:"batch_id"`
+		Deltas  []struct {
 			KeyUUID   string `json:"key_uuid"`
 			BytesUp   int64  `json:"bytes_up"`
 			BytesDown int64  `json:"bytes_down"`
@@ -75,11 +81,20 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if body.BatchID == "" || len(body.BatchID) > 64 {
+		writeError(w, http.StatusBadRequest, "bad_request", "batch_id must be 1-64 characters")
+		return
+	}
 	deltas := make([]service.TrafficDeltaInput, 0, len(body.Deltas))
 	for _, d := range body.Deltas {
+		if d.BytesUp < 0 || d.BytesDown < 0 || d.BytesUp > maxDeltaBytes || d.BytesDown > maxDeltaBytes {
+			writeError(w, http.StatusBadRequest, "bad_request", "traffic bytes must be between 0 and 1 PiB")
+			return
+		}
 		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
-	if err := s.svc.RecordNodeDeltasInput(r.Context(), cn, deltas); err != nil {
+	duplicate, err := s.svc.RecordNodeDeltasInput(r.Context(), cn, body.BatchID, deltas)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
 			return
@@ -88,7 +103,7 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "deltas failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true, "duplicate": duplicate})
 }
 
 func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -98,14 +113,30 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AgentVersion string `json:"agent_version"`
-		XrayVersion  string `json:"xray_version"`
+		AgentVersion   string `json:"agent_version"`
+		XrayVersion    string `json:"xray_version"`
+		AgentUptimeSec int64  `json:"agent_uptime_sec"`
+		XrayUptimeSec  *int64 `json:"xray_uptime_sec"`
+		ActiveUsers    *int   `json:"active_users"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if err := s.svc.NodeHeartbeat(r.Context(), cn, body.AgentVersion, body.XrayVersion); err != nil {
+	if body.AgentUptimeSec < 0 ||
+		(body.XrayUptimeSec != nil && *body.XrayUptimeSec < 0) ||
+		(body.ActiveUsers != nil && (*body.ActiveUsers < 0 || *body.ActiveUsers > math.MaxInt32)) {
+		writeError(w, http.StatusBadRequest, "bad_request", "uptime and active_users must be non-negative")
+		return
+	}
+	hb := model.NodeHeartbeat{
+		AgentVersion:   body.AgentVersion,
+		XrayVersion:    body.XrayVersion,
+		AgentUptimeSec: body.AgentUptimeSec,
+		XrayUptimeSec:  body.XrayUptimeSec,
+		ActiveUsers:    body.ActiveUsers,
+	}
+	if err := s.svc.NodeHeartbeat(r.Context(), cn, hb); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
 			return

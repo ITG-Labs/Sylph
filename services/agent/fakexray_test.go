@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 )
 
 type fakeXray struct {
@@ -16,6 +17,8 @@ type fakeXray struct {
 	failRemove map[string]bool
 	listErr    error
 	inbounds   map[string]string
+	uptime     time.Duration
+	uptimeErr  error
 }
 
 func newFakeXray() *fakeXray {
@@ -124,4 +127,13 @@ func (f *fakeXray) userCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.users)
+}
+
+func (f *fakeXray) Uptime(ctx context.Context) (time.Duration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.uptimeErr != nil {
+		return 0, f.uptimeErr
+	}
+	return f.uptime, nil
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,5 +61,44 @@ func TestCacheAtomicOverwrite(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatal("tmp file left behind")
+	}
+}
+
+func TestWriteJSONAtomicSyncsFileAndDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	var synced []string
+	orig := fsync
+	fsync = func(f *os.File) error {
+		synced = append(synced, f.Name())
+		return orig(f)
+	}
+	t.Cleanup(func() { fsync = orig })
+	if err := writeJSONAtomic(path, map[string]int{"a": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if len(synced) != 2 || synced[0] != path+".tmp" || synced[1] != dir {
+		t.Fatalf("synced = %v, want [%s %s]", synced, path+".tmp", dir)
+	}
+}
+
+func TestWriteJSONAtomicKeepsOldStateWhenSyncFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := fsync
+	fsync = func(f *os.File) error { return errors.New("disk on fire") }
+	t.Cleanup(func() { fsync = orig })
+	if err := writeJSONAtomic(path, map[string]bool{"new": true}); err == nil {
+		t.Fatal("write must fail when data cannot be synced")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"old":true}` {
+		t.Fatalf("state replaced by unsynced data: %s", data)
 	}
 }

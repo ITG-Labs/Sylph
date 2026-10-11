@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/ITG-Labs/sylph/pkg/logging"
 )
 
 type userCounters struct {
@@ -17,15 +20,25 @@ type userCounters struct {
 	UnsentDown int64 `json:"unsent_down"`
 }
 
+type Batch struct {
+	ID     string  `json:"batch_id"`
+	Deltas []Delta `json:"deltas"`
+}
+
+type statsState struct {
+	Counters map[string]*userCounters `json:"counters"`
+	Pending  *Batch                   `json:"pending"`
+}
+
 type StatsCollector struct {
 	xray   XrayClient
 	logger *slog.Logger
 	path   string
-	state  map[string]*userCounters
+	state  statsState
 }
 
 func NewStatsCollector(xray XrayClient, logger *slog.Logger) *StatsCollector {
-	return &StatsCollector{xray: xray, logger: logger, state: map[string]*userCounters{}}
+	return &StatsCollector{xray: xray, logger: logger, state: statsState{Counters: map[string]*userCounters{}}}
 }
 
 func (sc *StatsCollector) Load(path string) error {
@@ -37,15 +50,20 @@ func (sc *StatsCollector) Load(path string) error {
 	if err != nil {
 		return fmt.Errorf("read stats state: %w", err)
 	}
-	state := map[string]*userCounters{}
-	if err := json.Unmarshal(data, &state); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var st statsState
+	if err := dec.Decode(&st); err != nil {
 		return fmt.Errorf("parse stats state: %w", err)
 	}
-	sc.state = state
+	if st.Counters == nil {
+		st.Counters = map[string]*userCounters{}
+	}
+	sc.state = st
 	return nil
 }
 
-func (sc *StatsCollector) Collect(ctx context.Context) ([]Delta, error) {
+func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 	raw, err := sc.xray.QueryStats(ctx, "user>>>")
 	if err != nil {
 		return nil, err
@@ -69,49 +87,62 @@ func (sc *StatsCollector) Collect(ctx context.Context) ([]Delta, error) {
 		}
 	}
 	for uuid, cur := range current {
-		st, ok := sc.state[uuid]
+		st, ok := sc.state.Counters[uuid]
 		if !ok {
 			st = &userCounters{}
-			sc.state[uuid] = st
+			sc.state.Counters[uuid] = st
 		}
 		st.UnsentUp += counterDelta(cur.SeenUp, st.SeenUp)
 		st.UnsentDown += counterDelta(cur.SeenDown, st.SeenDown)
 		st.SeenUp = cur.SeenUp
 		st.SeenDown = cur.SeenDown
 	}
-	var deltas []Delta
-	for uuid, st := range sc.state {
+	for uuid, st := range sc.state.Counters {
 		if st.UnsentUp == 0 && st.UnsentDown == 0 {
 			if _, live := current[uuid]; !live {
-				delete(sc.state, uuid)
+				delete(sc.state.Counters, uuid)
 			}
+		}
+	}
+	if sc.state.Pending == nil {
+		sc.freezeBatch()
+	}
+	if err := sc.persist(); err != nil {
+		return nil, fmt.Errorf("save stats state: %w", err)
+	}
+	return sc.state.Pending, nil
+}
+
+func (sc *StatsCollector) freezeBatch() {
+	var deltas []Delta
+	for uuid, st := range sc.state.Counters {
+		if st.UnsentUp == 0 && st.UnsentDown == 0 {
 			continue
 		}
 		deltas = append(deltas, Delta{KeyUUID: uuid, BytesUp: st.UnsentUp, BytesDown: st.UnsentDown})
+		st.UnsentUp = 0
+		st.UnsentDown = 0
 	}
-	sc.persist()
-	return deltas, nil
+	if len(deltas) > 0 {
+		sc.state.Pending = &Batch{ID: logging.NewRequestID(), Deltas: deltas}
+	}
 }
 
-func (sc *StatsCollector) Commit(reported []Delta) {
-	for _, d := range reported {
-		st, ok := sc.state[d.KeyUUID]
-		if !ok {
-			continue
-		}
-		st.UnsentUp -= d.BytesUp
-		st.UnsentDown -= d.BytesDown
-	}
-	sc.persist()
-}
-
-func (sc *StatsCollector) persist() {
-	if sc.path == "" {
+func (sc *StatsCollector) Commit(batchID string) {
+	if sc.state.Pending == nil || sc.state.Pending.ID != batchID {
 		return
 	}
-	if err := writeJSONAtomic(sc.path, sc.state); err != nil {
+	sc.state.Pending = nil
+	if err := sc.persist(); err != nil {
 		sc.logger.Error("stats_state_save_failed", "error", err.Error())
 	}
+}
+
+func (sc *StatsCollector) persist() error {
+	if sc.path == "" {
+		return nil
+	}
+	return writeJSONAtomic(sc.path, sc.state)
 }
 
 func counterDelta(cur int64, prev int64) int64 {

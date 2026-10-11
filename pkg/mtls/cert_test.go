@@ -28,7 +28,7 @@ func hasEKU(cert *x509.Certificate, want x509.ExtKeyUsage) bool {
 
 func TestIssueClientCert(t *testing.T) {
 	ca := mustCA(t)
-	leaf, err := ca.Issue("bot", ClientUsage, testNow, 24*time.Hour)
+	leaf, err := ca.Issue("bot", ClientUsage, RoleBot, testNow, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestIssueClientCert(t *testing.T) {
 
 func TestIssueServerCert(t *testing.T) {
 	ca := mustCA(t)
-	leaf, err := ca.Issue("core.sylph.internal", ServerUsage, testNow, 24*time.Hour)
+	leaf, err := ca.Issue("core.sylph.internal", ServerUsage, "", testNow, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestIssueServerCert(t *testing.T) {
 
 func TestPEMRoundTrip(t *testing.T) {
 	ca := mustCA(t)
-	leaf, err := ca.Issue("bot", ClientUsage, testNow, 24*time.Hour)
+	leaf, err := ca.Issue("bot", ClientUsage, RoleBot, testNow, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

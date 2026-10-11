@@ -9,11 +9,11 @@ import (
 
 func TestIsRevoked(t *testing.T) {
 	ca := mustCA(t)
-	revoked, err := ca.Issue("node-3", ClientUsage, testNow, 24*time.Hour)
+	revoked, err := ca.Issue("node-3", ClientUsage, RoleNode, testNow, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, err := ca.Issue("node-4", ClientUsage, testNow, 24*time.Hour)
+	valid, err := ca.Issue("node-4", ClientUsage, RoleNode, testNow, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestIsRevoked(t *testing.T) {
 
 func TestRevocationMiddlewareRevoked(t *testing.T) {
 	env := newTestEnv(t)
-	revoked, err := env.ca.Issue("node-3", ClientUsage, time.Now(), 24*time.Hour)
+	revoked, err := env.ca.Issue("node-3", ClientUsage, RoleNode, time.Now(), 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestRevocationMiddlewareValid(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv := env.server(t, list.Middleware(ok))
-	client := env.client(t, "bot", ClientUsage)
+	client := env.client(t, "bot", ClientUsage, RoleBot)
 	resp, err := client.Get(srv.URL)
 	if err != nil {
 		t.Fatal(err)

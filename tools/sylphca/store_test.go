@@ -60,7 +60,7 @@ func TestIssueCert(t *testing.T) {
 	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, 24*time.Hour, cliNow); err != nil {
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
 		t.Fatal(err)
 	}
 	certPEM, err := os.ReadFile(filepath.Join(dir, "certs", "bot", "cert.pem"))
@@ -73,6 +73,9 @@ func TestIssueCert(t *testing.T) {
 	}
 	if cert.Subject.CommonName != "bot" {
 		t.Fatalf("cn = %q, want bot", cert.Subject.CommonName)
+	}
+	if role, ok := mtls.RoleOf(cert); !ok || role != mtls.RoleBot {
+		t.Fatalf("role = %q, %v; want bot", role, ok)
 	}
 	keyPEM, err := os.ReadFile(filepath.Join(dir, "certs", "bot", "key.pem"))
 	if err != nil {
@@ -95,10 +98,10 @@ func TestIssueCertTwiceFails(t *testing.T) {
 	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, 24*time.Hour, cliNow); err != nil {
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, 24*time.Hour, cliNow); err == nil {
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err == nil {
 		t.Fatal("second issue should fail")
 	}
 }
@@ -108,7 +111,7 @@ func TestRevokeCert(t *testing.T) {
 	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, 24*time.Hour, cliNow); err != nil {
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
 		t.Fatal(err)
 	}
 	if err := revokeCert(dir, "bot"); err != nil {
@@ -144,10 +147,10 @@ func TestListCerts(t *testing.T) {
 	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, 24*time.Hour, cliNow); err != nil {
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "core", mtls.ServerUsage, 24*time.Hour, cliNow); err != nil {
+	if err := issueCert(dir, "core", mtls.ServerUsage, "", 24*time.Hour, cliNow); err != nil {
 		t.Fatal(err)
 	}
 	infos, err := listCerts(dir)
@@ -157,13 +160,35 @@ func TestListCerts(t *testing.T) {
 	if len(infos) != 2 {
 		t.Fatalf("len = %d, want 2", len(infos))
 	}
-	if infos[0].Name != "bot" || infos[0].Type != "client" {
-		t.Fatalf("infos[0] = %+v, want bot/client", infos[0])
+	if infos[0].Name != "bot" || infos[0].Type != "client" || infos[0].Role != mtls.RoleBot {
+		t.Fatalf("infos[0] = %+v, want bot/client/bot", infos[0])
 	}
-	if infos[1].Name != "core" || infos[1].Type != "server" {
-		t.Fatalf("infos[1] = %+v, want core/server", infos[1])
+	if infos[1].Name != "core" || infos[1].Type != "server" || infos[1].Role != "" {
+		t.Fatalf("infos[1] = %+v, want core/server without role", infos[1])
 	}
 	if infos[0].Serial == "" {
 		t.Fatal("serial should not be empty")
+	}
+}
+
+func TestIssueCertRoleValidation(t *testing.T) {
+	dir := t.TempDir()
+	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := issueCert(dir, "bot", mtls.ClientUsage, "", 24*time.Hour, cliNow); err == nil {
+		t.Fatal("client cert without role should fail")
+	}
+	if err := issueCert(dir, "bot", mtls.ClientUsage, "admin", 24*time.Hour, cliNow); err == nil {
+		t.Fatal("client cert with unknown role should fail")
+	}
+	if err := issueCert(dir, "core", mtls.ServerUsage, mtls.RolePanel, 24*time.Hour, cliNow); err == nil {
+		t.Fatal("server cert with role should fail")
+	}
+	if _, err := listCerts(dir); err != nil {
+		t.Fatalf("failed issue left a broken cert dir: %v", err)
+	}
+	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+		t.Fatalf("issue after failed attempt: %v", err)
 	}
 }

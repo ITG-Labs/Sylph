@@ -33,8 +33,11 @@ func SaveCache(path string, c *Cache) error {
 	return writeJSONAtomic(path, c)
 }
 
+var fsync = func(f *os.File) error { return f.Sync() }
+
 func writeJSONAtomic(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
 	data, err := json.Marshal(v)
@@ -42,11 +45,42 @@ func writeJSONAtomic(path string, v any) error {
 		return fmt.Errorf("encode state: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
+	if err := writeSynced(tmp, data); err != nil {
+		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("rename: %w", err)
+	}
+	return syncDir(dir)
+}
+
+func writeSynced(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write tmp: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write tmp: %w", err)
+	}
+	if err := fsync(f); err != nil {
+		f.Close()
+		return fmt.Errorf("sync tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close tmp: %w", err)
+	}
+	return nil
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open state dir: %w", err)
+	}
+	defer d.Close()
+	if err := fsync(d); err != nil {
+		return fmt.Errorf("sync state dir: %w", err)
 	}
 	return nil
 }

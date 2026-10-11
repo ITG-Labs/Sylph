@@ -9,14 +9,24 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
-func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, deltas []model.TrafficDelta) error {
+func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID string, deltas []model.TrafficDelta) (bool, error) {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := s.store.RecordDeltas(ctx, node.ID, deltas); err != nil {
-		return err
+	duplicate, err := s.store.RecordDeltaBatch(ctx, node.ID, batchID, deltas)
+	if err != nil {
+		return false, err
 	}
+	if duplicate {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "delta_batch_duplicate",
+			slog.String("node", nodeCN),
+			slog.String("batch_id", batchID))
+	}
+	return duplicate, s.applyTrafficLimits(ctx, deltas)
+}
+
+func (s *Service) applyTrafficLimits(ctx context.Context, deltas []model.TrafficDelta) error {
 	keyOwners := make(map[string]int64)
 	for _, d := range deltas {
 		keyOwners[d.KeyUUID] = 0
@@ -114,18 +124,18 @@ type TrafficDeltaInput struct {
 	BytesDown int64
 }
 
-func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, deltas []TrafficDeltaInput) error {
+func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, batchID string, deltas []TrafficDeltaInput) (bool, error) {
 	models := make([]model.TrafficDelta, 0, len(deltas))
 	for _, d := range deltas {
 		models = append(models, model.TrafficDelta{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
-	return s.RecordNodeDeltas(ctx, nodeCN, models)
+	return s.RecordNodeDeltas(ctx, nodeCN, batchID, models)
 }
 
-func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, agentVer string, xrayVer string) error {
+func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, hb model.NodeHeartbeat) error {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return err
 	}
-	return s.store.TouchNodeHeartbeat(ctx, node.ID, agentVer, xrayVer)
+	return s.store.TouchNodeHeartbeat(ctx, node.ID, hb)
 }

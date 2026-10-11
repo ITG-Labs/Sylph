@@ -23,14 +23,20 @@ type Leaf struct {
 	Key  *ecdsa.PrivateKey
 }
 
-func (ca *CA) Issue(name string, usage LeafUsage, now time.Time, ttl time.Duration) (*Leaf, error) {
+func (ca *CA) Issue(name string, usage LeafUsage, role string, now time.Time, ttl time.Duration) (*Leaf, error) {
+	if usage == ClientUsage && !IsKnownRole(role) {
+		return nil, fmt.Errorf("client certificate needs a known role, got %q", role)
+	}
+	if usage == ServerUsage && role != "" {
+		return nil, fmt.Errorf("server certificate must not have a role, got %q", role)
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate key: %w", err)
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: randomSerial(),
-		Subject:      pkix.Name{CommonName: name},
+		Subject:      pkix.Name{CommonName: name, OrganizationalUnit: ouFor(role)},
 		NotBefore:    now.Add(-time.Hour),
 		NotAfter:     now.Add(ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -49,6 +55,13 @@ func (ca *CA) Issue(name string, usage LeafUsage, now time.Time, ttl time.Durati
 		return nil, fmt.Errorf("parse certificate: %w", err)
 	}
 	return &Leaf{Cert: cert, Key: key}, nil
+}
+
+func ouFor(role string) []string {
+	if role == "" {
+		return nil
+	}
+	return []string{role}
 }
 
 func EncodeCertPEM(cert *x509.Certificate) []byte {

@@ -60,3 +60,38 @@ func TestSyncNodeUsers(t *testing.T) {
 		t.Fatalf("no-change sync: %+v", resp2)
 	}
 }
+
+func TestSyncMarksLastSyncWithoutBump(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	if err := svc.store.UpsertNode(ctx, &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := svc.SyncNodeUsers(ctx, "node-1", -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.store.GetNodeByCN(ctx, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.LastSyncAt == nil {
+		t.Fatal("last_sync_at not set by full sync")
+	}
+	if first.UsersVersion != resp.Version {
+		t.Fatalf("version moved by sync mark: %d -> %d", resp.Version, first.UsersVersion)
+	}
+	if _, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version); err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.store.GetNodeByCN(ctx, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LastSyncAt == nil || second.LastSyncAt.Before(*first.LastSyncAt) {
+		t.Fatalf("no-change sync did not refresh last_sync_at: %v then %v", first.LastSyncAt, second.LastSyncAt)
+	}
+	if second.UsersVersion != resp.Version {
+		t.Fatalf("version moved by no-change sync: %d -> %d", resp.Version, second.UsersVersion)
+	}
+}

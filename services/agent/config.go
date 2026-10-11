@@ -16,6 +16,7 @@ type Config struct {
 	StatsPath    string
 	InboundTag   string
 	ListenAPI    string
+	XrayVersion  string
 	SyncInterval time.Duration
 }
 
@@ -30,6 +31,7 @@ func LoadConfig() (*Config, error) {
 		StatsPath:    envOr("SYLPH_STATS_PATH", "stats.json"),
 		InboundTag:   envOr("SYLPH_INBOUND_TAG", "vless-in"),
 		ListenAPI:    envOr("SYLPH_LISTEN_API", ""),
+		XrayVersion:  os.Getenv("SYLPH_XRAY_VERSION"),
 		SyncInterval: 30 * time.Second,
 	}
 	if cfg.CoreURL == "" {
