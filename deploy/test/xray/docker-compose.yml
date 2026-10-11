@@ -1,0 +1,12 @@
+services:
+  xray:
+    image: ghcr.io/xtls/xray-core:26.10.10
+    network_mode: host
+    command: ["run", "-c", "/etc/sylph/xray.json"]
+    volumes:
+      - ./xray.json:/etc/sylph/xray.json:ro
+    healthcheck:
+      test: ["CMD", "xray", "api", "statssys", "--server=127.0.0.1:55085"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

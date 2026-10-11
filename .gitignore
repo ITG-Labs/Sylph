@@ -4,3 +4,4 @@ dist/
 coverage.out
 .superpowers/
 docs/vault/.obsidian/
+.bin/

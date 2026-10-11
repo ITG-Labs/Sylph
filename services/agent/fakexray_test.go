@@ -16,13 +16,14 @@ type fakeXray struct {
 	failAdd    map[string]bool
 	failRemove map[string]bool
 	listErr    error
-	inbounds   map[string]string
 	uptime     time.Duration
 	uptimeErr  error
+	uptimeFail int
+	uptimeHits int
 }
 
 func newFakeXray() *fakeXray {
-	return &fakeXray{users: map[string]bool{}, stats: map[string]int64{}, inbounds: map[string]string{}}
+	return &fakeXray{users: map[string]bool{}, stats: map[string]int64{}}
 }
 
 func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
@@ -88,29 +89,6 @@ func (f *fakeXray) QueryStats(ctx context.Context, pattern string) (map[string]i
 	return out, nil
 }
 
-func (f *fakeXray) AddInbound(ctx context.Context, configJSON string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var cfg struct {
-		Tag string `json:"tag"`
-	}
-	if err := jsonUnmarshalString(configJSON, &cfg); err != nil {
-		return errors.New("bad json")
-	}
-	if cfg.Tag == "" {
-		return errors.New("no tag")
-	}
-	f.inbounds[cfg.Tag] = configJSON
-	return nil
-}
-
-func (f *fakeXray) RemoveInbound(ctx context.Context, tag string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.inbounds, tag)
-	return nil
-}
-
 func (f *fakeXray) setStats(stats map[string]int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -132,8 +110,19 @@ func (f *fakeXray) userCount() int {
 func (f *fakeXray) Uptime(ctx context.Context) (time.Duration, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.uptimeHits++
+	if f.uptimeFail > 0 {
+		f.uptimeFail--
+		return 0, errors.New("xray is starting")
+	}
 	if f.uptimeErr != nil {
 		return 0, f.uptimeErr
 	}
 	return f.uptime, nil
+}
+
+func (f *fakeXray) uptimeCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.uptimeHits
 }

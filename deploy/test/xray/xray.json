@@ -1,0 +1,27 @@
+{
+  "log": {"loglevel": "warning", "access": "none"},
+  "api": {"tag": "api", "listen": "127.0.0.1:55085", "services": ["HandlerService", "StatsService"]},
+  "stats": {},
+  "policy": {"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}}},
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "listen": "127.0.0.1",
+      "port": 55443,
+      "protocol": "vless",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "raw", "security": "none"}
+    },
+    {
+      "tag": "client-in",
+      "listen": "127.0.0.1",
+      "port": 55444,
+      "protocol": "vless",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "raw", "security": "none"}
+    }
+  ],
+  "outbounds": [
+    {"tag": "direct", "protocol": "freedom", "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.1/32"]}]}}
+  ]
+}
