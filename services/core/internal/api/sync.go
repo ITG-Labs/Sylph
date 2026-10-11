@@ -66,7 +66,8 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Deltas []struct {
+		BatchID string `json:"batch_id"`
+		Deltas  []struct {
 			KeyUUID   string `json:"key_uuid"`
 			BytesUp   int64  `json:"bytes_up"`
 			BytesDown int64  `json:"bytes_down"`
@@ -76,11 +77,20 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if body.BatchID == "" || len(body.BatchID) > 64 {
+		writeError(w, http.StatusBadRequest, "bad_request", "batch_id must be 1-64 characters")
+		return
+	}
 	deltas := make([]service.TrafficDeltaInput, 0, len(body.Deltas))
 	for _, d := range body.Deltas {
+		if d.BytesUp < 0 || d.BytesDown < 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "traffic bytes must not be negative")
+			return
+		}
 		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
-	if err := s.svc.RecordNodeDeltasInput(r.Context(), cn, deltas); err != nil {
+	duplicate, err := s.svc.RecordNodeDeltasInput(r.Context(), cn, body.BatchID, deltas)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
 			return
@@ -89,7 +99,7 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "deltas failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true, "duplicate": duplicate})
 }
 
 func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
