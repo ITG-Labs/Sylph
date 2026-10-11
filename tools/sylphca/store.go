@@ -63,7 +63,7 @@ func loadCA(dir string) (*mtls.CA, error) {
 	return &mtls.CA{Cert: cert, Key: key}, nil
 }
 
-func issueCert(dir string, name string, usage mtls.LeafUsage, ttl time.Duration, now time.Time) error {
+func issueCert(dir string, name string, usage mtls.LeafUsage, role string, ttl time.Duration, now time.Time) error {
 	ca, err := loadCA(dir)
 	if err != nil {
 		return err
@@ -73,11 +73,11 @@ func issueCert(dir string, name string, usage mtls.LeafUsage, ttl time.Duration,
 	if _, err := os.Stat(certPath); err == nil {
 		return fmt.Errorf("certificate %q already exists", name)
 	}
-	if err := os.MkdirAll(leafDir, 0o700); err != nil {
+	leaf, err := ca.Issue(name, usage, role, now, ttl)
+	if err != nil {
 		return err
 	}
-	leaf, err := ca.Issue(name, usage, now, ttl)
-	if err != nil {
+	if err := os.MkdirAll(leafDir, 0o700); err != nil {
 		return err
 	}
 	if err := os.WriteFile(certPath, mtls.EncodeCertPEM(leaf.Cert), 0o644); err != nil {
@@ -93,6 +93,7 @@ func issueCert(dir string, name string, usage mtls.LeafUsage, ttl time.Duration,
 type certInfo struct {
 	Name     string
 	Type     string
+	Role     string
 	Serial   string
 	NotAfter time.Time
 }
@@ -173,9 +174,11 @@ func listCerts(dir string) ([]certInfo, error) {
 				typ = "server"
 			}
 		}
+		role, _ := mtls.RoleOf(cert)
 		infos = append(infos, certInfo{
 			Name:     entry.Name(),
 			Type:     typ,
+			Role:     role,
 			Serial:   cert.SerialNumber.String(),
 			NotAfter: cert.NotAfter,
 		})

@@ -28,6 +28,7 @@ func main() {
 	case "issue":
 		name := fs.String("name", "", "certificate name")
 		certType := fs.String("type", "client", "client or server")
+		role := fs.String("role", "", "client role: bot, subs, cron, panel or node")
 		ttl := fs.Duration("ttl", 8760*time.Hour, "certificate lifetime")
 		err = fs.Parse(os.Args[2:])
 		if err == nil {
@@ -37,7 +38,7 @@ func main() {
 				err = fmt.Errorf("--name is required")
 			}
 			if err == nil {
-				err = issueCert(*dir, *name, usage, *ttl, time.Now())
+				err = issueCert(*dir, *name, usage, *role, *ttl, time.Now())
 			}
 		}
 	case "revoke":
@@ -57,7 +58,11 @@ func main() {
 			infos, err = listCerts(*dir)
 			if err == nil {
 				for _, ci := range infos {
-					fmt.Printf("%-24s %-7s %-40s %s\n", ci.Name, ci.Type, ci.Serial, ci.NotAfter.Format(time.DateOnly))
+					role := ci.Role
+					if role == "" {
+						role = "-"
+					}
+					fmt.Printf("%-24s %-7s %-6s %-40s %s\n", ci.Name, ci.Type, role, ci.Serial, ci.NotAfter.Format(time.DateOnly))
 				}
 			}
 		}

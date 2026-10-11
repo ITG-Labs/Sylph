@@ -27,7 +27,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 func (e *testEnv) server(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
-	serverLeaf, err := e.ca.Issue("core.sylph.internal", ServerUsage, time.Now(), 24*time.Hour)
+	serverLeaf, err := e.ca.Issue("core.sylph.internal", ServerUsage, "", time.Now(), 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,9 +46,9 @@ func (e *testEnv) server(t *testing.T, handler http.Handler) *httptest.Server {
 	return srv
 }
 
-func (e *testEnv) client(t *testing.T, name string, usage LeafUsage) *http.Client {
+func (e *testEnv) client(t *testing.T, name string, usage LeafUsage, role string) *http.Client {
 	t.Helper()
-	leaf, err := e.ca.Issue(name, usage, time.Now(), 24*time.Hour)
+	leaf, err := e.ca.Issue(name, usage, role, time.Now(), 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestTLSHandshake(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv := env.server(t, ok)
-	client := env.client(t, "bot", ClientUsage)
+	client := env.client(t, "bot", ClientUsage, RoleBot)
 	resp, err := client.Get(srv.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestTLSHandshakeWrongEKURejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv := env.server(t, ok)
-	client := env.client(t, "evil", ServerUsage)
+	client := env.client(t, "evil", ServerUsage, "")
 	_, err := client.Get(srv.URL)
 	if err == nil {
 		t.Fatal("handshake with wrong EKU cert should fail")

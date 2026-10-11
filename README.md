@@ -20,8 +20,12 @@ Telegram-бот, подписки и планировщик — по серви�
 ## Сертификаты
 
     make ca-init
-    make cert NAME=bot TYPE=client
+    make cert NAME=bot TYPE=client ROLE=bot
+    make cert NAME=node-1 TYPE=client ROLE=node
     make cert NAME=core TYPE=server
     make revoke NAME=bot
+
+Роль клиента (bot, subs, cron, panel, node) пишется в OU сертификата, ядро
+пускает к эндпоинтам только по ней. Серверный сертификат выпускается без роли.
 
 Каталог ca/ содержит приватный ключ корневого сертификата и не попадает в git.
