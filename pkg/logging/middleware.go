@@ -42,6 +42,7 @@ func Middleware(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.Duration("duration", time.Since(start)),
 					slog.String("request_id", id),
 					slog.String("remote", r.RemoteAddr),
+					slog.String("peer", peerCN(r)),
 				)
 				if rec != nil {
 					panic(rec)
@@ -50,4 +51,11 @@ func Middleware(logger *slog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(sw, r)
 		})
 	}
+}
+
+func peerCN(r *http.Request) string {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return ""
+	}
+	return r.TLS.PeerCertificates[0].Subject.CommonName
 }

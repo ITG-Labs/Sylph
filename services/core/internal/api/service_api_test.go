@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 func TestUsersCreateEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleBot)
 	_ = svc
 	body, _ := json.Marshal(map[string]int64{"telegram_id": 700})
 	resp, err := client.Post(ts.URL+"/v1/users", "application/json", bytes.NewReader(body))
@@ -35,7 +36,7 @@ func TestUsersCreateEndpoint(t *testing.T) {
 }
 
 func TestUsersCreateInvalidTelegram(t *testing.T) {
-	ts, client, _ := newAPITestEnv(t)
+	ts, client, _ := newAPITestEnv(t, mtls.RoleBot)
 	body, _ := json.Marshal(map[string]int64{"telegram_id": -5})
 	resp, err := client.Post(ts.URL+"/v1/users", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -48,7 +49,7 @@ func TestUsersCreateInvalidTelegram(t *testing.T) {
 }
 
 func TestUsersGetEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleBot)
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 800)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
@@ -76,7 +77,7 @@ func TestUsersGetEndpoint(t *testing.T) {
 }
 
 func TestUsersGetNotFound(t *testing.T) {
-	ts, client, _ := newAPITestEnv(t)
+	ts, client, _ := newAPITestEnv(t, mtls.RoleBot)
 	resp, err := client.Get(ts.URL + "/v1/users/999999")
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +89,7 @@ func TestUsersGetNotFound(t *testing.T) {
 }
 
 func TestPaymentsEndpointIdempotent(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RolePanel)
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 900)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
@@ -109,7 +110,7 @@ func TestPaymentsEndpointIdempotent(t *testing.T) {
 }
 
 func TestUserByTokenEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleSubs)
 	ctx := context.Background()
 	u, key, _ := svc.RegisterUser(ctx, 1000)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
@@ -142,7 +143,7 @@ func TestUserByTokenEndpoint(t *testing.T) {
 }
 
 func TestMaintenanceExpireEndpoint(t *testing.T) {
-	ts, client, _ := newAPITestEnv(t)
+	ts, client, _ := newAPITestEnv(t, mtls.RoleCron)
 	resp, err := client.Post(ts.URL+"/v1/maintenance/expire", "application/json", bytes.NewReader(nil))
 	if err != nil {
 		t.Fatal(err)

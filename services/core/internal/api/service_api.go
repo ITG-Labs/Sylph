@@ -7,18 +7,19 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/users", s.handleUserCreate)
-	mux.HandleFunc("GET /v1/users/{telegram_id}", s.handleUserGet)
-	mux.HandleFunc("GET /v1/users/by-token/{sub_token}", s.handleUserByToken)
-	mux.HandleFunc("POST /v1/payments", s.handlePayment)
-	mux.HandleFunc("POST /v1/users/{user_id}/rotate", s.handleRotate)
-	mux.HandleFunc("POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset)
-	mux.HandleFunc("POST /v1/devices", s.handleDeviceRegister)
-	mux.HandleFunc("POST /v1/maintenance/expire", s.handleMaintenanceExpire)
+	s.route(mux, "POST /v1/users", s.handleUserCreate, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "GET /v1/users/{telegram_id}", s.handleUserGet, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "GET /v1/users/by-token/{sub_token}", s.handleUserByToken, mtls.RoleSubs, mtls.RolePanel)
+	s.route(mux, "POST /v1/payments", s.handlePayment, mtls.RolePanel)
+	s.route(mux, "POST /v1/users/{user_id}/rotate", s.handleRotate, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "POST /v1/devices", s.handleDeviceRegister, mtls.RoleSubs, mtls.RolePanel)
+	s.route(mux, "POST /v1/maintenance/expire", s.handleMaintenanceExpire, mtls.RoleCron, mtls.RolePanel)
 }
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {

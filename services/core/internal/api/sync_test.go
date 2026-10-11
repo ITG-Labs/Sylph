@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 func TestSyncUsersEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := svc.UpsertNode(ctx, n); err != nil {
@@ -55,7 +56,7 @@ func TestSyncUsersEndpoint(t *testing.T) {
 }
 
 func TestSyncUsersUnknownNode(t *testing.T) {
-	ts, client, _ := newAPITestEnv(t)
+	ts, client, _ := newAPITestEnv(t, mtls.RoleNode)
 	body, _ := json.Marshal(map[string]int64{"known_version": 0})
 	resp, err := client.Post(ts.URL+"/v1/sync/users", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -68,7 +69,7 @@ func TestSyncUsersUnknownNode(t *testing.T) {
 }
 
 func TestSyncDeltasEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := svc.UpsertNode(ctx, n); err != nil {
@@ -99,7 +100,7 @@ func TestSyncDeltasEndpoint(t *testing.T) {
 }
 
 func TestHeartbeatEndpoint(t *testing.T) {
-	ts, client, svc := newAPITestEnv(t)
+	ts, client, svc := newAPITestEnv(t, mtls.RoleNode)
 	ctx := context.Background()
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := svc.UpsertNode(ctx, n); err != nil {

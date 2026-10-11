@@ -5,14 +5,15 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func (s *Server) registerSyncRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/sync/users", s.handleSyncUsers)
-	mux.HandleFunc("POST /v1/sync/deltas", s.handleSyncDeltas)
-	mux.HandleFunc("POST /v1/sync/heartbeat", s.handleSyncHeartbeat)
+	s.route(mux, "POST /v1/sync/users", s.handleSyncUsers, mtls.RoleNode)
+	s.route(mux, "POST /v1/sync/deltas", s.handleSyncDeltas, mtls.RoleNode)
+	s.route(mux, "POST /v1/sync/heartbeat", s.handleSyncHeartbeat, mtls.RoleNode)
 }
 
 func clientCN(r *http.Request) string {
