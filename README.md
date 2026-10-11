@@ -22,10 +22,18 @@ Telegram-бот, подписки и планировщик — по серви�
     make ca-init
     make cert NAME=bot TYPE=client ROLE=bot
     make cert NAME=node-1 TYPE=client ROLE=node
-    make cert NAME=core TYPE=server
+    make cert NAME=core.sylph.internal TYPE=server
     make revoke NAME=bot
 
 Роль клиента (bot, subs, cron, panel, node) пишется в OU сертификата, ядро
 пускает к эндпоинтам только по ней. Серверный сертификат выпускается без роли.
 
+Имя серверного сертификата — DNS-имя, которое проверяют клиенты (агент по умолчанию ждёт
+core.sylph.internal, переопределяется SYLPH_CORE_NAME).
+
 Каталог ca/ содержит приватный ключ корневого сертификата и не попадает в git.
+
+## Документация
+
+docs/vault — описание устройства проекта для чтения в Obsidian: открыть папку как vault,
+начать с заметки Sylph.
