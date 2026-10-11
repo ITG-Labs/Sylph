@@ -38,6 +38,9 @@ func Dial(addr string, flow string, timeout time.Duration) (*Client, error) {
 }
 
 func dial(target string, flow string, timeout time.Duration, opts ...grpc.DialOption) (*Client, error) {
+	if timeout <= 0 {
+		return nil, errors.New("xray timeout must be positive")
+	}
 	opts = append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, opts...)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
@@ -68,6 +71,8 @@ func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string) er
 	if err != nil {
 		return err
 	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	_, err = c.handler.AlterInbound(ctx, &proxymancmd.AlterInboundRequest{Tag: inboundTag, Operation: op})
 	if err != nil && !isUserError(err, uuid, "already exists") {
 		return fmt.Errorf("xray add user: %w", err)
@@ -80,6 +85,8 @@ func (c *Client) RemoveUser(ctx context.Context, inboundTag string, uuid string)
 	if err != nil {
 		return err
 	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	_, err = c.handler.AlterInbound(ctx, &proxymancmd.AlterInboundRequest{Tag: inboundTag, Operation: op})
 	if err != nil && !isUserError(err, uuid, "not found") {
 		return fmt.Errorf("xray remove user: %w", err)
@@ -88,6 +95,8 @@ func (c *Client) RemoveUser(ctx context.Context, inboundTag string, uuid string)
 }
 
 func (c *Client) ListUsers(ctx context.Context, inboundTag string) ([]string, error) {
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	resp, err := c.handler.GetInboundUsers(ctx, &proxymancmd.GetInboundUserRequest{Tag: inboundTag})
 	if err != nil {
 		return nil, fmt.Errorf("xray list users: %w", err)
@@ -97,6 +106,34 @@ func (c *Client) ListUsers(ctx context.Context, inboundTag string) ([]string, er
 		out = append(out, u.GetEmail())
 	}
 	return out, nil
+}
+
+func (c *Client) QueryStats(ctx context.Context, pattern string) (map[string]int64, error) {
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
+	resp, err := c.stats.QueryStats(ctx, &statscmd.QueryStatsRequest{Pattern: pattern})
+	if err != nil {
+		return nil, fmt.Errorf("xray query stats: %w", err)
+	}
+	out := make(map[string]int64, len(resp.GetStat()))
+	for _, s := range resp.GetStat() {
+		out[s.GetName()] = s.GetValue()
+	}
+	return out, nil
+}
+
+func (c *Client) Uptime(ctx context.Context) (time.Duration, error) {
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
+	resp, err := c.stats.GetSysStats(ctx, &statscmd.SysStatsRequest{})
+	if err != nil {
+		return 0, fmt.Errorf("xray sys stats: %w", err)
+	}
+	return time.Duration(resp.GetUptime()) * time.Second, nil
+}
+
+func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, c.timeout)
 }
 
 func typed(m proto.Message) (*serial.TypedMessage, error) {

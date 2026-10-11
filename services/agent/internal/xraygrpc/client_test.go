@@ -32,9 +32,29 @@ type fakeXray struct {
 	lists    []*proxymancmd.GetInboundUserRequest
 	users    []*protocol.User
 	listErr  error
+	queries  []*statscmd.QueryStatsRequest
+	stats    []*statscmd.Stat
+	statsErr error
+	uptime   uint32
+	sysErr   error
+	block    bool
+}
+
+func (f *fakeXray) wait(ctx context.Context) error {
+	f.mu.Lock()
+	block := f.block
+	f.mu.Unlock()
+	if !block {
+		return nil
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (f *fakeXray) AlterInbound(ctx context.Context, req *proxymancmd.AlterInboundRequest) (*proxymancmd.AlterInboundResponse, error) {
+	if err := f.wait(ctx); err != nil {
+		return nil, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.alters = append(f.alters, req)
@@ -45,6 +65,9 @@ func (f *fakeXray) AlterInbound(ctx context.Context, req *proxymancmd.AlterInbou
 }
 
 func (f *fakeXray) GetInboundUsers(ctx context.Context, req *proxymancmd.GetInboundUserRequest) (*proxymancmd.GetInboundUserResponse, error) {
+	if err := f.wait(ctx); err != nil {
+		return nil, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lists = append(f.lists, req)
@@ -52,6 +75,37 @@ func (f *fakeXray) GetInboundUsers(ctx context.Context, req *proxymancmd.GetInbo
 		return nil, f.listErr
 	}
 	return &proxymancmd.GetInboundUserResponse{Users: f.users}, nil
+}
+
+func (f *fakeXray) QueryStats(ctx context.Context, req *statscmd.QueryStatsRequest) (*statscmd.QueryStatsResponse, error) {
+	if err := f.wait(ctx); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, req)
+	if f.statsErr != nil {
+		return nil, f.statsErr
+	}
+	return &statscmd.QueryStatsResponse{Stat: f.stats}, nil
+}
+
+func (f *fakeXray) GetSysStats(ctx context.Context, req *statscmd.SysStatsRequest) (*statscmd.SysStatsResponse, error) {
+	if err := f.wait(ctx); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sysErr != nil {
+		return nil, f.sysErr
+	}
+	return &statscmd.SysStatsResponse{Uptime: f.uptime, NumGoroutine: 7}, nil
+}
+
+func (f *fakeXray) queryCalls() []*statscmd.QueryStatsRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*statscmd.QueryStatsRequest(nil), f.queries...)
 }
 
 func (f *fakeXray) alterCalls() []*proxymancmd.AlterInboundRequest {
@@ -263,5 +317,100 @@ func TestListUsersError(t *testing.T) {
 	c := startFake(t, fx, "", time.Second)
 	if _, err := c.ListUsers(context.Background(), "vless-in"); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func TestQueryStatsMapsCounters(t *testing.T) {
+	fx := &fakeXray{stats: []*statscmd.Stat{
+		{Name: "user>>>" + testUUID + ">>>traffic>>>uplink", Value: 24},
+		{Name: "user>>>" + testUUID + ">>>traffic>>>downlink", Value: 1000},
+	}}
+	c := startFake(t, fx, "", time.Second)
+	got, err := c.QueryStats(context.Background(), "user>>>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["user>>>"+testUUID+">>>traffic>>>uplink"] != 24 || got["user>>>"+testUUID+">>>traffic>>>downlink"] != 1000 {
+		t.Fatalf("stats = %v", got)
+	}
+	q := fx.queryCalls()
+	if len(q) != 1 || q[0].GetPattern() != "user>>>" || q[0].GetReset_() {
+		t.Fatalf("query = %v, want pattern user>>> without reset", q)
+	}
+}
+
+func TestQueryStatsEmpty(t *testing.T) {
+	c := startFake(t, &fakeXray{}, "", time.Second)
+	got, err := c.QueryStats(context.Background(), "user>>>")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("stats = %v, err = %v", got, err)
+	}
+}
+
+func TestQueryStatsError(t *testing.T) {
+	fx := &fakeXray{statsErr: status.Error(codes.Unavailable, "down")}
+	c := startFake(t, fx, "", time.Second)
+	if _, err := c.QueryStats(context.Background(), "user>>>"); status.Code(err) != codes.Unavailable {
+		t.Fatalf("err = %v, want Unavailable", err)
+	}
+}
+
+func TestUptimeSeconds(t *testing.T) {
+	c := startFake(t, &fakeXray{uptime: 4242}, "", time.Second)
+	got, err := c.Uptime(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 4242*time.Second {
+		t.Fatalf("uptime = %v", got)
+	}
+}
+
+func TestUptimeError(t *testing.T) {
+	fx := &fakeXray{sysErr: status.Error(codes.Unavailable, "down")}
+	c := startFake(t, fx, "", time.Second)
+	if _, err := c.Uptime(context.Background()); status.Code(err) != codes.Unavailable {
+		t.Fatalf("err = %v, want Unavailable", err)
+	}
+}
+
+func TestEveryCallHasTimeout(t *testing.T) {
+	fx := &fakeXray{block: true}
+	c := startFake(t, fx, "", 100*time.Millisecond)
+	calls := map[string]func(context.Context) error{
+		"add":    func(ctx context.Context) error { return c.AddUser(ctx, "vless-in", testUUID) },
+		"remove": func(ctx context.Context) error { return c.RemoveUser(ctx, "vless-in", testUUID) },
+		"list": func(ctx context.Context) error {
+			_, err := c.ListUsers(ctx, "vless-in")
+			return err
+		},
+		"stats": func(ctx context.Context) error {
+			_, err := c.QueryStats(ctx, "user>>>")
+			return err
+		},
+		"uptime": func(ctx context.Context) error {
+			_, err := c.Uptime(ctx)
+			return err
+		},
+	}
+	for name, call := range calls {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		start := time.Now()
+		err := call(ctx)
+		cancel()
+		if status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("%s: err = %v, want DeadlineExceeded", name, err)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("%s: took %v, client timeout not applied", name, elapsed)
+		}
+	}
+}
+
+func TestDialRejectsNonPositiveTimeout(t *testing.T) {
+	for _, d := range []time.Duration{0, -time.Second} {
+		if _, err := Dial("127.0.0.1:10085", "", d); err == nil {
+			t.Fatalf("timeout %v accepted", d)
+		}
 	}
 }
