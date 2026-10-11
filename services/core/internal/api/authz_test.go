@@ -23,7 +23,7 @@ type routeCase struct {
 var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/users", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodGet, "/v1/users/1", []string{mtls.RoleBot, mtls.RolePanel}},
-	{http.MethodGet, "/v1/users/by-token/x", []string{mtls.RoleSubs, mtls.RolePanel}},
+	{http.MethodPost, "/v1/users/by-token", []string{mtls.RoleSubs, mtls.RolePanel}},
 	{http.MethodPost, "/v1/payments", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/rotate", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/devices/reset", []string{mtls.RoleBot, mtls.RolePanel}},

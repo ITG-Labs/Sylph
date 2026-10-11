@@ -14,7 +14,7 @@ import (
 func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/users", s.handleUserCreate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "GET /v1/users/{telegram_id}", s.handleUserGet, mtls.RoleBot, mtls.RolePanel)
-	s.route(mux, "GET /v1/users/by-token/{sub_token}", s.handleUserByToken, mtls.RoleSubs, mtls.RolePanel)
+	s.route(mux, "POST /v1/users/by-token", s.handleUserByToken, mtls.RoleSubs, mtls.RolePanel)
 	s.route(mux, "POST /v1/payments", s.handlePayment, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/rotate", s.handleRotate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
@@ -34,13 +34,13 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "telegram_id must be positive")
 		return
 	}
-	u, key, err := s.svc.RegisterUser(r.Context(), body.TelegramID)
+	u, _, err := s.svc.RegisterUser(r.Context(), body.TelegramID)
 	if err != nil {
 		s.log.Error("user_create_failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal", "create failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "sub_token": u.SubToken, "key_uuid": key})
+	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "sub_token": u.SubToken})
 }
 
 func (s *Server) handleUserGet(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +69,18 @@ func (s *Server) handleUserGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUserByToken(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue("sub_token")
-	u, keys, sub, plan, err := s.svc.GetUserFullByToken(r.Context(), token)
+	var body struct {
+		SubToken string `json:"sub_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if body.SubToken == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "sub_token is required")
+		return
+	}
+	u, keys, sub, plan, err := s.svc.GetUserFullByToken(r.Context(), body.SubToken)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
@@ -117,8 +127,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid user_id")
 		return
 	}
-	key, err := s.svc.RotateUserKey(r.Context(), userID)
-	if err != nil {
+	if _, err := s.svc.RotateUserKey(r.Context(), userID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
 			return
@@ -127,7 +136,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "rotate failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"key_uuid": key})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDevicesReset(w http.ResponseWriter, r *http.Request) {
