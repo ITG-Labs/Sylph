@@ -37,3 +37,22 @@ func TestNewTokenFormat(t *testing.T) {
 		seen[tk] = true
 	}
 }
+
+func TestNewInviteCodeFormat(t *testing.T) {
+	seen := map[string]bool{}
+	for range 1000 {
+		c := NewInviteCode()
+		if !ValidInviteCode(c) {
+			t.Fatalf("invalid code %q", c)
+		}
+		if seen[c] {
+			t.Fatalf("dup %q", c)
+		}
+		seen[c] = true
+	}
+	for _, bad := range []string{"", "short", "AAAAAAAAAAAAAAAAAAAAA+", "AAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAA A"} {
+		if ValidInviteCode(bad) {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+}

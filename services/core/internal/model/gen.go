@@ -2,6 +2,7 @@ package model
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 )
@@ -28,4 +29,25 @@ func NewToken() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func NewInviteCode() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+func ValidInviteCode(c string) bool {
+	if len(c) != 22 {
+		return false
+	}
+	for _, r := range c {
+		ok := r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-' || r == '_'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
