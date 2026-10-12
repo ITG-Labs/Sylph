@@ -11,42 +11,56 @@ type CleanupResult struct {
 	Keys    int64 `json:"keys"`
 }
 
+type chunkedDelete struct {
+	bound string
+	del   string
+}
+
+var (
+	deltasCleanup = chunkedDelete{
+		bound: `SELECT max(id) FROM (SELECT id FROM traffic_deltas WHERE reported_at < $1 ORDER BY id LIMIT $2) s`,
+		del:   `DELETE FROM traffic_deltas WHERE id <= $2 AND reported_at < $1`,
+	}
+	batchesCleanup = chunkedDelete{
+		bound: `SELECT max(received_at) FROM (SELECT received_at FROM traffic_batches WHERE received_at < $1 ORDER BY received_at LIMIT $2) s`,
+		del:   `DELETE FROM traffic_batches WHERE received_at <= $2 AND received_at < $1`,
+	}
+	keysCleanup = chunkedDelete{
+		bound: `SELECT max(id) FROM (SELECT id FROM user_keys WHERE revoked_at < $1 ORDER BY id LIMIT $2) s`,
+		del:   `DELETE FROM user_keys WHERE id <= $2 AND revoked_at < $1`,
+	}
+)
+
 func (s *Store) CleanupHistory(ctx context.Context, cutoff time.Time, chunk int) (CleanupResult, error) {
 	var res CleanupResult
 	var err error
-	if res.Deltas, err = s.deleteInChunks(ctx,
-		`DELETE FROM traffic_deltas WHERE id IN (SELECT id FROM traffic_deltas WHERE reported_at < $1 ORDER BY id LIMIT $2)`,
-		`SELECT EXISTS (SELECT 1 FROM traffic_deltas WHERE reported_at < $1)`, cutoff, chunk); err != nil {
+	if res.Deltas, err = s.deleteInChunks(ctx, deltasCleanup, cutoff, chunk); err != nil {
 		return res, err
 	}
-	if res.Batches, err = s.deleteInChunks(ctx,
-		`DELETE FROM traffic_batches WHERE (node_id, batch_id) IN (SELECT node_id, batch_id FROM traffic_batches WHERE received_at < $1 LIMIT $2)`,
-		`SELECT EXISTS (SELECT 1 FROM traffic_batches WHERE received_at < $1)`, cutoff, chunk); err != nil {
+	if res.Batches, err = s.deleteInChunks(ctx, batchesCleanup, cutoff, chunk); err != nil {
 		return res, err
 	}
-	res.Keys, err = s.deleteInChunks(ctx,
-		`DELETE FROM user_keys WHERE id IN (SELECT id FROM user_keys WHERE revoked_at < $1 ORDER BY id LIMIT $2)`,
-		`SELECT EXISTS (SELECT 1 FROM user_keys WHERE revoked_at < $1)`, cutoff, chunk)
+	res.Keys, err = s.deleteInChunks(ctx, keysCleanup, cutoff, chunk)
 	return res, err
 }
 
-func (s *Store) deleteInChunks(ctx context.Context, del string, exists string, cutoff time.Time, chunk int) (int64, error) {
+func (s *Store) deleteInChunks(ctx context.Context, q chunkedDelete, cutoff time.Time, chunk int) (int64, error) {
 	var total int64
 	for {
-		var found bool
-		if err := s.pool.QueryRow(ctx, exists, cutoff).Scan(&found); err != nil {
+		var bound any
+		if err := s.pool.QueryRow(ctx, q.bound, cutoff, chunk).Scan(&bound); err != nil {
 			return total, err
 		}
-		if !found {
+		if bound == nil {
 			return total, nil
 		}
-		tag, err := s.pool.Exec(ctx, del, cutoff, chunk)
+		tag, err := s.pool.Exec(ctx, q.del, cutoff, bound)
 		if err != nil {
 			return total, err
 		}
-		total += tag.RowsAffected()
-		if err := ctx.Err(); err != nil {
-			return total, err
+		if tag.RowsAffected() == 0 {
+			return total, nil
 		}
+		total += tag.RowsAffected()
 	}
 }

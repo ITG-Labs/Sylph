@@ -367,6 +367,7 @@ func TestExhaustedUserWaitsForTheNextPeriod(t *testing.T) {
 func TestCleanupHistoryKeepsFreshData(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
+	neighbour, neighbourKey := userWithKey(t, s)
 	u, oldKey := userWithKey(t, s)
 	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
 	n := deltaNode(t, s)
@@ -397,8 +398,11 @@ func TestCleanupHistoryKeepsFreshData(t *testing.T) {
 	if err := s.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM traffic_deltas), (SELECT count(*) FROM traffic_batches), (SELECT count(*) FROM user_keys)`).Scan(&deltas, &batches, &keys); err != nil {
 		t.Fatal(err)
 	}
-	if deltas != 1 || batches != 1 || keys != 1 {
+	if deltas != 1 || batches != 1 || keys != 2 {
 		t.Fatalf("left deltas %d batches %d keys %d", deltas, batches, keys)
+	}
+	if ks, err := s.GetUserKeys(ctx, neighbour.ID); err != nil || len(ks) != 1 || ks[0].UUID != neighbourKey {
+		t.Fatalf("cleanup touched a live key of another user: %+v, %v", ks, err)
 	}
 	if after := userPeriods(t, s, u.ID)[0].TrafficUsedBytes; after != before {
 		t.Fatalf("cleanup changed the counter: %d -> %d", before, after)
@@ -451,5 +455,36 @@ func TestCleanupWithoutRevokedKeysDoesNotBump(t *testing.T) {
 	}
 	if nodeVersion(t, s, n.CertCN) != v {
 		t.Fatal("cleanup with nothing to delete bumped every node")
+	}
+}
+
+func TestCleanupStaysFastWhenStatisticsLag(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	deltaNode(t, s)
+	addOld := func() {
+		t.Helper()
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO traffic_deltas (node_id, key_uuid, bytes_up, bytes_down, reported_at)
+			 SELECT (SELECT min(id) FROM nodes), 'k', 1, 1, now() - interval '40 days' FROM generate_series(1, 12000)`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addOld()
+	if _, err := s.pool.Exec(ctx, `INSERT INTO traffic_deltas (node_id, key_uuid, bytes_up, bytes_down) SELECT min(id), 'fresh', 1, 1 FROM nodes`); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := s.CleanupHistory(ctx, time.Now().Add(-30*day), 10000); err != nil || res.Deltas != 12000 {
+		t.Fatalf("first cleanup = %+v, %v", res, err)
+	}
+	if _, err := s.pool.Exec(ctx, `VACUUM ANALYZE traffic_deltas`); err != nil {
+		t.Fatal(err)
+	}
+	addOld()
+	quick, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	res, err := s.CleanupHistory(quick, time.Now().Add(-30*day), 10000)
+	if err != nil || res.Deltas != 12000 {
+		t.Fatalf("cleanup after the table shrank and grew again = %+v, %v; a stale-statistics plan must not hang it", res, err)
 	}
 }
