@@ -1,0 +1,283 @@
+package bot
+
+import (
+	"context"
+	"errors"
+	"html"
+	"log/slog"
+	"strconv"
+	"strings"
+	"time"
+
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
+)
+
+type Telegram interface {
+	SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error)
+	EditMessageText(ctx context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error)
+	AnswerCallbackQuery(ctx context.Context, params *tgbot.AnswerCallbackQueryParams) (bool, error)
+}
+
+type App struct {
+	core    Core
+	subsURL string
+	loc     *time.Location
+	log     *slog.Logger
+}
+
+func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
+	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log}
+}
+
+type reply struct {
+	chatID int64
+	msgID  int
+}
+
+func (a *App) Handle(ctx context.Context, tg Telegram, u *models.Update) {
+	switch {
+	case u.Message != nil:
+		a.onMessage(ctx, tg, u.Message)
+	case u.CallbackQuery != nil:
+		a.onCallback(ctx, tg, u.CallbackQuery)
+	}
+}
+
+func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
+	if m.Chat.Type != models.ChatTypePrivate || m.From == nil {
+		return
+	}
+	if _, err := a.core.Register(ctx, m.From.ID); err != nil {
+		a.log.LogAttrs(ctx, slog.LevelError, "user_register_failed", slog.Int64("telegram_id", m.From.ID), slog.String("error", err.Error()))
+		a.send(ctx, tg, m.Chat.ID, textFailed, nil)
+		return
+	}
+	a.send(ctx, tg, m.Chat.ID, textMenu, menuKeyboard())
+}
+
+func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQuery) {
+	to := reply{chatID: q.From.ID}
+	switch {
+	case q.Message.Message != nil:
+		if q.Message.Message.Chat.Type != models.ChatTypePrivate {
+			return
+		}
+		to = reply{chatID: q.Message.Message.Chat.ID, msgID: q.Message.Message.ID}
+	case q.Message.InaccessibleMessage != nil && q.Message.InaccessibleMessage.Chat.Type != models.ChatTypePrivate:
+		return
+	}
+	tgID := q.From.ID
+	data := q.Data
+	var alert string
+	switch {
+	case data == cbMenu:
+		a.show(ctx, tg, to, textMenu, menuKeyboard())
+	case data == cbStatus:
+		alert = a.onStatus(ctx, tg, to, tgID)
+	case data == cbBuy:
+		alert = a.onPlans(ctx, tg, to, tgID)
+	case strings.HasPrefix(data, cbPlanPrefix):
+		alert = a.onBuy(ctx, tg, to, tgID, strings.TrimPrefix(data, cbPlanPrefix))
+	case strings.HasPrefix(data, cbChkPrefix):
+		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
+	case data == cbDevicesAsk:
+		a.show(ctx, tg, to, textDevicesAsk, keyboard(row(button("Да, сбросить", cbDevicesOK)), row(button("Отмена", cbMenu))))
+	case data == cbDevicesOK:
+		alert = a.onReset(ctx, tg, to, tgID)
+	case data == cbLinkAsk:
+		a.show(ctx, tg, to, textLinkAsk, keyboard(row(button("Да, сменить", cbLinkOK)), row(button("Отмена", cbMenu))))
+	case data == cbLinkOK:
+		alert = a.onRotate(ctx, tg, to, tgID)
+	}
+	params := &tgbot.AnswerCallbackQueryParams{CallbackQueryID: q.ID}
+	if alert != "" {
+		params.Text, params.ShowAlert = alert, true
+	}
+	if _, err := tg.AnswerCallbackQuery(ctx, params); err != nil {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "telegram_answer_failed", slog.String("error", err.Error()))
+	}
+}
+
+func (a *App) status(ctx context.Context, tgID int64) (*Status, error) {
+	st, err := a.core.Status(ctx, tgID)
+	if !errors.Is(err, ErrNotFound) {
+		return st, err
+	}
+	if _, err := a.core.Register(ctx, tgID); err != nil {
+		return nil, err
+	}
+	return a.core.Status(ctx, tgID)
+}
+
+func (a *App) fail(ctx context.Context, what string, tgID int64, err error) string {
+	switch {
+	case errors.Is(err, ErrConflict):
+		return textPlanGone
+	case errors.Is(err, ErrPaymentsDisabled):
+		return textPayDisabled
+	case errors.Is(err, ErrProviderUnavailable):
+		return textProviderDown
+	}
+	a.log.LogAttrs(ctx, slog.LevelError, what+"_failed", slog.Int64("telegram_id", tgID), slog.String("error", err.Error()))
+	return textFailed
+}
+
+func (a *App) onStatus(ctx context.Context, tg Telegram, to reply, tgID int64) string {
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "status", tgID, err)
+	}
+	a.show(ctx, tg, to, a.statusText(st), keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+	return ""
+}
+
+func (a *App) onPlans(ctx context.Context, tg Telegram, to reply, tgID int64) string {
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "plans", tgID, err)
+	}
+	plans, err := a.core.Plans(ctx)
+	if err != nil {
+		return a.fail(ctx, "plans", tgID, err)
+	}
+	text, kb := a.plansView(st, plans)
+	a.show(ctx, tg, to, text, kb)
+	return ""
+}
+
+func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw string) string {
+	planID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || planID <= 0 {
+		return textPlanGone
+	}
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "buy", tgID, err)
+	}
+	plans, err := a.core.Plans(ctx)
+	if err != nil {
+		return a.fail(ctx, "buy", tgID, err)
+	}
+	var plan *Plan
+	for i := range plans {
+		if plans[i].ID == planID {
+			plan = &plans[i]
+		}
+	}
+	if renew := offSaleCurrent(st, plans); plan == nil && renew != nil && renew.ID == planID {
+		plan = renew
+	}
+	if plan == nil {
+		a.show(ctx, tg, to, textPlanGone, keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+		return ""
+	}
+	pay, err := a.core.CreatePayment(ctx, st.User.ID, plan.ID)
+	if err != nil {
+		return a.fail(ctx, "payment_create", tgID, err)
+	}
+	a.log.LogAttrs(ctx, slog.LevelInfo, "payment_link_sent",
+		slog.Int64("telegram_id", tgID),
+		slog.String("payment_id", pay.PaymentID),
+		slog.Int64("plan_id", plan.ID))
+	text, kb := a.paymentView(st, *plan, pay)
+	a.show(ctx, tg, to, text, kb)
+	return ""
+}
+
+func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, paymentID string) string {
+	if !validPaymentID(paymentID) {
+		return textNotFound
+	}
+	chk, err := a.core.CheckPayment(ctx, paymentID)
+	if errors.Is(err, ErrNotFound) {
+		return textNotFound
+	}
+	if err != nil {
+		return a.fail(ctx, "payment_check", tgID, err)
+	}
+	if chk.TelegramID == nil || *chk.TelegramID != tgID {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "payment_check_foreign", slog.Int64("telegram_id", tgID), slog.String("payment_id", paymentID))
+		return textNotFound
+	}
+	a.log.LogAttrs(ctx, slog.LevelInfo, "payment_checked",
+		slog.Int64("telegram_id", tgID),
+		slog.String("payment_id", paymentID),
+		slog.String("status", chk.Status),
+		slog.Bool("applied", chk.Applied))
+	switch chk.Status {
+	case "succeeded":
+		a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(row(button("📊 Моя подписка", cbStatus)), backRow()))
+	case "canceled":
+		a.show(ctx, tg, to, textCanceled, keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+	case "mismatch":
+		a.show(ctx, tg, to, textMismatch, keyboard(backRow()))
+	default:
+		return textPending
+	}
+	return ""
+}
+
+func (a *App) onReset(ctx context.Context, tg Telegram, to reply, tgID int64) string {
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "devices_reset", tgID, err)
+	}
+	if err := a.core.ResetDevices(ctx, st.User.ID); err != nil {
+		return a.fail(ctx, "devices_reset", tgID, err)
+	}
+	a.log.LogAttrs(ctx, slog.LevelInfo, "devices_reset", slog.Int64("telegram_id", tgID))
+	a.show(ctx, tg, to, textDevicesDone, keyboard(backRow()))
+	return ""
+}
+
+func (a *App) onRotate(ctx context.Context, tg Telegram, to reply, tgID int64) string {
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "link_rotate", tgID, err)
+	}
+	token, err := a.core.Rotate(ctx, st.User.ID)
+	if err != nil {
+		return a.fail(ctx, "link_rotate", tgID, err)
+	}
+	a.log.LogAttrs(ctx, slog.LevelInfo, "link_rotated", slog.Int64("telegram_id", tgID))
+	a.show(ctx, tg, to, textLinkDonePart1+"\n<code>"+html.EscapeString(a.link(token))+"</code>", keyboard(backRow()))
+	return ""
+}
+
+func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, paidUntil *time.Time) error {
+	_, err := tg.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID: telegramID, Text: a.paidText(paidUntil), ParseMode: models.ParseModeHTML,
+		ReplyMarkup: keyboard(row(button("📊 Моя подписка", cbStatus))),
+	})
+	return err
+}
+
+func (a *App) show(ctx context.Context, tg Telegram, to reply, text string, kb *models.InlineKeyboardMarkup) {
+	if to.msgID != 0 {
+		_, err := tg.EditMessageText(ctx, &tgbot.EditMessageTextParams{
+			ChatID: to.chatID, MessageID: to.msgID, Text: text, ParseMode: models.ParseModeHTML, ReplyMarkup: kb,
+			LinkPreviewOptions: noPreview(),
+		})
+		if err == nil || strings.Contains(err.Error(), "message is not modified") {
+			return
+		}
+		a.log.LogAttrs(ctx, slog.LevelWarn, "telegram_edit_failed", slog.String("error", err.Error()))
+	}
+	a.send(ctx, tg, to.chatID, text, kb)
+}
+
+func (a *App) send(ctx context.Context, tg Telegram, chatID int64, text string, kb *models.InlineKeyboardMarkup) {
+	params := &tgbot.SendMessageParams{ChatID: chatID, Text: text, ParseMode: models.ParseModeHTML, LinkPreviewOptions: noPreview()}
+	if kb != nil {
+		params.ReplyMarkup = kb
+	}
+	if _, err := tg.SendMessage(ctx, params); err != nil {
+		a.log.LogAttrs(ctx, slog.LevelError, "telegram_send_failed", slog.Int64("chat_id", chatID), slog.String("error", err.Error()))
+	}
+}
+
+func noPreview() *models.LinkPreviewOptions {
+	disabled := true
+	return &models.LinkPreviewOptions{IsDisabled: &disabled}
+}

@@ -6,4 +6,5 @@ use (
 	./services/agent
 	./services/cron
 	./services/subs
+	./services/bot
 )
