@@ -1,0 +1,119 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-remote",
+        "server": "1.1.1.1",
+        "detour": "Выбор сервера"
+      },
+      {
+        "type": "local",
+        "tag": "dns-local"
+      }
+    ],
+    "final": "dns-remote",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Выбор сервера",
+      "outbounds": [
+        "Автовыбор",
+        "Нидерланды · Main",
+        "Финляндия"
+      ],
+      "default": "Автовыбор"
+    },
+    {
+      "type": "urltest",
+      "tag": "Автовыбор",
+      "outbounds": [
+        "Нидерланды · Main",
+        "Финляндия"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "5m"
+    },
+    {
+      "type": "vless",
+      "tag": "Нидерланды · Main",
+      "server": "nl1.example.com",
+      "server_port": 443,
+      "uuid": "091192b5-1fd3-4aeb-9733-810ef24c2964",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.apple.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "EznkPne5ZLOrLvDbqseDQycq-ca9v1kEytFwD1-fy3s",
+          "short_id": "98b7a90e659d766f"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Финляндия",
+      "server": "2001:db8::1",
+      "server_port": 443,
+      "uuid": "091192b5-1fd3-4aeb-9733-810ef24c2964",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "fi.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "s4KAfPmX6ufQ_n4VYWN2xG7mUVATAqaL0yY0GcmjGw0",
+          "short_id": "1234"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "Выбор сервера",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-local"
+  }
+}
