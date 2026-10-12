@@ -44,14 +44,14 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 			_, _ = io.WriteString(w, `{"expired":4}`)
 		case "/v1/maintenance/cleanup":
 			_ = json.NewDecoder(r.Body).Decode(&cleanupBody)
-			_, _ = io.WriteString(w, `{"deltas":120000,"batches":3000,"keys":2}`)
+			_, _ = io.WriteString(w, `{"deltas":120000,"batches":3000,"keys":2,"daily":7}`)
 		case "/v1/maintenance/payments/poll":
 			_, _ = io.WriteString(w, `{"checked":5,"succeeded":2,"canceled":1,"mismatch":1,"failed":1}`)
 		default:
 			http.NotFound(w, r)
 		}
 	})
-	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45, StatsRetentionDays: 365})
 	if len(jobs) != 3 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour ||
 		jobs[2].Name != "payments" || jobs[2].Every != 2*time.Minute {
 		t.Fatalf("jobs = %+v", jobs)
@@ -62,10 +62,10 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 	}
 	attrs, err = jobs[1].Do(context.Background())
 	got := attrsOf(attrs)
-	if err != nil || got["deltas"] != 120000 || got["batches"] != 3000 || got["keys"] != 2 {
+	if err != nil || got["deltas"] != 120000 || got["batches"] != 3000 || got["keys"] != 2 || got["daily"] != 7 {
 		t.Fatalf("cleanup = %v, %v", attrs, err)
 	}
-	if len(cleanupBody) != 1 || cleanupBody["older_than_days"] != float64(45) {
+	if len(cleanupBody) != 2 || cleanupBody["older_than_days"] != float64(45) || cleanupBody["stats_older_than_days"] != float64(365) {
 		t.Fatalf("cleanup body = %v", cleanupBody)
 	}
 	attrs, err = jobs[2].Do(context.Background())

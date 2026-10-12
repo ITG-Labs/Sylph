@@ -35,6 +35,7 @@ var routeMatrix = []routeCase{
 	{http.MethodDelete, "/v1/users/1/devices/1", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/trial", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodGet, "/v1/users/1/plans", []string{mtls.RoleBot, mtls.RolePanel}},
+	{http.MethodGet, "/v1/users/1/stats", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/invites/redeem", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/plans/1/invites", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/plans/1/invites", []string{mtls.RolePanel}},

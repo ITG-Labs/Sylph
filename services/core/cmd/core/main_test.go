@@ -87,3 +87,18 @@ func TestPaymentsConfigFromEnv(t *testing.T) {
 		t.Fatal("secret without shop id must fail")
 	}
 }
+
+func TestStatsTimezoneFromEnv(t *testing.T) {
+	t.Setenv("SYLPH_STATS_TZ", "")
+	if tz, err := statsTimezone(); err != nil || tz != "Europe/Moscow" {
+		t.Fatalf("default = %q, %v", tz, err)
+	}
+	t.Setenv("SYLPH_STATS_TZ", "Asia/Tokyo")
+	if tz, err := statsTimezone(); err != nil || tz != "Asia/Tokyo" {
+		t.Fatalf("tokyo = %q, %v", tz, err)
+	}
+	t.Setenv("SYLPH_STATS_TZ", "Mars/Olympus")
+	if _, err := statsTimezone(); err == nil {
+		t.Fatal("unknown timezone accepted")
+	}
+}

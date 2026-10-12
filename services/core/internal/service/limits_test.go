@@ -134,7 +134,7 @@ func TestForgedHugeDeltaDoesNotBlockHonestNode(t *testing.T) {
 func TestCleanupHistoryRejectsBadRetention(t *testing.T) {
 	svc := setupService(t)
 	for _, days := range []int{0, -5, 3651} {
-		if _, err := svc.CleanupHistory(context.Background(), days, time.Now()); err == nil {
+		if _, err := svc.CleanupHistory(context.Background(), days, nil, time.Now()); err == nil {
 			t.Fatalf("retention %d accepted", days)
 		}
 	}

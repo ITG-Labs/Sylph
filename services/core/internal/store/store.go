@@ -17,7 +17,8 @@ var ErrInvalidReference = errors.New("invalid reference")
 var ErrTrialOnSale = fmt.Errorf("%w: another trial plan is on sale", ErrConflict)
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	statsTZ string
 }
 
 type pgxRow interface {
@@ -25,7 +26,7 @@ type pgxRow interface {
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{pool: pool, statsTZ: DefaultStatsTimezone}
 }
 
 func mapWriteErr(err error) error {

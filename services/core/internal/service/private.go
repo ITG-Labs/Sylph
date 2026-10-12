@@ -136,3 +136,10 @@ func (s *Service) RevokePlanAccess(ctx context.Context, planID, telegramID int64
 	s.log.LogAttrs(ctx, slog.LevelInfo, "plan_access_revoked", slog.Int64("plan_id", planID), slog.Int64("user_id", u.ID))
 	return nil
 }
+
+func (s *Service) UserStats(ctx context.Context, userID int64) (store.UserStats, error) {
+	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+		return store.UserStats{}, err
+	}
+	return s.store.UserStats(ctx, userID)
+}
