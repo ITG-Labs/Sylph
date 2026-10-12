@@ -5,3 +5,4 @@ coverage.out
 .superpowers/
 docs/vault/.obsidian/
 .bin/
+deploy/test/node/bin/

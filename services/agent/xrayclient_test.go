@@ -15,11 +15,11 @@ var _ XrayClient = newFakeXray()
 func TestFakeXrayUserLifecycle(t *testing.T) {
 	fx := newFakeXray()
 	ctx := context.Background()
-	if err := fx.AddUser(ctx, "vless-in", "u-1"); err != nil {
+	if err := fx.AddUser(ctx, "vless-in", "u-1", "xtls-rprx-vision"); err != nil {
 		t.Fatal(err)
 	}
-	if !fx.hasUser("vless-in", "u-1") {
-		t.Fatal("user not added")
+	if !fx.hasUser("vless-in", "u-1") || fx.flowOf("vless-in", "u-1") != "xtls-rprx-vision" {
+		t.Fatal("user not added with its flow")
 	}
 	if err := fx.RemoveUser(ctx, "vless-in", "u-1"); err != nil {
 		t.Fatal(err)

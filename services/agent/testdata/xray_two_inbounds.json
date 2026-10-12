@@ -1,0 +1,87 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "api": {
+    "tag": "sylph_api",
+    "listen": "127.0.0.1:10085",
+    "services": [
+      "HandlerService",
+      "StatsService"
+    ]
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "alpha",
+      "listen": "127.0.0.1",
+      "port": 20001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "sockopt": {
+          "acceptProxyProtocol": true
+        },
+        "realitySettings": {
+          "target": "www.alpha.example:443",
+          "serverNames": [
+            "www.alpha.example",
+            "alpha.example"
+          ],
+          "privateKey": "8F0ET9EsN7sZiyXEsjQ2FnD1ew8BagsJ-BMWKb_s1nk",
+          "shortIds": [
+            "a1b2c3d4e5f60718"
+          ]
+        }
+      }
+    },
+    {
+      "tag": "beta",
+      "listen": "127.0.0.1",
+      "port": 20002,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "sockopt": {
+          "acceptProxyProtocol": true
+        },
+        "realitySettings": {
+          "target": "beta.example:8443",
+          "serverNames": [
+            "beta.example"
+          ],
+          "privateKey": "MDHqaJPhoMxwOUVfWKd2y8WK8XFd8mmQr0LHNlU2ZVE",
+          "shortIds": [
+            "0a1b",
+            "c2d3e4f5"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    }
+  ]
+}

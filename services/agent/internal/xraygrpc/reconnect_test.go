@@ -18,7 +18,7 @@ func TestSeesXrayShortlyAfterLongOutage(t *testing.T) {
 	}
 	addr := probe.Addr().String()
 	_ = probe.Close()
-	c, err := Dial(addr, "", time.Second)
+	c, err := Dial(addr, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

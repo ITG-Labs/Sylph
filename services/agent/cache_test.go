@@ -4,12 +4,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
 func TestCacheRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "cache.json")
-	c := &Cache{Version: 7, Users: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, Config: "{}"}
+	c := &Cache{Version: 7, Users: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, Inbounds: testInbounds("alpha", "beta")}
 	if err := SaveCache(path, c); err != nil {
 		t.Fatal(err)
 	}
@@ -19,6 +20,31 @@ func TestCacheRoundTrip(t *testing.T) {
 	}
 	if got.Version != 7 || len(got.Users) != 2 || got.Users[1].UUID != "u-2" {
 		t.Fatalf("got %+v", got)
+	}
+	if !reflect.DeepEqual(got.Inbounds, c.Inbounds) {
+		t.Fatalf("inbounds = %+v", got.Inbounds)
+	}
+}
+
+func TestCacheKeepsEmptyInboundsApartFromUnknown(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.json")
+	if err := SaveCache(empty, &Cache{Version: 1, Inbounds: []Inbound{}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadCache(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Inbounds == nil {
+		t.Fatal("node without inbounds came back as unknown inbounds")
+	}
+	unknown := filepath.Join(dir, "unknown.json")
+	if err := SaveCache(unknown, &Cache{Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = LoadCache(unknown); err != nil || got.Inbounds != nil {
+		t.Fatalf("unknown inbounds came back as %#v (err %v)", got.Inbounds, err)
 	}
 }
 

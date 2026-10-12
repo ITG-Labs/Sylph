@@ -14,7 +14,7 @@ import (
 
 func liveXray(t *testing.T) *xraygrpc.Client {
 	t.Helper()
-	c, err := xraygrpc.Dial(xraytest.API(t), "", 5*time.Second)
+	c, err := xraygrpc.Dial(xraytest.API(t), 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,13 +22,15 @@ func liveXray(t *testing.T) *xraygrpc.Client {
 	return c
 }
 
+var liveInbounds = []Inbound{{Tag: xraytest.EngineTag}}
+
 func liveEngine(t *testing.T, x XrayClient) *Engine {
 	t.Helper()
-	cfg := &Config{InboundTag: xraytest.EngineTag, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	cfg := &Config{CachePath: filepath.Join(t.TempDir(), "cache.json")}
 	e := NewEngine(cfg, nil, x, discardLogger())
 	t.Cleanup(func() {
 		e.setDesired(nil)
-		_ = e.Reconcile(context.Background())
+		_ = e.Reconcile(context.Background(), liveInbounds)
 	})
 	return e
 }
@@ -53,17 +55,17 @@ func TestLiveReconcileDrivesRealXray(t *testing.T) {
 	ctx := context.Background()
 	a, b, c := xraytest.NewUUID(), xraytest.NewUUID(), xraytest.NewUUID()
 	e.setDesired(users(a, b))
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	assertLiveUsers(t, x, a, b)
 	e.setDesired(users(b, c))
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	assertLiveUsers(t, x, b, c)
 	e.setDesired(users())
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	assertLiveUsers(t, x)
@@ -75,13 +77,13 @@ func TestLiveReconcileRestoresUsersLostByXray(t *testing.T) {
 	ctx := context.Background()
 	a, b := xraytest.NewUUID(), xraytest.NewUUID()
 	e.setDesired(users(a, b))
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	if err := x.RemoveUser(ctx, xraytest.EngineTag, a); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	assertLiveUsers(t, x, a, b)
@@ -96,14 +98,14 @@ func TestLiveRevokedUserIsCutOff(t *testing.T) {
 	ctx := context.Background()
 	u := xraytest.NewUUID()
 	e.setDesired(users(u))
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	if err := xraytest.Exchange(xraytest.EngineVLESS, u, []byte("ping"), 4); err != nil {
 		t.Fatalf("active user cannot connect: %v", err)
 	}
 	e.setDesired(users())
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	if err := xraytest.Exchange(xraytest.EngineVLESS, u, []byte("ping"), 4); err == nil {
@@ -129,7 +131,7 @@ func TestLiveStatsCollectorCountsRealTraffic(t *testing.T) {
 	ctx := context.Background()
 	u := xraytest.NewUUID()
 	e.setDesired(users(u))
-	if err := e.Reconcile(ctx); err != nil {
+	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
 	sc := NewStatsCollector(x, discardLogger())

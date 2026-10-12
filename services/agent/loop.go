@@ -14,13 +14,15 @@ type Loop struct {
 	stats   *StatsCollector
 	core    *CoreClient
 	xray    XrayClient
+	node    *NodeConfig
 	cfg     *Config
 	logger  *slog.Logger
 	started time.Time
+	applied []Inbound
 }
 
-func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, cfg *Config, logger *slog.Logger) *Loop {
-	return &Loop{engine: e, stats: sc, core: core, xray: xray, cfg: cfg, logger: logger, started: time.Now()}
+func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
+	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, cfg: cfg, logger: logger, started: time.Now()}
 }
 
 func (l *Loop) RunOnce(ctx context.Context) error {
@@ -29,7 +31,7 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	if syncErr != nil {
 		l.logger.Error("sync_failed", "error", syncErr.Error())
 	}
-	applyErr := l.engine.Reconcile(ctx)
+	applyErr := l.apply(ctx)
 	if applyErr != nil {
 		l.logger.Error("reconcile_failed", "error", applyErr.Error())
 	}
@@ -44,11 +46,9 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		AgentVersion:   version.Version,
 		XrayVersion:    l.cfg.XrayVersion,
 		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
+		ConfigError:    l.node.ConfigError(),
 	}
-	if users, err := l.xray.ListUsers(ctx, l.cfg.InboundTag); err != nil {
-		l.logger.Error("heartbeat_xray_probe_failed", "probe", "list_users", "error", err.Error())
-	} else {
-		count := len(users)
+	if count, ok := l.activeUsers(ctx, l.applied); ok {
 		hb.ActiveUsers = &count
 	}
 	if uptime, err := l.xray.Uptime(ctx); err != nil {
@@ -58,6 +58,38 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		hb.XrayUptimeSec = &sec
 	}
 	return hb
+}
+
+func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) {
+	if inbounds == nil {
+		return 0, false
+	}
+	seen := map[string]bool{}
+	for _, in := range inbounds {
+		users, err := l.xray.ListUsers(ctx, in.Tag)
+		if err != nil {
+			l.logger.Error("heartbeat_xray_probe_failed", "probe", "list_users", "inbound", in.Tag, "error", err.Error())
+			return 0, false
+		}
+		for _, u := range users {
+			seen[u] = true
+		}
+	}
+	return len(seen), true
+}
+
+func (l *Loop) apply(ctx context.Context) error {
+	l.applied = l.node.Apply(ctx, l.engine.Inbounds())
+	if l.applied == nil {
+		return l.engine.Revoke(ctx, l.node.RunningTags())
+	}
+	return l.engine.Reconcile(ctx, l.applied)
+}
+
+func (l *Loop) ApplyCached(ctx context.Context) {
+	if err := l.apply(ctx); err != nil {
+		l.logger.Error("cache_apply_failed", "error", err.Error())
+	}
 }
 
 func (l *Loop) reportTraffic(ctx context.Context) {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -15,6 +16,7 @@ type fakeCore struct {
 	mu              sync.Mutex
 	syncVersion     int64
 	syncUsers       []SyncUser
+	syncInbounds    []Inbound
 	deltasSeen      []Delta
 	batchAttempts   []string
 	batchesSeen     map[string]bool
@@ -37,7 +39,7 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion, "users": f.syncUsers, "config": "{}"})
+		json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion, "users": f.syncUsers, "inbounds": f.syncInbounds})
 	case "/v1/sync/deltas":
 		var body Batch
 		b, _ := io.ReadAll(r.Body)
@@ -70,6 +72,29 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const testPrivateKey = "8F0ET9EsN7sZiyXEsjQ2FnD1ew8BagsJ-BMWKb_s1nk"
+
+func testInbound(tag string) Inbound {
+	return Inbound{
+		Tag: tag, Port: 443, Protocol: "vless", Transport: "tcp", Security: "reality", Flow: "xtls-rprx-vision",
+		Reality: &Reality{
+			Dest:        "www.example.com:443",
+			ServerNames: []string{tag + ".example.com"},
+			ShortIDs:    []string{"a1b2c3d4e5f60718"},
+			Fingerprint: "chrome",
+			PrivateKey:  testPrivateKey,
+		},
+	}
+}
+
+func testInbounds(tags ...string) []Inbound {
+	out := make([]Inbound, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, testInbound(tag))
+	}
+	return out
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -84,12 +109,12 @@ func httptestOf(fc *fakeCore, t *testing.T) *httptest.Server {
 func testCoreClient(t *testing.T, fc *fakeCore) *CoreClient {
 	t.Helper()
 	ts := httptestOf(fc, t)
-	cfg := &Config{CoreURL: ts.URL, InboundTag: "vless-in"}
+	cfg := &Config{CoreURL: ts.URL}
 	return newCoreClientForTest(cfg, discardLogger())
 }
 
 func TestSyncUsersFull(t *testing.T) {
-	fc := &fakeCore{syncVersion: 5, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}}
+	fc := &fakeCore{syncVersion: 5, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, syncInbounds: testInbounds("main")}
 	cc := testCoreClient(t, fc)
 	resp, err := cc.SyncUsers(context.Background(), 0)
 	if err != nil {
@@ -97,6 +122,37 @@ func TestSyncUsersFull(t *testing.T) {
 	}
 	if resp.Version != 5 || len(resp.Users) != 2 || resp.Users[0].UUID != "u-1" {
 		t.Fatalf("resp = %+v", resp)
+	}
+	if !reflect.DeepEqual(resp.Inbounds, testInbounds("main")) {
+		t.Fatalf("inbounds = %+v", resp.Inbounds)
+	}
+}
+
+func TestSyncInboundsWireFormat(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"version":3,"users":[],"inbounds":[{"tag":"main","port":443,"protocol":"vless","transport":"tcp","security":"reality","flow":"xtls-rprx-vision","reality":{"dest":"www.example.com:443","server_names":["www.example.com"],"short_ids":["a1b2"],"fingerprint":"chrome","private_key":"k"}}]}`)
+	}))
+	t.Cleanup(ts.Close)
+	cc := newCoreClientForTest(&Config{CoreURL: ts.URL}, discardLogger())
+	resp, err := cc.SyncUsers(context.Background(), -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Inbound{{Tag: "main", Port: 443, Protocol: "vless", Transport: "tcp", Security: "reality", Flow: "xtls-rprx-vision",
+		Reality: &Reality{Dest: "www.example.com:443", ServerNames: []string{"www.example.com"}, ShortIDs: []string{"a1b2"}, Fingerprint: "chrome", PrivateKey: "k"}}}
+	if !reflect.DeepEqual(resp.Inbounds, want) {
+		t.Fatalf("inbounds = %+v", resp.Inbounds)
+	}
+}
+
+func TestSyncEmptyInboundsAreKnown(t *testing.T) {
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{}, syncInbounds: []Inbound{}}
+	resp, err := testCoreClient(t, fc).SyncUsers(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Inbounds == nil || len(resp.Inbounds) != 0 {
+		t.Fatalf("empty inbounds list decoded as %#v, want known and empty", resp.Inbounds)
 	}
 }
 
@@ -107,8 +163,8 @@ func TestSyncUsersNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Users != nil {
-		t.Fatalf("users should be nil, got %+v", resp.Users)
+	if resp.Users != nil || resp.Inbounds != nil {
+		t.Fatalf("no-change sync must carry neither users nor inbounds, got %+v", resp)
 	}
 }
 

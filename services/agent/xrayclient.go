@@ -7,7 +7,7 @@ import (
 )
 
 type XrayClient interface {
-	AddUser(ctx context.Context, inboundTag string, uuid string) error
+	AddUser(ctx context.Context, inboundTag string, uuid string, flow string) error
 	RemoveUser(ctx context.Context, inboundTag string, uuid string) error
 	ListUsers(ctx context.Context, inboundTag string) ([]string, error)
 	QueryStats(ctx context.Context, pattern string) (map[string]int64, error)

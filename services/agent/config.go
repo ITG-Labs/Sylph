@@ -2,46 +2,51 @@ package agent
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"time"
 )
 
-const visionFlow = "xtls-rprx-vision"
+const (
+	defaultXrayAPI    = "127.0.0.1:10085"
+	defaultXrayConfig = "/etc/xray/config.json"
+	defaultCaddyAdmin = "unix//run/caddy-admin/admin.sock|0666"
+)
 
 type Config struct {
-	CoreURL      string
-	TLSCert      string
-	TLSKey       string
-	CACert       string
-	ServerName   string
-	CachePath    string
-	StatsPath    string
-	InboundTag   string
-	ListenAPI    string
-	XrayVersion  string
-	XrayAPI      string
-	XrayTimeout  time.Duration
-	VLESSFlow    string
-	SyncInterval time.Duration
+	CoreURL       string
+	TLSCert       string
+	TLSKey        string
+	CACert        string
+	ServerName    string
+	CachePath     string
+	StatsPath     string
+	NodeStatePath string
+	ListenAPI     string
+	XrayVersion   string
+	XrayAPI       string
+	XrayTimeout   time.Duration
+	XrayConfig    string
+	CaddyAdmin    string
+	SyncInterval  time.Duration
 }
 
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		CoreURL:      os.Getenv("SYLPH_CORE_URL"),
-		TLSCert:      os.Getenv("SYLPH_TLS_CERT"),
-		TLSKey:       os.Getenv("SYLPH_TLS_KEY"),
-		CACert:       os.Getenv("SYLPH_CA_CERT"),
-		ServerName:   envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
-		CachePath:    envOr("SYLPH_CACHE_PATH", "cache.json"),
-		StatsPath:    envOr("SYLPH_STATS_PATH", "stats.json"),
-		InboundTag:   envOr("SYLPH_INBOUND_TAG", "vless-in"),
-		ListenAPI:    envOr("SYLPH_LISTEN_API", ""),
-		XrayVersion:  os.Getenv("SYLPH_XRAY_VERSION"),
-		XrayAPI:      envOr("SYLPH_XRAY_API", "127.0.0.1:10085"),
-		XrayTimeout:  5 * time.Second,
-		VLESSFlow:    visionFlow,
-		SyncInterval: 30 * time.Second,
+		CoreURL:       os.Getenv("SYLPH_CORE_URL"),
+		TLSCert:       os.Getenv("SYLPH_TLS_CERT"),
+		TLSKey:        os.Getenv("SYLPH_TLS_KEY"),
+		CACert:        os.Getenv("SYLPH_CA_CERT"),
+		ServerName:    envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
+		CachePath:     envOr("SYLPH_CACHE_PATH", "cache.json"),
+		StatsPath:     envOr("SYLPH_STATS_PATH", "stats.json"),
+		NodeStatePath: envOr("SYLPH_NODE_STATE_PATH", "node.json"),
+		ListenAPI:     envOr("SYLPH_LISTEN_API", ""),
+		XrayVersion:   os.Getenv("SYLPH_XRAY_VERSION"),
+		XrayAPI:       envOr("SYLPH_XRAY_API", defaultXrayAPI),
+		XrayTimeout:   5 * time.Second,
+		XrayConfig:    envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
+		CaddyAdmin:    envOr("SYLPH_CADDY_ADMIN", defaultCaddyAdmin),
+		SyncInterval:  30 * time.Second,
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -66,13 +71,14 @@ func LoadConfig() (*Config, error) {
 		}
 		cfg.XrayTimeout = d
 	}
-	if v, ok := os.LookupEnv("SYLPH_VLESS_FLOW"); ok {
-		cfg.VLESSFlow = v
-	}
-	if cfg.VLESSFlow != "" && cfg.VLESSFlow != visionFlow {
-		return nil, fmt.Errorf("SYLPH_VLESS_FLOW must be empty or %s, got %q", visionFlow, cfg.VLESSFlow)
-	}
 	return cfg, nil
+}
+
+func LoadBootstrapConfig() *Config {
+	return &Config{
+		XrayAPI:    envOr("SYLPH_XRAY_API", defaultXrayAPI),
+		XrayConfig: envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
+	}
 }
 
 func envOr(key string, fallback string) string {
