@@ -55,6 +55,8 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "invite_expired", "invite is expired")
 	case errors.Is(err, store.ErrInviteUsedUp):
 		writeError(w, http.StatusConflict, "invite_used_up", "invite is used up")
+	case errors.Is(err, store.ErrAccessRevoked):
+		writeError(w, http.StatusConflict, "access_revoked", "access to this plan was revoked")
 	case err != nil:
 		s.writeServiceError(w, err, "invite")
 	default:

@@ -114,5 +114,16 @@ func TestPrivatePlansAPI(t *testing.T) {
 	if ids := plansOf(); len(ids) != 1 {
 		t.Fatalf("plans after revoke = %v", ids)
 	}
+	var open struct {
+		Code string `json:"code"`
+	}
+	e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/plans/%d/invites", vip.ID), map[string]any{}).decode(t, &open)
+	r = redeem(open.Code)
+	if code, _ := r.errorField(t); r.status != http.StatusConflict || code != "access_revoked" {
+		t.Fatalf("redeem after revoke = %d %s", r.status, r.body)
+	}
+	if ids := plansOf(); len(ids) != 1 {
+		t.Fatalf("plans after a revoked redeem = %v", ids)
+	}
 	mustStatus(t, adminCall(t, bot, http.MethodGet, e.ts.URL+"/v1/users/424242/plans", nil), http.StatusNotFound)
 }

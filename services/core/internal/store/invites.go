@@ -19,6 +19,7 @@ var (
 	ErrInviteRevoked = errors.New("invite revoked")
 	ErrInviteExpired = errors.New("invite expired")
 	ErrInviteUsedUp  = errors.New("invite used up")
+	ErrAccessRevoked = errors.New("plan access revoked")
 )
 
 type RedeemResult struct {
@@ -61,19 +62,22 @@ func (s *Store) VisiblePlans(ctx context.Context, userID int64) ([]model.Plan, e
 func (s *Store) HasPlanAccess(ctx context.Context, planID, userID int64) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM plan_access WHERE plan_id = $1 AND user_id = $2)`, planID, userID).Scan(&ok)
+		`SELECT EXISTS (SELECT 1 FROM plan_access WHERE plan_id = $1 AND user_id = $2 AND revoked_at IS NULL)`, planID, userID).Scan(&ok)
 	return ok, err
 }
 
 func (s *Store) GrantPlanAccess(ctx context.Context, planID, userID int64, source string, inviteID *int64) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO plan_access (plan_id, user_id, source, invite_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+		`INSERT INTO plan_access (plan_id, user_id, source, invite_id) VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (plan_id, user_id) DO UPDATE SET source = EXCLUDED.source, invite_id = EXCLUDED.invite_id,
+		   granted_at = now(), revoked_at = NULL
+		 WHERE plan_access.revoked_at IS NOT NULL`,
 		planID, userID, source, inviteID)
 	return mapWriteErr(err)
 }
 
 func (s *Store) RevokePlanAccess(ctx context.Context, planID, userID int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM plan_access WHERE plan_id = $1 AND user_id = $2`, planID, userID)
+	tag, err := s.pool.Exec(ctx, `UPDATE plan_access SET revoked_at = now() WHERE plan_id = $1 AND user_id = $2 AND revoked_at IS NULL`, planID, userID)
 	if err != nil {
 		return err
 	}
@@ -85,7 +89,7 @@ func (s *Store) RevokePlanAccess(ctx context.Context, planID, userID int64) erro
 
 func (s *Store) ListPlanAccess(ctx context.Context, planID int64) ([]model.PlanAccess, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT a.plan_id, a.user_id, u.telegram_id, a.source, a.invite_id, a.granted_at
+		`SELECT a.plan_id, a.user_id, u.telegram_id, a.source, a.invite_id, a.granted_at, a.revoked_at
 		 FROM plan_access a JOIN users u ON u.id = a.user_id
 		 WHERE a.plan_id = $1 ORDER BY a.granted_at, a.user_id`, planID)
 	if err != nil {
@@ -95,7 +99,7 @@ func (s *Store) ListPlanAccess(ctx context.Context, planID int64) ([]model.PlanA
 	out := []model.PlanAccess{}
 	for rows.Next() {
 		var a model.PlanAccess
-		if err := rows.Scan(&a.PlanID, &a.UserID, &a.TelegramID, &a.Source, &a.InviteID, &a.GrantedAt); err != nil {
+		if err := rows.Scan(&a.PlanID, &a.UserID, &a.TelegramID, &a.Source, &a.InviteID, &a.GrantedAt, &a.RevokedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -144,14 +148,17 @@ func (s *Store) RedeemInvite(ctx context.Context, code string, userID int64, now
 		return RedeemResult{}, err
 	}
 	res := RedeemResult{PlanID: inv.PlanID, InviteID: inv.ID}
-	var has bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM plan_access WHERE plan_id = $1 AND user_id = $2)`, inv.PlanID, userID).Scan(&has); err != nil {
-		return RedeemResult{}, err
-	}
-	if has {
+	var revoked *time.Time
+	err = tx.QueryRow(ctx,
+		`SELECT revoked_at FROM plan_access WHERE plan_id = $1 AND user_id = $2`, inv.PlanID, userID).Scan(&revoked)
+	switch {
+	case err == nil && revoked != nil:
+		return RedeemResult{}, ErrAccessRevoked
+	case err == nil:
 		res.Already = true
 		return res, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return RedeemResult{}, err
 	}
 	switch {
 	case inv.RevokedAt != nil:

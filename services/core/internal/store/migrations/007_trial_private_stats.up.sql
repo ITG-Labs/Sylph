@@ -39,6 +39,7 @@ CREATE TABLE plan_access (
     source      TEXT   NOT NULL CHECK (source IN ('invite', 'admin')),
     invite_id   BIGINT REFERENCES plan_invites(id),
     granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at  TIMESTAMPTZ,
     PRIMARY KEY (plan_id, user_id)
 );
 CREATE INDEX idx_plan_access_user ON plan_access (user_id);

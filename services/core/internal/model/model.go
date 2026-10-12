@@ -84,12 +84,13 @@ type Invite struct {
 }
 
 type PlanAccess struct {
-	PlanID     int64     `json:"plan_id"`
-	UserID     int64     `json:"user_id"`
-	TelegramID *int64    `json:"telegram_id"`
-	Source     string    `json:"source"`
-	InviteID   *int64    `json:"invite_id"`
-	GrantedAt  time.Time `json:"granted_at"`
+	PlanID     int64      `json:"plan_id"`
+	UserID     int64      `json:"user_id"`
+	TelegramID *int64     `json:"telegram_id"`
+	Source     string     `json:"source"`
+	InviteID   *int64     `json:"invite_id"`
+	GrantedAt  time.Time  `json:"granted_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
 }
 
 type User struct {

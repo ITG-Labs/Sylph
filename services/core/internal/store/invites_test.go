@@ -171,3 +171,57 @@ func TestConcurrentRedeemsRespectMaxUses(t *testing.T) {
 		t.Fatalf("redeemed = %d, access = %d", ok, len(access))
 	}
 }
+
+func TestRevokedAccessSticksAgainstTheSameInvite(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	plan := mkVisPlan(t, s, "friends", 100, model.VisibilityPrivate)
+	inv := mkInvite(t, s, plan.ID, nil, nil)
+	u := mkTgUser(t, s, 6301)
+	now := time.Now().UTC()
+	if _, err := s.RedeemInvite(ctx, inv.Code, u.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokePlanAccess(ctx, plan.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RedeemInvite(ctx, inv.Code, u.ID, now); !errors.Is(err, ErrAccessRevoked) {
+		t.Fatalf("redeem after revoke: %v", err)
+	}
+	if ok, _ := s.HasPlanAccess(ctx, plan.ID, u.ID); ok {
+		t.Fatal("revoked access came back through the invite")
+	}
+	if got, _ := s.VisiblePlans(ctx, u.ID); len(got) != 0 {
+		t.Fatalf("revoked user sees %v", planIDs(got))
+	}
+	list, _ := s.ListPlanAccess(ctx, plan.ID)
+	if len(list) != 1 || list[0].RevokedAt == nil {
+		t.Fatalf("access list after revoke = %+v", list)
+	}
+	if err := s.GrantPlanAccess(ctx, plan.ID, u.ID, AccessAdmin, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.HasPlanAccess(ctx, plan.ID, u.ID); !ok {
+		t.Fatal("admin grant did not restore access")
+	}
+	list, _ = s.ListPlanAccess(ctx, plan.ID)
+	if len(list) != 1 || list[0].RevokedAt != nil || list[0].Source != AccessAdmin {
+		t.Fatalf("access list after re-grant = %+v", list)
+	}
+}
+
+func TestPrivateTrialRespectsRevokedAccess(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	plan := mkTrialPlan(t, s, model.VisibilityPrivate)
+	u := mkTgUser(t, s, 6302)
+	if err := s.GrantPlanAccess(ctx, plan.ID, u.ID, AccessAdmin, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokePlanAccess(ctx, plan.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if offer, _ := s.TrialPlanFor(ctx, u.ID); offer != nil {
+		t.Fatal("revoked user offered a private trial")
+	}
+}

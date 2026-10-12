@@ -48,6 +48,8 @@ func (s *Service) RedeemInvite(ctx context.Context, userID int64, code string) (
 			reason = "expired"
 		case errors.Is(err, store.ErrInviteUsedUp):
 			reason = "used_up"
+		case errors.Is(err, store.ErrAccessRevoked):
+			reason = "access_revoked"
 		}
 		s.log.LogAttrs(ctx, slog.LevelInfo, "invite_rejected", slog.Int64("user_id", userID), slog.String("reason", reason))
 		return nil, false, err
