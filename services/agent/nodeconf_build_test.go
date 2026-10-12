@@ -209,3 +209,17 @@ func TestBuildRejectsDestInsideTheNode(t *testing.T) {
 		}
 	}
 }
+
+func TestCaddyImageStartsWithTheAgentsEmptyConfig(t *testing.T) {
+	image, err := os.ReadFile(filepath.Join("..", "..", "deploy", "caddy", "caddy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := BuildCaddy(nil, defaultCaddyAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameJSON(image, empty) {
+		t.Fatalf("deploy/caddy/caddy.json = %s, want what the agent builds for a node without inbounds: %s", image, empty)
+	}
+}

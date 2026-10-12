@@ -1,4 +1,4 @@
-.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray
+.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray test-node
 
 PKGS := ./... ./services/core/... ./services/agent/...
 
@@ -30,8 +30,8 @@ test-db-down:
 	docker compose -f deploy/test/docker-compose.yml down -v
 
 test-db: test-db-up
-	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test -race -count=1 $(PKGS)
-	$(MAKE) test-db-down
+	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test -race -count=1 $(PKGS); \
+	status=$$?; $(MAKE) test-db-down; exit $$status
 
 test-xray-up:
 	docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
@@ -40,8 +40,18 @@ test-xray-down:
 	docker compose -f deploy/test/xray/docker-compose.yml down
 
 test-xray: test-xray-up
-	SYLPH_TEST_XRAY=127.0.0.1:55085 go test -race -count=1 ./services/agent/...
-	$(MAKE) test-xray-down
+	SYLPH_TEST_XRAY=127.0.0.1:55085 go test -race -count=1 ./services/agent/...; \
+	status=$$?; $(MAKE) test-xray-down; exit $$status
+
+NODE_COMPOSE := docker compose -f deploy/test/node/docker-compose.yml
+
+test-node:
+	mkdir -p deploy/test/node/bin/xray
+	CGO_ENABLED=0 go build -o deploy/test/node/bin/sylph-agent ./services/agent/cmd/agent
+	CGO_ENABLED=0 go test -c -o deploy/test/node/bin/agent.test ./services/agent
+	$(NODE_COMPOSE) build
+	$(NODE_COMPOSE) run --rm agent; \
+	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
 
 PROTOC_GEN_GO := v1.36.12
 PROTOC_GEN_GO_GRPC := v1.6.2

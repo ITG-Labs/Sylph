@@ -32,6 +32,7 @@ jobs:
           go-version-file: go.work
       - run: docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
       - run: go test -race -count=1 ./... ./services/core/... ./services/agent/...
+      - run: make test-node
   lint:
     runs-on: ubuntu-latest
     strategy:

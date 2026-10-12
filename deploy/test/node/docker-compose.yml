@@ -1,0 +1,54 @@
+name: sylph-test-node
+services:
+  caddy:
+    build: ../../caddy
+    image: sylph-caddy:test
+    extra_hosts:
+      - "dest.test:127.0.0.1"
+    volumes:
+      - caddy-admin:/run/caddy-admin
+  bootstrap:
+    build:
+      context: .
+      dockerfile: agent.Dockerfile
+    image: sylph-test-node-agent
+    entrypoint: ["/sylph/sylph-agent", "bootstrap"]
+    volumes:
+      - xray-config:/etc/xray
+  xray:
+    image: ghcr.io/xtls/xray-core:26.10.10
+    network_mode: service:caddy
+    pid: service:caddy
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - xray-config:/etc/xray:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      caddy:
+        condition: service_started
+  client:
+    image: ghcr.io/xtls/xray-core:26.10.10
+    command: ["run", "-c", "/etc/sylph/client.json"]
+    volumes:
+      - ./client.json:/etc/sylph/client.json:ro
+  agent:
+    image: sylph-test-node-agent
+    network_mode: service:caddy
+    pid: service:caddy
+    entrypoint: ["/sylph/agent.test", "-test.run", "^TestNodeLive$$", "-test.v", "-test.count=1"]
+    environment:
+      SYLPH_TEST_NODE: "1"
+    volumes:
+      - xray-config:/etc/xray
+      - caddy-admin:/run/caddy-admin
+    depends_on:
+      xray:
+        condition: service_started
+      client:
+        condition: service_started
+    profiles: ["test"]
+volumes:
+  xray-config:
+  caddy-admin:
