@@ -393,3 +393,57 @@ func TestAdminLegacyNodeCanBeFixedAndDisabled(t *testing.T) {
 	mustField(t, e.call(t, http.MethodPatch, path, map[string]any{"address": "bad host"}), http.StatusBadRequest, "bad_request", "address")
 	mustField(t, e.call(t, http.MethodPatch, path, map[string]any{"name": ""}), http.StatusBadRequest, "bad_request", "name")
 }
+
+func TestAdminPlanHWIDTrialVisibility(t *testing.T) {
+	e := newAdminEnv(t)
+	type plan struct {
+		ID           int64  `json:"id"`
+		DeviceLimit  *int   `json:"device_limit"`
+		HWIDRequired bool   `json:"hwid_required"`
+		Trial        bool   `json:"trial"`
+		Visibility   string `json:"visibility"`
+	}
+	var limited, open, trial plan
+	r := e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "limited", "price_rub": 1, "period_days": 30, "device_limit": 2})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &limited)
+	if !limited.HWIDRequired || limited.Trial || limited.Visibility != "public" {
+		t.Fatalf("limited = %+v", limited)
+	}
+	r = e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "open", "price_rub": 1, "period_days": 30})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &open)
+	if open.HWIDRequired {
+		t.Fatalf("open = %+v", open)
+	}
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "hwid-only", "price_rub": 1, "period_days": 30, "hwid_required": true}), http.StatusOK)
+	r = e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "trial", "price_rub": 0, "period_days": 3, "trial": true, "visibility": "private"})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &trial)
+	if !trial.Trial || trial.Visibility != "private" {
+		t.Fatalf("trial = %+v", trial)
+	}
+	bad := []struct {
+		body  map[string]any
+		field string
+	}{
+		{map[string]any{"name": "a", "price_rub": 1, "period_days": 30, "device_limit": 2, "hwid_required": false}, "hwid_required"},
+		{map[string]any{"name": "a", "price_rub": 5, "period_days": 3, "trial": true}, "price_rub"},
+		{map[string]any{"name": "a", "price_rub": 1, "period_days": 30, "visibility": "secret"}, "visibility"},
+	}
+	for _, b := range bad {
+		mustField(t, e.call(t, http.MethodPost, "/v1/admin/plans", b.body), http.StatusBadRequest, "bad_request", b.field)
+	}
+	mustField(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "trial-2", "price_rub": 0, "period_days": 3, "trial": true}), http.StatusConflict, "conflict", "trial")
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", limited.ID), map[string]any{"hwid_required": false}), http.StatusBadRequest, "bad_request", "hwid_required")
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", open.ID), map[string]any{"device_limit": 3}), http.StatusBadRequest, "bad_request", "hwid_required")
+	r = e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", limited.ID), map[string]any{"device_limit": nil, "hwid_required": false, "visibility": "private"})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &limited)
+	if limited.HWIDRequired || limited.DeviceLimit != nil || limited.Visibility != "private" {
+		t.Fatalf("patched limited = %+v", limited)
+	}
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", trial.ID), map[string]any{"on_sale": false}), http.StatusOK)
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "trial-2", "price_rub": 0, "period_days": 3, "trial": true}), http.StatusOK)
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", trial.ID), map[string]any{"on_sale": true}), http.StatusConflict, "conflict", "trial")
+}

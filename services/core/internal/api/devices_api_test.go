@@ -20,7 +20,7 @@ func userWithDevices(t *testing.T, e *apiEnv, tg int64, hwids ...string) *model.
 		t.Fatal(err)
 	}
 	limit := 5
-	p := &model.Plan{Name: fmt.Sprintf("dev-%d", tg), PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit}
+	p := &model.Plan{Name: fmt.Sprintf("dev-%d", tg), PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit, HWIDRequired: true}
 	if err := e.svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

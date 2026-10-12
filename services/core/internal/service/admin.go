@@ -81,15 +81,30 @@ func validatePlan(p *model.Plan) error {
 	if p.DeviceLimit != nil && (*p.DeviceLimit < 1 || *p.DeviceLimit > 100) {
 		return fieldErr("device_limit", "must be 1-100 or null for unlimited")
 	}
+	if p.DeviceLimit != nil && !p.HWIDRequired {
+		return fieldErr("hwid_required", "must be true when device_limit is set")
+	}
+	if p.Trial && p.PriceRub != 0 {
+		return fieldErr("price_rub", "must be 0 for a trial plan")
+	}
+	if p.Visibility != model.VisibilityPublic && p.Visibility != model.VisibilityPrivate {
+		return fieldErr("visibility", "must be public or private")
+	}
 	return nil
+}
+
+func planWriteErr(err error) error {
+	if errors.Is(err, store.ErrTrialOnSale) {
+		return &ConflictError{Field: "trial", Message: "another trial plan is on sale"}
+	}
+	return referenceOr(conflictOr(err, "name", "plan already exists"), "location_group_id", "group not found")
 }
 
 func (s *Service) CreatePlanChecked(ctx context.Context, p *model.Plan) error {
 	if err := validatePlan(p); err != nil {
 		return err
 	}
-	err := s.store.CreatePlan(ctx, p)
-	return referenceOr(conflictOr(err, "name", "plan already exists"), "location_group_id", "group not found")
+	return planWriteErr(s.store.CreatePlan(ctx, p))
 }
 
 type PlanPatch struct {
@@ -100,6 +115,9 @@ type PlanPatch struct {
 	LocationGroupID   Optional[int64] `json:"location_group_id"`
 	DeviceLimit       Optional[int]   `json:"device_limit"`
 	OnSale            *bool           `json:"on_sale"`
+	HWIDRequired      *bool           `json:"hwid_required"`
+	Trial             *bool           `json:"trial"`
+	Visibility        *string         `json:"visibility"`
 }
 
 func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*model.Plan, error) {
@@ -128,11 +146,19 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	if patch.OnSale != nil {
 		p.OnSale = *patch.OnSale
 	}
+	if patch.HWIDRequired != nil {
+		p.HWIDRequired = *patch.HWIDRequired
+	}
+	if patch.Trial != nil {
+		p.Trial = *patch.Trial
+	}
+	if patch.Visibility != nil {
+		p.Visibility = *patch.Visibility
+	}
 	if err := validatePlan(p); err != nil {
 		return nil, err
 	}
-	err = s.store.UpdatePlan(ctx, p)
-	return p, referenceOr(conflictOr(err, "name", "plan already exists"), "location_group_id", "group not found")
+	return p, planWriteErr(s.store.UpdatePlan(ctx, p))
 }
 
 func (s *Service) ListPlans(ctx context.Context) ([]model.Plan, error) {

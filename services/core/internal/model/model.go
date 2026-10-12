@@ -52,6 +52,11 @@ type NodeInbound struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
 type Plan struct {
 	ID                int64     `json:"id"`
 	Name              string    `json:"name"`
@@ -61,6 +66,9 @@ type Plan struct {
 	LocationGroupID   *int64    `json:"location_group_id"`
 	DeviceLimit       *int      `json:"device_limit"`
 	OnSale            bool      `json:"on_sale"`
+	HWIDRequired      bool      `json:"hwid_required"`
+	Trial             bool      `json:"trial"`
+	Visibility        string    `json:"visibility"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 

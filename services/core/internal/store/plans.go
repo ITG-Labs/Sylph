@@ -39,11 +39,13 @@ func (s *Store) ListLocationGroups(ctx context.Context) ([]model.LocationGroup, 
 	return groups, rows.Err()
 }
 
-const planColumns = `id, name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, on_sale, created_at`
+const planColumns = `id, name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, on_sale, hwid_required, trial, visibility, created_at`
+
+const planColumnsP = `p.id, p.name, p.price_rub, p.period_days, p.traffic_limit_bytes, p.location_group_id, p.device_limit, p.on_sale, p.hwid_required, p.trial, p.visibility, p.created_at`
 
 func (s *Store) scanPlan(row pgxRow) (*model.Plan, error) {
 	p := &model.Plan{}
-	err := row.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit, &p.OnSale, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit, &p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -54,10 +56,13 @@ func (s *Store) scanPlan(row pgxRow) (*model.Plan, error) {
 }
 
 func (s *Store) CreatePlan(ctx context.Context, p *model.Plan) error {
+	if p.Visibility == "" {
+		p.Visibility = model.VisibilityPublic
+	}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, on_sale, created_at`,
-		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, hwid_required, trial, visibility)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, on_sale, created_at`,
+		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.HWIDRequired, p.Trial, p.Visibility,
 	).Scan(&p.ID, &p.OnSale, &p.CreatedAt)
 	return mapWriteErr(err)
 }
@@ -65,8 +70,8 @@ func (s *Store) CreatePlan(ctx context.Context, p *model.Plan) error {
 func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE plans SET name = $2, price_rub = $3, period_days = $4, traffic_limit_bytes = $5,
-		 location_group_id = $6, device_limit = $7, on_sale = $8 WHERE id = $1`,
-		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.OnSale)
+		 location_group_id = $6, device_limit = $7, on_sale = $8, hwid_required = $9, trial = $10, visibility = $11 WHERE id = $1`,
+		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.OnSale, p.HWIDRequired, p.Trial, p.Visibility)
 	if err != nil {
 		return mapWriteErr(err)
 	}

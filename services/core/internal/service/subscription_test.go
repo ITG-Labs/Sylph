@@ -28,7 +28,7 @@ func newSubFixture(t *testing.T, deviceLimit *int, trafficLimit *int64) *subFixt
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "month", PriceRub: 199, PeriodDays: 30, LocationGroupID: &g.ID, DeviceLimit: deviceLimit, TrafficLimitBytes: trafficLimit}
+	p := &model.Plan{Name: "month", PriceRub: 199, PeriodDays: 30, LocationGroupID: &g.ID, DeviceLimit: deviceLimit, HWIDRequired: deviceLimit != nil, TrafficLimitBytes: trafficLimit}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +140,25 @@ func TestSubscriptionHWIDRequiredOnlyWithDeviceLimit(t *testing.T) {
 	}
 	if n, _ := g.svc.store.CountDevices(context.Background(), g.user.ID); n != 1 {
 		t.Fatalf("hwid on unlimited plan not recorded: %d devices", n)
+	}
+}
+
+func TestSubscriptionHWIDFlagWithoutDeviceLimit(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	f.plan.HWIDRequired = true
+	if err := f.svc.store.UpdatePlan(context.Background(), f.plan); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.view(t, ""); v.Status != StatusHWIDRequired || len(v.Connections) != 0 {
+		t.Fatalf("hwid plan without hwid: %+v", v)
+	}
+	for i, hw := range []string{"hw-1", "hw-2", "hw-3", "hw-4"} {
+		if v := f.view(t, hw); v.Status != StatusOK {
+			t.Fatalf("device %d on hwid plan without limit: %+v", i, v)
+		}
+	}
+	if n, _ := f.svc.store.CountDevices(context.Background(), f.user.ID); n != 4 {
+		t.Fatalf("devices = %d, want 4", n)
 	}
 }
 

@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 11 {
-		t.Fatalf("tables = %d, want 11", count)
+	if count != 16 {
+		t.Fatalf("tables = %d, want 16", count)
 	}
 }
 
@@ -352,5 +352,83 @@ func TestMigration006DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 006 again: %v", err)
+	}
+}
+
+func TestMigration007DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(6); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO plans (name, price_rub, period_days, device_limit) VALUES ('limited', 1, 30, 3)`,
+		`INSERT INTO plans (name, price_rub, period_days) VALUES ('open', 1, 30)`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 't1')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 007: %v", err)
+	}
+	var limitedHWID, openHWID, trial bool
+	var visibility string
+	if err := pool.QueryRow(ctx,
+		`SELECT (SELECT hwid_required FROM plans WHERE name = 'limited'), (SELECT hwid_required FROM plans WHERE name = 'open'),
+		        (SELECT trial FROM plans WHERE name = 'open'), (SELECT visibility FROM plans WHERE name = 'open')`).
+		Scan(&limitedHWID, &openHWID, &trial, &visibility); err != nil {
+		t.Fatal(err)
+	}
+	if !limitedHWID || openHWID || trial || visibility != "public" {
+		t.Fatalf("after up 007: limited hwid %v, open hwid %v, trial %v, visibility %q", limitedHWID, openHWID, trial, visibility)
+	}
+	for _, q := range []string{
+		`UPDATE plans SET hwid_required = FALSE WHERE name = 'limited'`,
+		`UPDATE plans SET trial = TRUE WHERE name = 'open'`,
+		`UPDATE plans SET visibility = 'secret' WHERE name = 'open'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days, trial) VALUES ('t1', 0, 3, TRUE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days, trial) VALUES ('t2', 0, 3, TRUE)`); err == nil {
+		t.Fatal("second trial on sale accepted")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days, trial, on_sale) VALUES ('t3', 0, 3, TRUE, FALSE)`); err != nil {
+		t.Fatalf("trial off sale rejected: %v", err)
+	}
+	for _, table := range []string{"trials", "trial_devices", "plan_invites", "plan_access", "traffic_daily"} {
+		if !tableExists(t, pool, table) {
+			t.Fatalf("up 007 did not create %s", table)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 007: %v", err)
+	}
+	for _, c := range []string{"hwid_required", "trial", "visibility"} {
+		if columnExists(t, pool, "plans", c) {
+			t.Fatalf("down 007 left plans.%s", c)
+		}
+	}
+	for _, table := range []string{"trials", "trial_devices", "plan_invites", "plan_access", "traffic_daily"} {
+		if tableExists(t, pool, table) {
+			t.Fatalf("down 007 left %s", table)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 007 again: %v", err)
 	}
 }

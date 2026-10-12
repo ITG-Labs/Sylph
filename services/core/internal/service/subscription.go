@@ -19,6 +19,7 @@ const (
 	StatusTrafficExceeded = "traffic_exceeded"
 	StatusHWIDRequired    = "hwid_required"
 	StatusDeviceLimit     = "device_limit"
+	StatusTrialUsed       = "trial_used"
 )
 
 type SubscriptionRequest struct {
@@ -89,17 +90,32 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 		view.Status = StatusTrafficExceeded
 		return view, nil
 	}
-	if plan.DeviceLimit != nil && req.HWID == "" {
+	if plan.HWIDRequired && req.HWID == "" {
 		view.Status = StatusHWIDRequired
 		return view, nil
 	}
 	if req.HWID != "" {
-		allowed, err := s.store.RegisterDevice(ctx, u.ID, store.DeviceInfo{HWID: req.HWID, UserAgent: req.UserAgent, OS: req.DeviceOS, Model: req.DeviceModel}, plan.DeviceLimit)
+		device := store.DeviceInfo{HWID: req.HWID, UserAgent: req.UserAgent, OS: req.DeviceOS, Model: req.DeviceModel}
+		verdict := store.DeviceAllowed
+		if plan.Trial && plan.HWIDRequired {
+			verdict, err = s.store.RegisterTrialDevice(ctx, u.ID, device, plan.DeviceLimit)
+		} else {
+			var allowed bool
+			allowed, err = s.store.RegisterDevice(ctx, u.ID, device, plan.DeviceLimit)
+			if !allowed {
+				verdict = store.DeviceOverLimit
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
-		if !allowed {
+		switch verdict {
+		case store.DeviceOverLimit:
 			view.Status = StatusDeviceLimit
+			return view, nil
+		case store.DeviceTrialTaken:
+			s.log.LogAttrs(ctx, slog.LevelInfo, "trial_device_taken", slog.Int64("user_id", u.ID))
+			view.Status = StatusTrialUsed
 			return view, nil
 		}
 	}
