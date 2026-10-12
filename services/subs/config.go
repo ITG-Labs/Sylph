@@ -2,9 +2,11 @@ package subs
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -44,6 +46,11 @@ func LoadConfig() (*Config, error) {
 		}
 		cfg.Settings.UpdateHours = h
 	}
+	loc, err := time.LoadLocation(envOr("SYLPH_SUBS_TZ", "Europe/Moscow"))
+	if err != nil {
+		return nil, fmt.Errorf("SYLPH_SUBS_TZ: %w", err)
+	}
+	cfg.Settings.Location = loc
 	if s := cfg.Settings.SupportURL; s != "" {
 		u, err := url.Parse(s)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {

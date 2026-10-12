@@ -15,6 +15,7 @@ const (
 	StatusTrafficExceeded = "traffic_exceeded"
 	StatusHWIDRequired    = "hwid_required"
 	StatusDeviceLimit     = "device_limit"
+	StatusTrialUsed       = "trial_used"
 )
 
 type Connection struct {

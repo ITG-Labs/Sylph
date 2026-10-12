@@ -5,6 +5,7 @@ const (
 	StubTrafficExceeded = "⛔ Закончился трафик — продли в боте"
 	StubDeviceLimit     = "⛔ Лимит устройств — сбрось устройства в боте"
 	StubHWIDRequired    = "⛔ Клиент не поддерживается — нужна авторизация по HWID"
+	StubTrialUsed       = "⛔ Пробный период уже использован на этом устройстве — купи тариф в боте"
 	StubDenied          = "⛔ Доступ закрыт — напиши в поддержку"
 	StubNoServers       = "⚠️ Нет доступных серверов — напиши в поддержку"
 	StubSingBox         = "⚠️ sing-box пока не поддерживается — поставь Happ или v2RayTun"
@@ -15,6 +16,7 @@ var statusStubs = map[string]string{
 	StatusTrafficExceeded: StubTrafficExceeded,
 	StatusDeviceLimit:     StubDeviceLimit,
 	StatusHWIDRequired:    StubHWIDRequired,
+	StatusTrialUsed:       StubTrialUsed,
 }
 
 func content(view *View, format Format) ([]Connection, string) {
