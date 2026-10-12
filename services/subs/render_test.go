@@ -142,3 +142,18 @@ func TestProfilesKeepNamesClearOfGroupsAndBuiltins(t *testing.T) {
 		t.Fatal("rendering renamed the caller's connections")
 	}
 }
+
+func TestVlessLinkNameSurvivesFormDecoding(t *testing.T) {
+	c := goldenConnections()[0]
+	c.Name = "NL+DE #1 & co"
+	link := string(decodeBase64(t, RenderBase64([]Connection{c})))
+	fragment := link[strings.Index(link, "#")+1:]
+	if strings.ContainsAny(fragment, "+ #&") {
+		t.Fatalf("fragment %q keeps characters that form decoders mangle", fragment)
+	}
+	for _, decode := range []func(string) (string, error){url.PathUnescape, url.QueryUnescape} {
+		if name, err := decode(fragment); err != nil || name != c.Name {
+			t.Fatalf("decoded %q, %v", name, err)
+		}
+	}
+}

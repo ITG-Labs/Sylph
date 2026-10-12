@@ -32,11 +32,12 @@ func vlessLink(c Connection) string {
 		q.Set("support-x25519mlkem768", "true")
 	}
 	u := url.URL{
-		Scheme:   "vless",
-		User:     url.User(c.UUID),
-		Host:     net.JoinHostPort(c.Address, strconv.Itoa(c.Port)),
-		RawQuery: q.Encode(),
-		Fragment: c.Name,
+		Scheme:      "vless",
+		User:        url.User(c.UUID),
+		Host:        net.JoinHostPort(c.Address, strconv.Itoa(c.Port)),
+		RawQuery:    q.Encode(),
+		Fragment:    c.Name,
+		RawFragment: strings.ReplaceAll(url.QueryEscape(c.Name), "+", "%20"),
 	}
 	return u.String()
 }

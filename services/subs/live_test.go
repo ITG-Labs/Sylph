@@ -87,7 +87,9 @@ func TestSubsLive(t *testing.T) {
 			ActiveUsers *int    `json:"active_users"`
 			ConfigError *string `json:"config_error"`
 		}
-		env.call(t, http.MethodGet, "/v1/admin/nodes", nil, &nodes)
+		if err := env.panel.Do(ctx, http.MethodGet, "/v1/admin/nodes", nil, &nodes); err != nil {
+			return err
+		}
 		for _, n := range nodes {
 			if n.ID == node.ID && n.ConfigError == nil && n.ActiveUsers != nil && *n.ActiveUsers == 3 {
 				return nil
@@ -150,6 +152,7 @@ func TestSubsLive(t *testing.T) {
 		}
 		proxy := startMihomo(t, body, 7890)
 		liveEventually(t, 30*time.Second, "target reached through mihomo YAML", func() error { return env.probe(proxy) })
+		env.waitTraffic(t, clashUser)
 	})
 
 	t.Run("mihomo reads our base64 subscription through the node", func(t *testing.T) {
@@ -170,22 +173,26 @@ rules:
 `, env.subs, linksUser.SubToken)
 		proxy := startMihomo(t, []byte(cfg), 7891)
 		liveEventually(t, 30*time.Second, "target reached through mihomo base64", func() error { return env.probe(proxy) })
+		env.waitTraffic(t, linksUser)
 	})
+}
 
-	t.Run("traffic comes back in the subscription header", func(t *testing.T) {
-		for name, u := range map[string]liveUser{"yaml": clashUser, "base64": linksUser} {
-			liveEventually(t, 60*time.Second, name+" user traffic reached the header", func() error {
-				_, hdr, _ := env.fetch(t, "/"+u.SubToken, map[string]string{"User-Agent": "Happ/3.6.1"})
-				m := regexp.MustCompile(`download=(\d+);`).FindStringSubmatch(hdr.Get("Subscription-Userinfo"))
-				if m == nil {
-					return fmt.Errorf("userinfo = %q", hdr.Get("Subscription-Userinfo"))
-				}
-				if n, _ := strconv.ParseInt(m[1], 10, 64); n == 0 {
-					return errors.New("no traffic counted yet")
-				}
-				return nil
-			})
+func (e *liveEnv) waitTraffic(t *testing.T, u liveUser) {
+	t.Helper()
+	download := regexp.MustCompile(`download=(\d+);`)
+	liveEventually(t, 60*time.Second, "user traffic came back in the subscription header", func() error {
+		code, hdr, _, err := e.tryFetch("/"+u.SubToken, map[string]string{"User-Agent": "Happ/3.6.1"})
+		if err != nil {
+			return err
 		}
+		m := download.FindStringSubmatch(hdr.Get("Subscription-Userinfo"))
+		if code != http.StatusOK || m == nil {
+			return fmt.Errorf("subs = %d, userinfo = %q", code, hdr.Get("Subscription-Userinfo"))
+		}
+		if n, _ := strconv.ParseInt(m[1], 10, 64); n == 0 {
+			return errors.New("no traffic counted yet")
+		}
+		return nil
 	})
 }
 
@@ -230,23 +237,28 @@ func (e *liveEnv) user(t *testing.T, telegramID int64, planID int64) liveUser {
 
 func (e *liveEnv) fetch(t *testing.T, path string, header map[string]string) (int, http.Header, []byte) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, e.subs+path, nil)
+	code, hdr, body, err := e.tryFetch(path, header)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return code, hdr, body
+}
+
+func (e *liveEnv) tryFetch(path string, header map[string]string) (int, http.Header, []byte, error) {
+	req, err := http.NewRequest(http.MethodGet, e.subs+path, nil)
+	if err != nil {
+		return 0, nil, nil, err
 	}
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatal(err)
+		return 0, nil, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resp.StatusCode, resp.Header, body
+	return resp.StatusCode, resp.Header, body, err
 }
 
 func (e *liveEnv) probe(proxy *url.URL) error {

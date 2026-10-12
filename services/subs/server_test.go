@@ -318,3 +318,20 @@ func TestLogsCarryNoSecrets(t *testing.T) {
 		t.Errorf("want 5 log lines, got %d:\n%s", n, out)
 	}
 }
+
+func TestSingBoxSeesTheRealReasonWhenNotOK(t *testing.T) {
+	v := okView()
+	v.Status = StatusExpired
+	rec := get(newTestServer(&fakeCore{view: v}, nil), "/"+testToken, map[string]string{"User-Agent": "SFA/1.14.3"})
+	if body := rec.Body.String(); !strings.Contains(body, StubExpired) || strings.Contains(body, StubSingBox) {
+		t.Fatalf("sing-box with expired subscription got %s", body)
+	}
+}
+
+func TestTrailingSlashServesTheSameSubscription(t *testing.T) {
+	core := &fakeCore{view: okView()}
+	rec := get(newTestServer(core, nil), "/"+testToken+"/", nil)
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), RenderBase64(goldenConnections())) || core.calls[0].SubToken != testToken {
+		t.Fatalf("trailing slash = %d %s %+v", rec.Code, rec.Body.String(), core.calls)
+	}
+}

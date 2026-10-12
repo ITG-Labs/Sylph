@@ -55,12 +55,12 @@ func (s *Server) Handler() http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version.Version})
 	})
 	mux.HandleFunc("GET /{token}", s.handleSubscription)
+	mux.HandleFunc("GET /{token}/{$}", s.handleSubscription)
 	return mux
 }
 
 type outcome struct {
 	format Format
-	client string
 	status string
 	code   int
 	err    error
