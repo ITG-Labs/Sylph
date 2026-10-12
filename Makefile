@@ -1,6 +1,6 @@
-.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray test-node
+.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray test-node test-subs
 
-PKGS := ./... ./services/core/... ./services/agent/...
+PKGS := ./... ./services/core/... ./services/agent/... ./services/subs/...
 
 build:
 	go build $(PKGS)
@@ -52,6 +52,28 @@ test-node:
 	$(NODE_COMPOSE) build
 	$(NODE_COMPOSE) run --rm agent; \
 	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
+
+SUBS_COMPOSE := docker compose -f deploy/test/subs/docker-compose.yml
+SUBS_BIN := deploy/test/subs/bin
+SUBS_CA := go run ./tools/sylphca issue --dir $(SUBS_BIN)/ca
+
+test-subs:
+	mkdir -p deploy/test/node/bin/xray $(SUBS_BIN)
+	CGO_ENABLED=0 go build -o deploy/test/node/bin/sylph-agent ./services/agent/cmd/agent
+	CGO_ENABLED=0 go test -c -o deploy/test/node/bin/agent.test ./services/agent
+	CGO_ENABLED=0 go build -o $(SUBS_BIN)/sylph-core ./services/core/cmd/core
+	CGO_ENABLED=0 go build -o $(SUBS_BIN)/sylph-subs ./services/subs/cmd/subs
+	CGO_ENABLED=0 go test -c -o $(SUBS_BIN)/subs.test ./services/subs
+	rm -rf $(SUBS_BIN)/ca
+	go run ./tools/sylphca init --dir $(SUBS_BIN)/ca
+	$(SUBS_CA) --name core.sylph.internal --type server
+	$(SUBS_CA) --name panel --type client --role panel
+	$(SUBS_CA) --name subs --type client --role subs
+	$(SUBS_CA) --name node-1 --type client --role node
+	chmod -R a+rX $(SUBS_BIN)/ca
+	$(SUBS_COMPOSE) build
+	$(SUBS_COMPOSE) run --rm runner; \
+	status=$$?; $(SUBS_COMPOSE) --profile test down -v; exit $$status
 
 PROTOC_GEN_GO := v1.36.12
 PROTOC_GEN_GO_GRPC := v1.6.2

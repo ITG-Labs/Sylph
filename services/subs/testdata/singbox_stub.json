@@ -1,0 +1,82 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-remote",
+        "server": "1.1.1.1",
+        "detour": "Выбор сервера"
+      },
+      {
+        "type": "local",
+        "tag": "dns-local"
+      }
+    ],
+    "final": "dns-remote",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Выбор сервера",
+      "outbounds": [
+        "Автовыбор",
+        "⛔ Подписка истекла — продли в боте"
+      ],
+      "default": "Автовыбор"
+    },
+    {
+      "type": "urltest",
+      "tag": "Автовыбор",
+      "outbounds": [
+        "⛔ Подписка истекла — продли в боте"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "5m"
+    },
+    {
+      "type": "vless",
+      "tag": "⛔ Подписка истекла — продли в боте",
+      "server": "127.0.0.1",
+      "server_port": 1,
+      "uuid": "6f1d3c4e-8f43-4a5c-9a2b-0c8d7e6f5a4b"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "Выбор сервера",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-local"
+  }
+}

@@ -6,3 +6,4 @@ coverage.out
 docs/vault/.obsidian/
 .bin/
 deploy/test/node/bin/
+deploy/test/subs/bin/

@@ -1,0 +1,35 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - name: ⛔ Подписка истекла — продли в боте
+    type: vless
+    server: 127.0.0.1
+    port: 1
+    uuid: 6f1d3c4e-8f43-4a5c-9a2b-0c8d7e6f5a4b
+    network: tcp
+    udp: true
+proxy-groups:
+  - name: Выбор сервера
+    type: select
+    proxies:
+      - Автовыбор
+      - ⛔ Подписка истекла — продли в боте
+  - name: Автовыбор
+    type: url-test
+    proxies:
+      - ⛔ Подписка истекла — продли в боте
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - MATCH,Выбор сервера

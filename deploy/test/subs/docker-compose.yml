@@ -1,0 +1,135 @@
+name: sylph-test-subs
+networks:
+  e2e:
+    internal: true
+    ipam:
+      config:
+        - subnet: 11.73.0.0/24
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sylph
+      POSTGRES_PASSWORD: sylph
+      POSTGRES_DB: sylph
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sylph -d sylph"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks: [e2e]
+  core:
+    build: .
+    image: sylph-test-subs
+    entrypoint: ["/sylph/sylph-core"]
+    environment:
+      SYLPH_DB_URL: postgres://sylph:sylph@postgres:5432/sylph
+      SYLPH_TLS_CERT: /ca/certs/core.sylph.internal/cert.pem
+      SYLPH_TLS_KEY: /ca/certs/core.sylph.internal/key.pem
+      SYLPH_CLIENT_CA: /ca/ca.pem
+      SYLPH_LISTEN: ":8443"
+    volumes:
+      - ./bin/ca:/ca:ro
+    networks:
+      e2e:
+        aliases: [core.sylph.internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  caddy:
+    build: ../../caddy
+    image: sylph-caddy:test
+    extra_hosts:
+      - "mask.test:11.73.0.100"
+    volumes:
+      - caddy-admin:/run/caddy-admin
+    networks:
+      e2e:
+        ipv4_address: 11.73.0.10
+  bootstrap:
+    build:
+      context: ../node
+      dockerfile: agent.Dockerfile
+    image: sylph-test-node-agent
+    entrypoint: ["/sylph/sylph-agent", "bootstrap"]
+    network_mode: none
+    volumes:
+      - xray-config:/etc/xray
+  xray:
+    image: ghcr.io/xtls/xray-core:26.10.10
+    network_mode: service:caddy
+    pid: service:caddy
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - xray-config:/etc/xray:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      caddy:
+        condition: service_started
+  agent:
+    image: sylph-test-node-agent
+    network_mode: service:caddy
+    pid: service:caddy
+    entrypoint: ["/sylph/sylph-agent"]
+    environment:
+      SYLPH_CORE_URL: https://core.sylph.internal:8443
+      SYLPH_TLS_CERT: /ca/certs/node-1/cert.pem
+      SYLPH_TLS_KEY: /ca/certs/node-1/key.pem
+      SYLPH_CA_CERT: /ca/ca.pem
+      SYLPH_CACHE_PATH: /tmp/state/cache.json
+      SYLPH_STATS_PATH: /tmp/state/stats.json
+      SYLPH_NODE_STATE_PATH: /tmp/state/node.json
+      SYLPH_SYNC_INTERVAL: 2s
+    volumes:
+      - xray-config:/etc/xray
+      - caddy-admin:/run/caddy-admin
+      - ./bin/ca:/ca:ro
+    depends_on:
+      xray:
+        condition: service_started
+      core:
+        condition: service_started
+  subs:
+    image: sylph-test-subs
+    entrypoint: ["/sylph/sylph-subs"]
+    environment:
+      SYLPH_CORE_URL: https://core.sylph.internal:8443
+      SYLPH_TLS_CERT: /ca/certs/subs/cert.pem
+      SYLPH_TLS_KEY: /ca/certs/subs/key.pem
+      SYLPH_CA_CERT: /ca/ca.pem
+      SYLPH_SUBS_TITLE: Sylph E2E
+      SYLPH_SUBS_SUPPORT_URL: https://t.me/sylph_support
+    volumes:
+      - ./bin/ca:/ca:ro
+    networks: [e2e]
+    depends_on:
+      core:
+        condition: service_started
+  runner:
+    image: sylph-test-subs
+    entrypoint: ["/sylph/subs.test", "-test.run", "^TestSubsLive$$", "-test.v", "-test.count=1"]
+    environment:
+      SYLPH_TEST_SUBS: "1"
+      SYLPH_E2E_CORE: https://core.sylph.internal:8443
+      SYLPH_E2E_SUBS: http://subs:8080
+      SYLPH_E2E_NODE: 11.73.0.10
+      SYLPH_E2E_TARGET: 11.73.0.100
+      SYLPH_E2E_CA: /ca/ca.pem
+      SYLPH_E2E_PANEL_CERT: /ca/certs/panel/cert.pem
+      SYLPH_E2E_PANEL_KEY: /ca/certs/panel/key.pem
+    volumes:
+      - ./bin/ca:/ca:ro
+    networks:
+      e2e:
+        ipv4_address: 11.73.0.100
+    depends_on:
+      agent:
+        condition: service_started
+      subs:
+        condition: service_started
+    profiles: ["test"]
+volumes:
+  xray-config:
+  caddy-admin:

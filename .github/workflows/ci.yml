@@ -31,13 +31,14 @@ jobs:
         with:
           go-version-file: go.work
       - run: docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
-      - run: go test -race -count=1 ./... ./services/core/... ./services/agent/...
+      - run: go test -race -count=1 ./... ./services/core/... ./services/agent/... ./services/subs/...
       - run: make test-node
+      - run: make test-subs
   lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [".", "services/core", "services/agent"]
+        module: [".", "services/core", "services/agent", "services/subs"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -54,5 +55,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.work
-      - run: go vet ./... ./services/core/... ./services/agent/...
-      - run: go build ./... ./services/core/... ./services/agent/...
+      - run: go vet ./... ./services/core/... ./services/agent/... ./services/subs/...
+      - run: go build ./... ./services/core/... ./services/agent/... ./services/subs/...
