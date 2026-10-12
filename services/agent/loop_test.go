@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,11 +14,30 @@ import (
 
 func testLoop(t *testing.T, fx *fakeXray, coreURL string) (*Loop, *Engine) {
 	t.Helper()
-	cfg := &Config{CoreURL: coreURL, CachePath: filepath.Join(t.TempDir(), "c.json"), SyncInterval: 10 * time.Millisecond}
+	rig := newNodeRig(t, fx)
+	cfg := rig.cfg
+	cfg.CoreURL = coreURL
+	cfg.CachePath = filepath.Join(t.TempDir(), "c.json")
+	cfg.SyncInterval = 10 * time.Millisecond
 	core := newCoreClientForTest(cfg, discardLogger())
 	e := NewEngine(cfg, core, fx, discardLogger())
 	sc := NewStatsCollector(fx, discardLogger())
-	return NewLoop(e, sc, core, fx, cfg, discardLogger()), e
+	return NewLoop(e, sc, core, fx, rig.node, cfg, discardLogger()), e
+}
+
+func preapply(t *testing.T, loop *Loop, inbounds []Inbound) {
+	t.Helper()
+	data, err := BuildXray(inbounds, loop.cfg.XrayAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(loop.cfg.XrayConfig, data); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(loop.cfg.XrayConfig, old, old); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func deadCoreURL(t *testing.T) string {
@@ -219,6 +240,8 @@ func TestHeartbeatReportsXrayState(t *testing.T) {
 	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, syncInbounds: testInbounds("alpha", "beta")}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	preapply(t, loop, testInbounds("alpha", "beta"))
+	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
 	loop.cfg.XrayVersion = "25.9.11"
 	loop.started = time.Now().Add(-2 * time.Minute)
 	tick(t, loop)
@@ -237,6 +260,9 @@ func TestHeartbeatReportsXrayState(t *testing.T) {
 	}
 	if up, _ := hb["agent_uptime_sec"].(float64); up < 120 {
 		t.Fatalf("agent_uptime_sec = %v, want >= 120", hb["agent_uptime_sec"])
+	}
+	if v, ok := hb["config_error"]; !ok || v != nil {
+		t.Fatalf("config_error = %v (present %v), want null on a healthy node", v, ok)
 	}
 }
 
@@ -275,5 +301,85 @@ func TestHeartbeatActiveUsersUnknownWithoutInbounds(t *testing.T) {
 	hb = loop.heartbeat(context.Background())
 	if hb.ActiveUsers == nil || *hb.ActiveUsers != 0 {
 		t.Fatalf("active_users = %v, want 0 on a node without inbounds", hb.ActiveUsers)
+	}
+}
+
+func TestRejectedConfigKeepsUsersOnRunningInbounds(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1", "u-2"), syncInbounds: mainIn}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	tick(t, loop)
+	if !fx.hasUser("main", "u-1") || !fx.hasUser("main", "u-2") {
+		t.Fatal("users not applied")
+	}
+	setCore(fc, func(f *fakeCore) {
+		f.syncVersion = 2
+		f.syncUsers = users("u-2")
+		f.syncInbounds = brokenInbounds()
+	})
+	if err := loop.RunOnce(context.Background()); err != nil {
+		t.Fatalf("a rejected config must not fail the user sync: %v", err)
+	}
+	if fx.hasUser("main", "u-1") {
+		t.Fatal("revoked user kept access on the inbound xray still runs")
+	}
+	if !fx.hasUser("main", "u-2") {
+		t.Fatal("active user lost after rollback")
+	}
+	hb, _ := lastHeartbeat(fc)
+	if msg, _ := hb["config_error"].(string); !strings.HasPrefix(msg, "xray_config_rejected: ") {
+		t.Fatalf("heartbeat config_error = %v", hb["config_error"])
+	}
+	setCore(fc, func(f *fakeCore) {
+		f.syncVersion = 3
+		f.syncInbounds = testInbounds("main", "extra")
+	})
+	tick(t, loop)
+	if !fx.hasUser("extra", "u-2") {
+		t.Fatal("fixed inbounds not applied")
+	}
+	hb, _ = lastHeartbeat(fc)
+	if v, ok := hb["config_error"]; !ok || v != nil {
+		t.Fatalf("config_error = %v after a good apply", v)
+	}
+}
+
+func TestRevokedUserLosesAccessWhileRunningInboundsAreUnknown(t *testing.T) {
+	fx := newFakeXray()
+	fx.users["vless-in/revoked"] = true
+	fx.users["vless-in/keep"] = true
+	bad := testInbound("main")
+	bad.Reality.Dest = "127.0.0.1:2019"
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("keep"), syncInbounds: []Inbound{bad}}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	if err := writeFileAtomic(loop.cfg.XrayConfig, []byte(`{"inbounds":[{"tag":"vless-in","protocol":"vless"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	_ = loop.RunOnce(context.Background())
+	if loop.applied != nil {
+		t.Fatalf("running inbounds = %+v, want unknown", loop.applied)
+	}
+	if fx.hasUser("vless-in", "revoked") {
+		t.Fatal("revoked user kept access because the agent did not know the running inbounds")
+	}
+	if !fx.hasUser("vless-in", "keep") {
+		t.Fatal("active user removed")
+	}
+}
+
+func TestLoopRestartsXrayOnlyWhenInboundsChange(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1"), syncInbounds: mainIn}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	proc := loop.node.proc.(*fakeProc)
+	tick(t, loop)
+	tick(t, loop)
+	setCore(fc, func(f *fakeCore) { f.syncVersion = 2; f.syncUsers = users("u-1", "u-2") })
+	tick(t, loop)
+	if proc.killCount() != 1 {
+		t.Fatalf("xray restarted %d times, want once: user changes go through the API", proc.killCount())
+	}
+	if !fx.hasUser("main", "u-2") {
+		t.Fatal("new user not added without restart")
 	}
 }

@@ -46,11 +46,12 @@ type Delta struct {
 }
 
 type Heartbeat struct {
-	AgentVersion   string `json:"agent_version"`
-	XrayVersion    string `json:"xray_version"`
-	AgentUptimeSec int64  `json:"agent_uptime_sec"`
-	XrayUptimeSec  *int64 `json:"xray_uptime_sec"`
-	ActiveUsers    *int   `json:"active_users"`
+	AgentVersion   string  `json:"agent_version"`
+	XrayVersion    string  `json:"xray_version"`
+	AgentUptimeSec int64   `json:"agent_uptime_sec"`
+	XrayUptimeSec  *int64  `json:"xray_uptime_sec"`
+	ActiveUsers    *int    `json:"active_users"`
+	ConfigError    *string `json:"config_error"`
 }
 
 type CoreClient struct {

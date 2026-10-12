@@ -23,6 +23,8 @@ func unsetEnv(t *testing.T, key string) {
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
+	unsetEnv(t, "SYLPH_XRAY_CONFIG")
+	unsetEnv(t, "SYLPH_NODE_STATE_PATH")
 	t.Setenv("SYLPH_CORE_URL", "https://core.example:8443")
 	t.Setenv("SYLPH_TLS_CERT", "/certs/agent.pem")
 	t.Setenv("SYLPH_TLS_KEY", "/certs/agent.key")
@@ -48,6 +50,22 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.XrayVersion != "" {
 		t.Fatalf("xray version = %q, want empty by default", cfg.XrayVersion)
+	}
+	if cfg.XrayConfig != "/etc/xray/config.json" || cfg.NodeStatePath != "node.json" {
+		t.Fatalf("xray config = %q, node state = %q", cfg.XrayConfig, cfg.NodeStatePath)
+	}
+}
+
+func TestLoadConfigNodePaths(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SYLPH_XRAY_CONFIG", "/shared/xray.json")
+	t.Setenv("SYLPH_NODE_STATE_PATH", "/var/lib/sylph/node.json")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.XrayConfig != "/shared/xray.json" || cfg.NodeStatePath != "/var/lib/sylph/node.json" {
+		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 

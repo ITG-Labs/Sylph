@@ -36,13 +36,17 @@ func SaveCache(path string, c *Cache) error {
 var fsync = func(f *os.File) error { return f.Sync() }
 
 func writeJSONAtomic(path string, v any) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("state dir: %w", err)
-	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
+	}
+	return writeFileAtomic(path, data)
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("state dir: %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := writeSynced(tmp, data); err != nil {

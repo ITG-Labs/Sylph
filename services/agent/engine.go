@@ -86,6 +86,18 @@ func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 }
 
 func (e *Engine) Reconcile(ctx context.Context, inbounds []Inbound) error {
+	return e.reconcileAll(ctx, inbounds, true)
+}
+
+func (e *Engine) Revoke(ctx context.Context, tags []string) error {
+	inbounds := make([]Inbound, 0, len(tags))
+	for _, tag := range tags {
+		inbounds = append(inbounds, Inbound{Tag: tag})
+	}
+	return e.reconcileAll(ctx, inbounds, false)
+}
+
+func (e *Engine) reconcileAll(ctx context.Context, inbounds []Inbound, add bool) error {
 	if !e.haveDesired {
 		return nil
 	}
@@ -94,14 +106,14 @@ func (e *Engine) Reconcile(ctx context.Context, inbounds []Inbound) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.reconcileInbound(ctx, in); err != nil && firstErr == nil {
+		if err := e.reconcileInbound(ctx, in, add); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
 }
 
-func (e *Engine) reconcileInbound(ctx context.Context, in Inbound) error {
+func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) error {
 	live, err := e.xray.ListUsers(ctx, in.Tag)
 	if err != nil {
 		return fmt.Errorf("list xray users in %s: %w", in.Tag, err)
@@ -123,6 +135,9 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound) error {
 			continue
 		}
 		e.logger.Info("xray_user_removed", "inbound", in.Tag, "key_ref", keyRef(uuid))
+	}
+	if !add {
+		return firstErr
 	}
 	for uuid := range e.desired {
 		if actual[uuid] {

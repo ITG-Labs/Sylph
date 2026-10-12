@@ -6,35 +6,44 @@ import (
 	"time"
 )
 
+const (
+	defaultXrayAPI    = "127.0.0.1:10085"
+	defaultXrayConfig = "/etc/xray/config.json"
+)
+
 type Config struct {
-	CoreURL      string
-	TLSCert      string
-	TLSKey       string
-	CACert       string
-	ServerName   string
-	CachePath    string
-	StatsPath    string
-	ListenAPI    string
-	XrayVersion  string
-	XrayAPI      string
-	XrayTimeout  time.Duration
-	SyncInterval time.Duration
+	CoreURL       string
+	TLSCert       string
+	TLSKey        string
+	CACert        string
+	ServerName    string
+	CachePath     string
+	StatsPath     string
+	NodeStatePath string
+	ListenAPI     string
+	XrayVersion   string
+	XrayAPI       string
+	XrayTimeout   time.Duration
+	XrayConfig    string
+	SyncInterval  time.Duration
 }
 
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		CoreURL:      os.Getenv("SYLPH_CORE_URL"),
-		TLSCert:      os.Getenv("SYLPH_TLS_CERT"),
-		TLSKey:       os.Getenv("SYLPH_TLS_KEY"),
-		CACert:       os.Getenv("SYLPH_CA_CERT"),
-		ServerName:   envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
-		CachePath:    envOr("SYLPH_CACHE_PATH", "cache.json"),
-		StatsPath:    envOr("SYLPH_STATS_PATH", "stats.json"),
-		ListenAPI:    envOr("SYLPH_LISTEN_API", ""),
-		XrayVersion:  os.Getenv("SYLPH_XRAY_VERSION"),
-		XrayAPI:      envOr("SYLPH_XRAY_API", "127.0.0.1:10085"),
-		XrayTimeout:  5 * time.Second,
-		SyncInterval: 30 * time.Second,
+		CoreURL:       os.Getenv("SYLPH_CORE_URL"),
+		TLSCert:       os.Getenv("SYLPH_TLS_CERT"),
+		TLSKey:        os.Getenv("SYLPH_TLS_KEY"),
+		CACert:        os.Getenv("SYLPH_CA_CERT"),
+		ServerName:    envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
+		CachePath:     envOr("SYLPH_CACHE_PATH", "cache.json"),
+		StatsPath:     envOr("SYLPH_STATS_PATH", "stats.json"),
+		NodeStatePath: envOr("SYLPH_NODE_STATE_PATH", "node.json"),
+		ListenAPI:     envOr("SYLPH_LISTEN_API", ""),
+		XrayVersion:   os.Getenv("SYLPH_XRAY_VERSION"),
+		XrayAPI:       envOr("SYLPH_XRAY_API", defaultXrayAPI),
+		XrayTimeout:   5 * time.Second,
+		XrayConfig:    envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
+		SyncInterval:  30 * time.Second,
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -60,6 +69,13 @@ func LoadConfig() (*Config, error) {
 		cfg.XrayTimeout = d
 	}
 	return cfg, nil
+}
+
+func LoadBootstrapConfig() *Config {
+	return &Config{
+		XrayAPI:    envOr("SYLPH_XRAY_API", defaultXrayAPI),
+		XrayConfig: envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
+	}
 }
 
 func envOr(key string, fallback string) string {

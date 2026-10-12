@@ -165,6 +165,35 @@ func TestReconcileStopsOnShutdownRemoving(t *testing.T) {
 	}
 }
 
+func TestRevokeOnlyRemoves(t *testing.T) {
+	fx := newFakeXray()
+	fx.users["vless-in/a"] = true
+	fx.users["vless-in/revoked"] = true
+	e := testEngine(t, fx, &fakeCore{})
+	e.setDesired(users("a", "new"))
+	if err := e.Revoke(context.Background(), []string{"vless-in"}); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasUser("vless-in", "revoked") || !fx.hasUser("vless-in", "a") {
+		t.Fatal("revoke must remove exactly the users that lost access")
+	}
+	if fx.hasUser("vless-in", "new") {
+		t.Fatal("revoke must not add users: their flow on that inbound is unknown")
+	}
+}
+
+func TestRevokeWithoutDesiredStateTouchesNothing(t *testing.T) {
+	fx := newFakeXray()
+	fx.users["vless-in/live"] = true
+	e := testEngine(t, fx, &fakeCore{})
+	if err := e.Revoke(context.Background(), []string{"vless-in"}); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("vless-in", "live") {
+		t.Fatal("unknown desired users wiped xray")
+	}
+}
+
 func TestNoDesiredStateDoesNotWipeXray(t *testing.T) {
 	fx := newFakeXray()
 	fx.users["main/live"] = true
