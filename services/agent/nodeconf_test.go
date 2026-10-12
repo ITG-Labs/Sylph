@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -70,24 +73,82 @@ func (p *fakeProc) killCount() int {
 	return p.kills
 }
 
+type fakeCaddy struct {
+	mu       sync.Mutex
+	current  []byte
+	reject   string
+	dropLoad bool
+	loads    int
+	loadedAt time.Time
+}
+
+func (f *fakeCaddy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/config/":
+		if f.current == nil {
+			_, _ = w.Write([]byte("null\n"))
+			return
+		}
+		_, _ = w.Write(f.current)
+	case r.Method == http.MethodPost && r.URL.Path == "/load":
+		body, _ := io.ReadAll(r.Body)
+		if f.dropLoad {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		if f.reject != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": f.reject})
+			return
+		}
+		f.current = body
+		f.loads++
+		f.loadedAt = time.Now()
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (f *fakeCaddy) set(field func(*fakeCaddy)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	field(f)
+}
+
+func (f *fakeCaddy) state() ([]byte, int, time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.current, f.loads, f.loadedAt
+}
+
 type nodeRig struct {
-	t    *testing.T
-	cfg  *Config
-	fx   *fakeXray
-	proc *fakeProc
-	node *NodeConfig
-	logs *bytes.Buffer
+	t     *testing.T
+	cfg   *Config
+	fx    *fakeXray
+	proc  *fakeProc
+	caddy *fakeCaddy
+	node  *NodeConfig
+	logs  *bytes.Buffer
 }
 
 func newNodeRig(t *testing.T, fx *fakeXray) *nodeRig {
 	t.Helper()
 	dir := t.TempDir()
+	fc := &fakeCaddy{}
+	srv := httptest.NewServer(fc)
+	t.Cleanup(srv.Close)
 	cfg := &Config{
 		XrayAPI:       "127.0.0.1:10085",
 		XrayConfig:    filepath.Join(dir, "xray", "config.json"),
 		NodeStatePath: filepath.Join(dir, "state", "node.json"),
+		CaddyAdmin:    strings.TrimPrefix(srv.URL, "http://"),
 	}
-	r := &nodeRig{t: t, cfg: cfg, fx: fx, logs: &bytes.Buffer{}}
+	r := &nodeRig{t: t, cfg: cfg, fx: fx, caddy: fc, logs: &bytes.Buffer{}}
 	r.proc = &fakeProc{fx: fx, path: cfg.XrayConfig}
 	r.node = r.newNode()
 	if _, err := Bootstrap(cfg); err != nil {
@@ -99,7 +160,7 @@ func newNodeRig(t *testing.T, fx *fakeXray) *nodeRig {
 }
 
 func (r *nodeRig) newNode() *NodeConfig {
-	n := NewNodeConfig(r.cfg, r.fx, slog.New(slog.NewJSONHandler(r.logs, nil)))
+	n := NewNodeConfig(r.cfg, r.fx, NewCaddyAPI(r.cfg.CaddyAdmin, 2*time.Second), slog.New(slog.NewJSONHandler(r.logs, nil)))
 	n.proc = r.proc
 	n.settle = 0
 	n.restartWait = 100 * time.Millisecond

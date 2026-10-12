@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -28,13 +29,15 @@ type rejection struct {
 }
 
 type nodeState struct {
-	Applied      []Inbound  `json:"applied"`
-	XrayRejected *rejection `json:"xray_rejected,omitempty"`
+	Applied       []Inbound  `json:"applied"`
+	XrayRejected  *rejection `json:"xray_rejected,omitempty"`
+	CaddyRejected *rejection `json:"caddy_rejected,omitempty"`
 }
 
 type NodeConfig struct {
 	cfg         *Config
 	xray        XrayClient
+	caddy       CaddyAPI
 	proc        xrayProcess
 	logger      *slog.Logger
 	buildXray   func([]Inbound) ([]byte, error)
@@ -43,12 +46,14 @@ type NodeConfig struct {
 	poll        time.Duration
 	state       nodeState
 	xrayErr     string
+	caddyErr    string
 }
 
-func NewNodeConfig(cfg *Config, xray XrayClient, logger *slog.Logger) *NodeConfig {
+func NewNodeConfig(cfg *Config, xray XrayClient, caddy CaddyAPI, logger *slog.Logger) *NodeConfig {
 	return &NodeConfig{
 		cfg:         cfg,
 		xray:        xray,
+		caddy:       caddy,
 		proc:        procXray{root: "/proc"},
 		logger:      logger,
 		buildXray:   func(in []Inbound) ([]byte, error) { return BuildXray(in, cfg.XrayAPI) },
@@ -75,6 +80,9 @@ func (n *NodeConfig) Load() error {
 	}
 	if st.XrayRejected != nil {
 		n.xrayErr = st.XrayRejected.Error
+	}
+	if st.CaddyRejected != nil {
+		n.caddyErr = st.CaddyRejected.Error
 	}
 	n.state = st
 	return nil
@@ -127,18 +135,85 @@ func (n *NodeConfig) Apply(ctx context.Context, desired []Inbound) []Inbound {
 	want, err := n.buildXray(desired)
 	if err != nil {
 		n.failXray("inbounds_invalid", err)
-		return n.state.Applied
+	} else {
+		n.ensureXray(ctx, desired, want)
 	}
-	n.ensureXray(ctx, desired, want)
+	if n.state.Applied != nil && ctx.Err() == nil {
+		n.ensureCaddy(ctx, n.state.Applied)
+	}
 	return n.state.Applied
 }
 
 func (n *NodeConfig) ConfigError() *string {
-	if n.xrayErr == "" {
+	var parts []string
+	for _, e := range []string{n.xrayErr, n.caddyErr} {
+		if e != "" {
+			parts = append(parts, e)
+		}
+	}
+	if len(parts) == 0 {
 		return nil
 	}
-	msg := n.xrayErr
+	msg := strings.Join(parts, "; ")
 	return &msg
+}
+
+func (n *NodeConfig) ensureCaddy(ctx context.Context, applied []Inbound) {
+	want, err := BuildCaddy(applied, n.cfg.CaddyAdmin)
+	if err != nil {
+		n.failCaddy("caddy_config_unbuildable", err)
+		return
+	}
+	sum := configHash(want)
+	if r := n.state.CaddyRejected; r != nil && r.Hash == sum {
+		n.caddyErr = r.Error
+		return
+	}
+	current, err := n.caddy.Config(ctx)
+	if err != nil {
+		n.failCaddy("caddy_unreachable", err)
+		return
+	}
+	if sameJSON(current, want) {
+		n.acceptCaddy()
+		return
+	}
+	if err := n.caddy.Load(ctx, want); err != nil {
+		var rejected *CaddyRejectedError
+		if !errors.As(err, &rejected) {
+			n.failCaddy("caddy_unreachable", err)
+			return
+		}
+		msg := "caddy_config_rejected: " + truncate(rejected.Message, 300)
+		n.state.CaddyRejected = &rejection{Hash: sum, Error: msg}
+		n.saveState()
+		n.caddyErr = msg
+		n.logger.Error("caddy_config_rejected", "config", sum[:12], "status", rejected.Status, "error", truncate(rejected.Message, 300))
+		return
+	}
+	n.acceptCaddy()
+	n.logger.Info("caddy_config_applied", "inbounds", len(applied), "config", sum[:12])
+}
+
+func (n *NodeConfig) acceptCaddy() {
+	n.caddyErr = ""
+	if n.state.CaddyRejected != nil {
+		n.state.CaddyRejected = nil
+		n.saveState()
+	}
+}
+
+func (n *NodeConfig) failCaddy(code string, err error) {
+	n.caddyErr = code + ": " + err.Error()
+	n.logger.Error(code, "error", err.Error())
+}
+
+func truncate(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
 }
 
 func (n *NodeConfig) ensureXray(ctx context.Context, desired []Inbound, want []byte) {

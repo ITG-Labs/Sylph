@@ -67,7 +67,7 @@ func run(logger *slog.Logger) error {
 	if err := engine.LoadState(cfg.CachePath); err != nil {
 		logger.Error("cache_load_failed", slog.String("error", err.Error()))
 	}
-	node := agent.NewNodeConfig(cfg, xray, logger)
+	node := agent.NewNodeConfig(cfg, xray, agent.NewCaddyAPI(cfg.CaddyAdmin, 10*time.Second), logger)
 	if err := node.Load(); err != nil {
 		logger.Error("node_state_load_failed", slog.String("error", err.Error()))
 	}

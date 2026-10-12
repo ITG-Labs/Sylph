@@ -23,6 +23,7 @@ func unsetEnv(t *testing.T, key string) {
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
+	unsetEnv(t, "SYLPH_CADDY_ADMIN")
 	unsetEnv(t, "SYLPH_XRAY_CONFIG")
 	unsetEnv(t, "SYLPH_NODE_STATE_PATH")
 	t.Setenv("SYLPH_CORE_URL", "https://core.example:8443")
@@ -54,17 +55,21 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.XrayConfig != "/etc/xray/config.json" || cfg.NodeStatePath != "node.json" {
 		t.Fatalf("xray config = %q, node state = %q", cfg.XrayConfig, cfg.NodeStatePath)
 	}
+	if cfg.CaddyAdmin != "unix//run/caddy-admin/admin.sock|0666" {
+		t.Fatalf("caddy admin = %q", cfg.CaddyAdmin)
+	}
 }
 
 func TestLoadConfigNodePaths(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("SYLPH_XRAY_CONFIG", "/shared/xray.json")
 	t.Setenv("SYLPH_NODE_STATE_PATH", "/var/lib/sylph/node.json")
+	t.Setenv("SYLPH_CADDY_ADMIN", "127.0.0.1:2019")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.XrayConfig != "/shared/xray.json" || cfg.NodeStatePath != "/var/lib/sylph/node.json" {
+	if cfg.XrayConfig != "/shared/xray.json" || cfg.NodeStatePath != "/var/lib/sylph/node.json" || cfg.CaddyAdmin != "127.0.0.1:2019" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }

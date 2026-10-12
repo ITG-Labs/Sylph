@@ -9,6 +9,7 @@ import (
 const (
 	defaultXrayAPI    = "127.0.0.1:10085"
 	defaultXrayConfig = "/etc/xray/config.json"
+	defaultCaddyAdmin = "unix//run/caddy-admin/admin.sock|0666"
 )
 
 type Config struct {
@@ -25,6 +26,7 @@ type Config struct {
 	XrayAPI       string
 	XrayTimeout   time.Duration
 	XrayConfig    string
+	CaddyAdmin    string
 	SyncInterval  time.Duration
 }
 
@@ -43,6 +45,7 @@ func LoadConfig() (*Config, error) {
 		XrayAPI:       envOr("SYLPH_XRAY_API", defaultXrayAPI),
 		XrayTimeout:   5 * time.Second,
 		XrayConfig:    envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
+		CaddyAdmin:    envOr("SYLPH_CADDY_ADMIN", defaultCaddyAdmin),
 		SyncInterval:  30 * time.Second,
 	}
 	if cfg.CoreURL == "" {
