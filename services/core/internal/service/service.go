@@ -31,7 +31,8 @@ func (s *Service) CreatePlan(ctx context.Context, p *model.Plan) error {
 }
 
 func (s *Service) RenewSubscription(ctx context.Context, userID int64, planID int64) (int64, error) {
-	return s.store.RenewSubscription(ctx, userID, planID, time.Now().UTC())
+	res, err := s.store.ApplyPayment(ctx, userID, planID, time.Now().UTC())
+	return res.PeriodID, err
 }
 
 func (s *Service) GetUserByTelegramID(ctx context.Context, tg int64) (*model.User, error) {

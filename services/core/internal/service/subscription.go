@@ -82,11 +82,10 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 	if err != nil {
 		return nil, err
 	}
-	expires := sub.ExpiresAt
-	view.ExpiresAt = &expires
+	view.ExpiresAt = sub.PaidUntil
 	view.TrafficUsedBytes = sub.TrafficUsedBytes
 	view.TrafficLimitBytes = plan.TrafficLimitBytes
-	if u.Status == "expired_traffic" || (plan.TrafficLimitBytes != nil && sub.TrafficUsedBytes >= *plan.TrafficLimitBytes) {
+	if plan.TrafficLimitBytes != nil && sub.TrafficUsedBytes >= *plan.TrafficLimitBytes {
 		view.Status = StatusTrafficExceeded
 		return view, nil
 	}

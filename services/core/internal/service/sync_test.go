@@ -26,14 +26,14 @@ func TestSyncNodeUsers(t *testing.T) {
 	if err := svc.store.CreatePlan(ctx, pGroup); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.store.RenewSubscription(ctx, u1.ID, pGroup.ID, time.Now().UTC()); err != nil {
+	if _, err := svc.store.ApplyPayment(ctx, u1.ID, pGroup.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	pAll := &model.Plan{Name: "all", PriceRub: 200, PeriodDays: 30}
 	if err := svc.store.CreatePlan(ctx, pAll); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.store.RenewSubscription(ctx, u2.ID, pAll.ID, time.Now().UTC()); err != nil {
+	if _, err := svc.store.ApplyPayment(ctx, u2.ID, pAll.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := svc.SyncNodeUsers(ctx, "node-1", 0)

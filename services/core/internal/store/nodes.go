@@ -102,10 +102,11 @@ func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, e
 		`SELECT DISTINCT uk.uuid
 		 FROM user_keys uk
 		 JOIN users u ON u.id = uk.user_id
-		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.expires_at > now()
+		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
 		 JOIN plans p ON p.id = sub.plan_id
 		 JOIN nodes n ON n.id = $1
-		 WHERE u.status = 'active'
+		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
+		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes < p.traffic_limit_bytes)
 		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)`,
 		nodeID)
 	if err != nil {

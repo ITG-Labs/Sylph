@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
@@ -63,6 +64,9 @@ func TestUsersGetEndpoint(t *testing.T) {
 	if _, err := svc.RenewSubscription(ctx, u.ID, p.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := svc.RenewSubscription(ctx, u.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
 	resp, err := client.Get(ts.URL + "/v1/users/800")
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +81,12 @@ func TestUsersGetEndpoint(t *testing.T) {
 	}
 	if m["subscription"] == nil || m["plan"] == nil {
 		t.Fatalf("resp = %v", m)
+	}
+	sub := m["subscription"].(map[string]any)
+	expires, _ := time.Parse(time.RFC3339Nano, sub["expires_at"].(string))
+	paid, err := time.Parse(time.RFC3339Nano, fmt.Sprint(sub["paid_until"]))
+	if err != nil || paid.Sub(expires) < 29*24*time.Hour {
+		t.Fatalf("paid_until %v must cover the queued period after %v", sub["paid_until"], expires)
 	}
 }
 

@@ -51,16 +51,22 @@ func (s *Service) HandlePayment(ctx context.Context, paymentID string, userID in
 			return err
 		}
 	}
-	if _, err := s.store.RenewSubscription(ctx, userID, planID, time.Now().UTC()); err != nil {
+	applied, err := s.store.ApplyPayment(ctx, userID, planID, time.Now().UTC())
+	if err != nil {
 		return err
 	}
 	if err := s.store.SetPaymentStatus(ctx, paymentID, "succeeded"); err != nil {
 		return err
 	}
+	mode := "queued"
+	if applied.StartsNow {
+		mode = "now"
+	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "payment_applied",
 		slog.String("payment_id", paymentID),
 		slog.Int64("user_id", userID),
-		slog.Int64("plan_id", planID))
+		slog.Int64("plan_id", planID),
+		slog.String("mode", mode))
 	return nil
 }
 

@@ -29,6 +29,7 @@ var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/users/1/devices/reset", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/subscription", []string{mtls.RoleSubs, mtls.RolePanel}},
 	{http.MethodPost, "/v1/maintenance/expire", []string{mtls.RoleCron, mtls.RolePanel}},
+	{http.MethodPost, "/v1/maintenance/cleanup", []string{mtls.RoleCron, mtls.RolePanel}},
 	{http.MethodPost, "/v1/sync/users", []string{mtls.RoleNode}},
 	{http.MethodPost, "/v1/sync/deltas", []string{mtls.RoleNode}},
 	{http.MethodPost, "/v1/sync/heartbeat", []string{mtls.RoleNode}},

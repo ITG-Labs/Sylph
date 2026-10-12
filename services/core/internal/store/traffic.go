@@ -2,42 +2,122 @@ package store
 
 import (
 	"context"
-	"time"
+	"errors"
+	"math"
+	"slices"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
-func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID string, deltas []model.TrafficDelta) (bool, error) {
+type Exhaustion struct {
+	UserID int64
+	Used   int64
+	Limit  int64
+}
+
+type BatchResult struct {
+	Duplicate bool
+	Exhausted []Exhaustion
+}
+
+func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID string, deltas []model.TrafficDelta) (BatchResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return false, err
+		return BatchResult{}, err
 	}
 	defer tx.Rollback(ctx)
 	tag, err := tx.Exec(ctx,
 		`INSERT INTO traffic_batches (node_id, batch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		nodeID, batchID)
 	if err != nil {
-		return false, err
+		return BatchResult{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return true, nil
+		return BatchResult{Duplicate: true}, nil
 	}
+	owners, err := keyOwners(ctx, tx, deltas)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	totals := map[int64]int64{}
 	for _, d := range deltas {
+		owner, ok := owners[d.KeyUUID]
+		var userID *int64
+		if ok {
+			userID = &owner
+			totals[owner] = satAdd(totals[owner], satAdd(d.BytesUp, d.BytesDown))
+		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO traffic_deltas (node_id, key_uuid, bytes_up, bytes_down) VALUES ($1, $2, $3, $4)`,
-			nodeID, d.KeyUUID, d.BytesUp, d.BytesDown); err != nil {
-			return false, err
+			`INSERT INTO traffic_deltas (node_id, key_uuid, user_id, bytes_up, bytes_down) VALUES ($1, $2, $3, $4, $5)`,
+			nodeID, d.KeyUUID, userID, d.BytesUp, d.BytesDown); err != nil {
+			return BatchResult{}, err
 		}
 	}
-	return false, tx.Commit(ctx)
+	users := make([]int64, 0, len(totals))
+	for id := range totals {
+		users = append(users, id)
+	}
+	slices.Sort(users)
+	var res BatchResult
+	for _, id := range users {
+		var before, used int64
+		var limit *int64
+		err := tx.QueryRow(ctx,
+			`WITH cur AS (
+			     SELECT id, traffic_used_bytes AS before FROM subscriptions
+			     WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
+			     ORDER BY starts_at DESC, id DESC LIMIT 1 FOR UPDATE)
+			 UPDATE subscriptions s
+			 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
+			 FROM cur, plans p
+			 WHERE s.id = cur.id AND p.id = s.plan_id
+			 RETURNING cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
+			id, totals[id]).Scan(&before, &used, &limit)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return BatchResult{}, err
+		}
+		if limit != nil && before < *limit && used >= *limit {
+			res.Exhausted = append(res.Exhausted, Exhaustion{UserID: id, Used: used, Limit: *limit})
+		}
+	}
+	if len(res.Exhausted) > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version)`); err != nil {
+			return BatchResult{}, err
+		}
+	}
+	return res, tx.Commit(ctx)
 }
 
-func (s *Store) SumTrafficSince(ctx context.Context, userID int64, since time.Time) (int64, error) {
-	var sum int64
-	err := s.pool.QueryRow(ctx,
-		`SELECT LEAST(COALESCE(SUM(td.bytes_up::numeric + td.bytes_down), 0), 9223372036854775807)::bigint
-		 FROM traffic_deltas td JOIN user_keys uk ON uk.uuid = td.key_uuid
-		 WHERE uk.user_id = $1 AND td.reported_at >= $2`,
-		userID, since).Scan(&sum)
-	return sum, err
+func keyOwners(ctx context.Context, tx pgx.Tx, deltas []model.TrafficDelta) (map[string]int64, error) {
+	uuids := make([]string, 0, len(deltas))
+	for _, d := range deltas {
+		uuids = append(uuids, d.KeyUUID)
+	}
+	rows, err := tx.Query(ctx, `SELECT uuid, user_id FROM user_keys WHERE uuid = ANY($1)`, uuids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	owners := make(map[string]int64, len(uuids))
+	for rows.Next() {
+		var uuid string
+		var userID int64
+		if err := rows.Scan(&uuid, &userID); err != nil {
+			return nil, err
+		}
+		owners[uuid] = userID
+	}
+	return owners, rows.Err()
+}
+
+func satAdd(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
 }

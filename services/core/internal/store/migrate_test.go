@@ -83,8 +83,8 @@ func TestMigration003DownAndUpAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeDB()
-	if err := m.Steps(-2); err != nil {
-		t.Fatalf("down 004 and 003: %v", err)
+	if err := m.Steps(-3); err != nil {
+		t.Fatalf("down 005, 004 and 003: %v", err)
 	}
 	if tableExists(t, pool, "traffic_batches") {
 		t.Fatal("traffic_batches survived down migration")
@@ -102,8 +102,8 @@ func TestMigration003DownAndUpAgain(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("version after down = %d, want 1 (+1 counter)", v)
 	}
-	if err := m.Steps(2); err != nil {
-		t.Fatalf("up 003 and 004 again: %v", err)
+	if err := m.Steps(3); err != nil {
+		t.Fatalf("up 003, 004 and 005 again: %v", err)
 	}
 	if !tableExists(t, pool, "traffic_batches") {
 		t.Fatal("traffic_batches missing after up")
@@ -139,7 +139,7 @@ func TestMigration004DownAndUpAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeDB()
-	if err := m.Steps(-1); err != nil {
+	if err := m.Steps(-2); err != nil {
 		t.Fatalf("down 004: %v", err)
 	}
 	if tableExists(t, pool, "node_inbounds") || columnExists(t, pool, "nodes", "address") || !columnExists(t, pool, "nodes", "config") ||
@@ -162,10 +162,78 @@ func TestMigration004DownAndUpAgain(t *testing.T) {
 	if after <= before {
 		t.Fatalf("config bump trigger not restored by down: %d -> %d", before, after)
 	}
-	if err := m.Steps(1); err != nil {
+	if err := m.Steps(2); err != nil {
 		t.Fatalf("up 004 again: %v", err)
 	}
 	if !tableExists(t, pool, "node_inbounds") || columnExists(t, pool, "nodes", "config") {
 		t.Fatal("up 004 again did not reshape nodes")
+	}
+}
+
+func TestMigration005DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(4); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+		`INSERT INTO plans (name, price_rub, period_days) VALUES ('p', 1, 30)`,
+		`INSERT INTO users (telegram_id, sub_token, status) VALUES (1, 't1', 'expired_traffic')`,
+		`INSERT INTO user_keys (user_id, uuid) VALUES (1, 'k1')`,
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES (1, 1, now(), now() + interval '30 days')`,
+		`INSERT INTO traffic_deltas (node_id, key_uuid, bytes_up, bytes_down) VALUES (1, 'k1', 5, 5)`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 005: %v", err)
+	}
+	var status string
+	var owner *int64
+	if err := pool.QueryRow(ctx, `SELECT (SELECT status FROM users WHERE id = 1), (SELECT user_id FROM traffic_deltas LIMIT 1)`).Scan(&status, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if status != "active" || owner == nil || *owner != 1 {
+		t.Fatalf("status = %q, delta owner = %v", status, owner)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE user_keys SET revoked_at = now() WHERE uuid = 'k1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 005: %v", err)
+	}
+	if columnExists(t, pool, "user_keys", "revoked_at") || columnExists(t, pool, "traffic_deltas", "user_id") {
+		t.Fatal("down 005 left its columns")
+	}
+	var keys int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_keys`).Scan(&keys); err != nil || keys != 0 {
+		t.Fatalf("revoked key survived down 005: %d, %v", keys, err)
+	}
+	var before, after int64
+	if err := pool.QueryRow(ctx, `SELECT users_version FROM nodes WHERE id = 1`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE subscriptions SET traffic_used_bytes = 7`); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT users_version FROM nodes WHERE id = 1`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after <= before {
+		t.Fatal("down 005 did not restore the old subscriptions trigger")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 005 again: %v", err)
 	}
 }
