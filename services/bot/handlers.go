@@ -81,6 +81,12 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 		alert = a.onBuy(ctx, tg, to, tgID, strings.TrimPrefix(data, cbPlanPrefix))
 	case strings.HasPrefix(data, cbChkPrefix):
 		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
+	case data == cbDevices:
+		alert = a.onDevices(ctx, tg, to, tgID, "")
+	case strings.HasPrefix(data, cbDevicePref):
+		alert = a.onDevice(ctx, tg, to, tgID, strings.TrimPrefix(data, cbDevicePref))
+	case strings.HasPrefix(data, cbDeviceDel):
+		alert = a.onDeviceRemove(ctx, tg, to, tgID, strings.TrimPrefix(data, cbDeviceDel))
 	case data == cbDevicesAsk:
 		a.show(ctx, tg, to, a.devicesAskText(), a.confirmKeyboard(icTrash, "Да, сбросить", cbDevicesOK))
 	case data == cbDevicesOK:
@@ -128,7 +134,7 @@ func (a *App) onStatus(ctx context.Context, tg Telegram, to reply, tgID int64) s
 	if err != nil {
 		return a.fail(ctx, "status", tgID, err)
 	}
-	a.show(ctx, tg, to, a.statusText(st), keyboard(a.buyRow(), a.backRow()))
+	a.show(ctx, tg, to, a.statusText(st), a.statusKeyboard(st.User.SubToken))
 	return ""
 }
 
@@ -216,6 +222,67 @@ func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, pa
 		return textPending
 	}
 	return ""
+}
+
+func (a *App) onDevices(ctx context.Context, tg Telegram, to reply, tgID int64, notice string) string {
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "devices", tgID, err)
+	}
+	devices, err := a.core.Devices(ctx, st.User.ID)
+	if err != nil {
+		return a.fail(ctx, "devices", tgID, err)
+	}
+	text, kb := a.devicesView(st, devices, notice)
+	a.show(ctx, tg, to, text, kb)
+	return ""
+}
+
+func deviceID(raw string) (int64, bool) {
+	id, err := strconv.ParseInt(raw, 10, 64)
+	return id, err == nil && id > 0
+}
+
+func (a *App) onDevice(ctx context.Context, tg Telegram, to reply, tgID int64, raw string) string {
+	id, ok := deviceID(raw)
+	if !ok {
+		return textDeviceGone
+	}
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "devices", tgID, err)
+	}
+	devices, err := a.core.Devices(ctx, st.User.ID)
+	if err != nil {
+		return a.fail(ctx, "devices", tgID, err)
+	}
+	for i, d := range devices {
+		if d.ID == id {
+			text, kb := a.deviceView(d, i+1)
+			a.show(ctx, tg, to, text, kb)
+			return ""
+		}
+	}
+	return textDeviceGone
+}
+
+func (a *App) onDeviceRemove(ctx context.Context, tg Telegram, to reply, tgID int64, raw string) string {
+	id, ok := deviceID(raw)
+	if !ok {
+		return textDeviceGone
+	}
+	st, err := a.status(ctx, tgID)
+	if err != nil {
+		return a.fail(ctx, "device_remove", tgID, err)
+	}
+	if err := a.core.RemoveDevice(ctx, st.User.ID, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return textDeviceGone
+		}
+		return a.fail(ctx, "device_remove", tgID, err)
+	}
+	a.log.LogAttrs(ctx, slog.LevelInfo, "device_removed", slog.Int64("telegram_id", tgID), slog.Int64("device_id", id))
+	return a.onDevices(ctx, tg, to, tgID, a.ic(icCheck)+" Устройство отвязано.")
 }
 
 func (a *App) onReset(ctx context.Context, tg Telegram, to reply, tgID int64) string {

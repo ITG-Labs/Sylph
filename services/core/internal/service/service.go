@@ -65,6 +65,21 @@ func (s *Service) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
 	return s.store.ListPlansOnSale(ctx)
 }
 
+func (s *Service) ListUserDevices(ctx context.Context, userID int64) ([]model.Device, error) {
+	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+		return nil, err
+	}
+	return s.store.ListDevices(ctx, userID)
+}
+
+func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) error {
+	if err := s.store.RemoveDevice(ctx, userID, deviceID); err != nil {
+		return err
+	}
+	s.log.LogAttrs(ctx, slog.LevelInfo, "device_removed", slog.Int64("user_id", userID), slog.Int64("device_id", deviceID))
+	return nil
+}
+
 func (s *Service) ResetUserDevices(ctx context.Context, userID int64) error {
 	return s.store.ResetDevices(ctx, userID)
 }

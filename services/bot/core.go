@@ -61,6 +61,15 @@ type Check struct {
 	PaidUntil  *time.Time `json:"paid_until"`
 }
 
+type Device struct {
+	ID        int64     `json:"id"`
+	UserAgent string    `json:"user_agent"`
+	OS        string    `json:"os"`
+	Model     string    `json:"model"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
 type Core interface {
 	Register(ctx context.Context, telegramID int64) (*User, error)
 	Status(ctx context.Context, telegramID int64) (*Status, error)
@@ -69,6 +78,8 @@ type Core interface {
 	CheckPayment(ctx context.Context, paymentID string) (*Check, error)
 	Rotate(ctx context.Context, userID int64) (string, error)
 	ResetDevices(ctx context.Context, userID int64) error
+	Devices(ctx context.Context, userID int64) ([]Device, error)
+	RemoveDevice(ctx context.Context, userID, deviceID int64) error
 }
 
 type CoreClient struct {
@@ -116,6 +127,15 @@ func (c *CoreClient) Rotate(ctx context.Context, userID int64) (string, error) {
 
 func (c *CoreClient) ResetDevices(ctx context.Context, userID int64) error {
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/v1/users/%d/devices/reset", userID), nil, nil)
+}
+
+func (c *CoreClient) Devices(ctx context.Context, userID int64) ([]Device, error) {
+	var out []Device
+	return out, c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/users/%d/devices", userID), nil, &out)
+}
+
+func (c *CoreClient) RemoveDevice(ctx context.Context, userID, deviceID int64) error {
+	return c.do(ctx, http.MethodDelete, fmt.Sprintf("/v1/users/%d/devices/%d", userID, deviceID), nil, nil)
 }
 
 func (c *CoreClient) do(ctx context.Context, method, path string, in, out any) error {

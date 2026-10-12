@@ -99,6 +99,9 @@ type fakeCore struct {
 	created   [][2]int64
 	resetFor  []int64
 	rotateFor []int64
+	devices   []Device
+	removed   [][2]int64
+	removeErr error
 }
 
 func (c *fakeCore) note(s string) {
@@ -152,6 +155,17 @@ func (c *fakeCore) ResetDevices(_ context.Context, userID int64) error {
 	c.note("reset")
 	c.resetFor = append(c.resetFor, userID)
 	return nil
+}
+
+func (c *fakeCore) Devices(_ context.Context, userID int64) ([]Device, error) {
+	c.note("devices")
+	return c.devices, nil
+}
+
+func (c *fakeCore) RemoveDevice(_ context.Context, userID, deviceID int64) error {
+	c.note("remove")
+	c.removed = append(c.removed, [2]int64{userID, deviceID})
+	return c.removeErr
 }
 
 func (c *fakeCore) called(name string) bool {
@@ -244,7 +258,7 @@ func TestStartRegistersAndShowsTheMenu(t *testing.T) {
 		t.Fatalf("messages = %+v", msgs)
 	}
 	b := buttons(msgs[0].keyboard)
-	for _, data := range []string{"menu:sub", "menu:buy", "dev:ask", "link:ask"} {
+	for _, data := range []string{"menu:sub", "menu:buy", "dev:list", "link:ask"} {
 		if _, ok := b[data]; !ok {
 			t.Fatalf("menu lacks %s: %+v", data, msgs[0].keyboard)
 		}
@@ -290,8 +304,12 @@ func TestStatusShowsTrafficDevicesPaidUntilAndTheLink(t *testing.T) {
 	}
 	mustContain(t, m.text, "✅ <b>Активна</b>", "«Месяц»", "1 ГБ из 100 ГБ", "▰▱▱▱▱▱▱▱▱▱", "Устройства", "1 из 3", "Текущий период до",
 		tgTime(at("2026-10-31T10:00:00Z")), "Оплачено до", tgTime(at("2026-11-30T10:00:00Z")), "<code>https://subs.example.com/tok</code>")
-	if b := buttons(m.keyboard); b["menu:buy"].Style != "success" {
+	b := buttons(m.keyboard)
+	if b["menu:buy"].Style != "success" {
 		t.Fatalf("buy button is not green: %+v", m.keyboard)
+	}
+	if open, ok := b["https://subs.example.com/tok"]; !ok || !strings.Contains(open.Text, "Открыть ссылку") {
+		t.Fatalf("no button to open the link: %+v", m.keyboard)
 	}
 }
 
@@ -701,7 +719,8 @@ func allTexts(t *testing.T, app *App, tg *fakeTelegram, core *fakeCore) []sent {
 	core.check = &Check{Status: "succeeded", TelegramID: i64(tgUser), PaidUntil: tptr(at("2026-11-30T10:00:00Z"))}
 	core.rotated = "new-tok"
 	app.Handle(context.Background(), tg, message("/start", models.ChatTypePrivate))
-	for _, data := range []string{"menu:sub", "menu:buy", "buy:3", "chk:p1", "dev:ask", "dev:ok", "link:ask", "link:ok", "menu:main"} {
+	core.devices = testDevices()
+	for _, data := range []string{"menu:sub", "menu:buy", "buy:3", "chk:p1", "dev:list", "dev:i:11", "dev:d:11", "dev:ask", "dev:ok", "link:ask", "link:ok", "menu:main"} {
 		app.Handle(context.Background(), tg, callback(data))
 	}
 	if err := app.NotifyPaid(context.Background(), tg, tgUser, tptr(at("2026-11-30T10:00:00Z"))); err != nil {
@@ -760,6 +779,92 @@ func TestCustomEmojiFromThePack(t *testing.T) {
 					t.Fatalf("button keeps a plain emoji next to the pack icon: %q", btn.Text)
 				}
 			}
+		}
+	}
+}
+
+func testDevices() []Device {
+	return []Device{
+		{ID: 11, UserAgent: "Happ/3.6.1", OS: "iOS 18.2", Model: "iPhone 15 Pro", FirstSeen: at("2026-10-01T10:00:00Z"), LastSeen: at("2026-10-12T09:00:00Z")},
+		{ID: 12, UserAgent: "v2RayTun/5.1", OS: "Android 15", FirstSeen: at("2026-10-05T10:00:00Z"), LastSeen: at("2026-10-12T08:00:00Z")},
+		{ID: 13, FirstSeen: at("2026-10-06T10:00:00Z"), LastSeen: at("2026-10-06T10:00:00Z")},
+	}
+}
+
+func TestDevicesListShowsEachDeviceAsAButton(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), devices: testDevices()}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("dev:list"))
+	m := tg.last(t)
+	mustContain(t, m.text, "Устройства", "Привязано <b>3 из 3</b>")
+	b := buttons(m.keyboard)
+	for data, label := range map[string]string{"dev:i:11": "iPhone 15 Pro · Happ", "dev:i:12": "Android 15 · v2RayTun", "dev:i:13": "Устройство 3"} {
+		if btn, ok := b[data]; !ok || !strings.Contains(btn.Text, label) {
+			t.Fatalf("%s: button = %+v, want %q", data, btn, label)
+		}
+	}
+	if b["dev:ask"].Style != "danger" {
+		t.Fatalf("no red unbind-all button: %+v", m.keyboard)
+	}
+}
+
+func TestDevicesListWithoutDevicesOrLimit(t *testing.T) {
+	st := activeStatus()
+	st.Plan.DeviceLimit = nil
+	core := &fakeCore{status: st}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("dev:list"))
+	m := tg.last(t)
+	mustContain(t, m.text, "Пока ни одного устройства", "HWID")
+	if _, ok := buttons(m.keyboard)["dev:ask"]; ok {
+		t.Fatalf("unbind-all offered without devices: %+v", m.keyboard)
+	}
+	core.devices = testDevices()[:1]
+	app.Handle(context.Background(), tg, callback("dev:list"))
+	mustContain(t, tg.last(t).text, "Привязано <b>1</b> · без лимита")
+}
+
+func TestDeviceInfoAndUnbind(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), devices: testDevices()}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("dev:i:11"))
+	m := tg.last(t)
+	mustContain(t, m.text, "iPhone 15 Pro", "iOS 18.2", "Happ/3.6.1", "Привязано", tgTime(at("2026-10-01T10:00:00Z")), "Последний раз", tgTime(at("2026-10-12T09:00:00Z")))
+	if del := buttons(m.keyboard)["dev:d:11"]; del.Style != "danger" || !strings.Contains(del.Text, "Отвязать") {
+		t.Fatalf("no red unbind button: %+v", m.keyboard)
+	}
+	if _, ok := buttons(m.keyboard)["dev:list"]; !ok {
+		t.Fatalf("no way back to the list: %+v", m.keyboard)
+	}
+	app.Handle(context.Background(), tg, callback("dev:d:11"))
+	if len(core.removed) != 1 || core.removed[0] != [2]int64{7, 11} {
+		t.Fatalf("removed = %v", core.removed)
+	}
+	mustContain(t, tg.last(t).text, "отвязано", "Устройства")
+}
+
+func TestDeviceInfoWithEmptyFields(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), devices: testDevices()}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("dev:i:13"))
+	m := tg.last(t)
+	mustContain(t, m.text, "Устройство 3", "не сообщил")
+}
+
+func TestForgedOrStaleDevices(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), devices: testDevices()}
+	app, tg := newTestApp(t, core)
+	for _, data := range []string{"dev:i:99", "dev:i:abc", "dev:d:abc", "dev:d:-1"} {
+		app.Handle(context.Background(), tg, callback(data))
+	}
+	if core.called("remove") {
+		t.Fatalf("garbage reached the core: %v", core.removed)
+	}
+	core.removeErr = ErrNotFound
+	app.Handle(context.Background(), tg, callback("dev:d:99"))
+	for _, a := range tg.only(t, "answerCallbackQuery") {
+		if !strings.Contains(a.text, "не найдено") {
+			t.Fatalf("answers = %+v", tg.only(t, "answerCallbackQuery"))
 		}
 	}
 }

@@ -116,9 +116,11 @@ type TrafficDelta struct {
 
 type Device struct {
 	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Fingerprint string    `json:"fingerprint"`
+	UserID      int64     `json:"-"`
+	Fingerprint string    `json:"-"`
 	UserAgent   string    `json:"user_agent"`
+	OS          string    `json:"os"`
+	Model       string    `json:"model"`
 	FirstSeen   time.Time `json:"first_seen"`
 	LastSeen    time.Time `json:"last_seen"`
 }

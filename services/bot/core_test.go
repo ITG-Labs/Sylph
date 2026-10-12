@@ -91,8 +91,10 @@ func TestCorePlansPaymentsAndActions(t *testing.T) {
 			io.WriteString(w, `{"status":"succeeded","applied":true,"telegram_id":1001,"paid_until":"2026-11-30T10:00:00Z"}`)
 		case "/v1/users/7/rotate":
 			io.WriteString(w, `{"sub_token":"new-tok"}`)
-		case "/v1/users/7/devices/reset":
+		case "/v1/users/7/devices/reset", "/v1/users/7/devices/11":
 			io.WriteString(w, `{"ok":true}`)
+		case "/v1/users/7/devices":
+			io.WriteString(w, `[{"id":11,"user_agent":"Happ/3.6.1","os":"iOS 18.2","model":"iPhone 15 Pro","first_seen":"2026-10-01T10:00:00Z","last_seen":"2026-10-12T09:00:00Z"}]`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -125,6 +127,16 @@ func TestCorePlansPaymentsAndActions(t *testing.T) {
 	}
 	if got := (*calls)[4]; got.method != http.MethodPost || got.path != "/v1/users/7/devices/reset" {
 		t.Fatalf("reset call = %+v", got)
+	}
+	devs, err := c.Devices(ctx, 7)
+	if err != nil || len(devs) != 1 || devs[0].ID != 11 || devs[0].Model != "iPhone 15 Pro" || devs[0].OS != "iOS 18.2" || devs[0].UserAgent != "Happ/3.6.1" || devs[0].LastSeen.IsZero() {
+		t.Fatalf("devices = %+v, %v", devs, err)
+	}
+	if err := c.RemoveDevice(ctx, 7, 11); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*calls)[6]; got.method != http.MethodDelete || got.path != "/v1/users/7/devices/11" {
+		t.Fatalf("remove call = %+v", got)
 	}
 }
 

@@ -14,6 +14,9 @@ const (
 	cbStatus     = "menu:sub"
 	cbBuy        = "menu:buy"
 	cbMenu       = "menu:main"
+	cbDevices    = "dev:list"
+	cbDevicePref = "dev:i:"
+	cbDeviceDel  = "dev:d:"
 	cbDevicesAsk = "dev:ask"
 	cbDevicesOK  = "dev:ok"
 	cbLinkAsk    = "link:ask"
@@ -36,6 +39,7 @@ const (
 	textProviderDown = "ЮKassa не отвечает — попробуй через минуту."
 	textFailed       = "Что-то пошло не так, попробуй ещё раз чуть позже."
 	textNotFound     = "Платёж не найден."
+	textDeviceGone   = "Устройство не найдено — возможно, его уже отвязали."
 	textPending      = "Оплата ещё не пришла. Если уже оплатил — подожди минуту и нажми ещё раз: ЮKassa подтверждает не сразу."
 )
 
@@ -67,6 +71,9 @@ var (
 	icSparkles = icon{"✨", "5890925363067886150"}
 	icReturn   = icon{"↩️", "6039539366177541657"}
 	icBack     = icon{"⬅️", "5960671702059848143"}
+	icGear     = icon{"⚙️", "6032742198179532882"}
+	icClient   = icon{"🧩", "5837069325034331827"}
+	icRecent   = icon{"🕓", "5775896410780079073"}
 )
 
 func (a *App) UseCustomEmoji(on bool) {
@@ -114,7 +121,7 @@ func (a *App) menuKeyboard() *models.InlineKeyboardMarkup {
 	return keyboard(
 		row(styled(a.btn(icShield, "Моя подписка", cbStatus), stylePrimary)),
 		row(styled(a.btn(icDiamond, "Купить / продлить", cbBuy), styleSuccess)),
-		row(a.btn(icDevice, "Сбросить устройства", cbDevicesAsk), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
+		row(a.btn(icDevice, "Устройства", cbDevices), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
 	)
 }
 
@@ -140,7 +147,78 @@ func (a *App) menuText() string {
 		a.ic(icShield) + "  статус, трафик и «оплачено до»\n" +
 		a.ic(icDiamond) + "  покупка и продление тарифа\n" +
 		a.ic(icLink) + "  ссылка для клиента\n" +
-		a.ic(icDevice) + "  сброс устройств и смена ссылки"
+		a.ic(icDevice) + "  привязанные устройства"
+}
+
+func (a *App) statusKeyboard(token string) *models.InlineKeyboardMarkup {
+	return keyboard(row(a.urlBtn(icLink, "Открыть ссылку", a.link(token))), a.buyRow(), a.backRow())
+}
+
+func deviceLabel(d Device, n int) string {
+	var parts []string
+	switch {
+	case d.Model != "":
+		parts = append(parts, d.Model)
+	case d.OS != "":
+		parts = append(parts, d.OS)
+	}
+	if client, _, _ := strings.Cut(d.UserAgent, "/"); client != "" {
+		parts = append(parts, client)
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("Устройство %d", n)
+	}
+	label := strings.Join(parts, " · ")
+	if r := []rune(label); len(r) > 40 {
+		label = string(r[:40]) + "…"
+	}
+	return label
+}
+
+func (a *App) devicesView(st *Status, devices []Device, notice string) (string, *models.InlineKeyboardMarkup) {
+	var b strings.Builder
+	b.WriteString(a.header(icDevice, "Устройства"))
+	if notice != "" {
+		b.WriteString(notice + "\n\n")
+	}
+	var rows [][]models.InlineKeyboardButton
+	if len(devices) == 0 {
+		b.WriteString("Пока ни одного устройства.\n\n")
+	} else {
+		if st.Plan != nil && st.Plan.DeviceLimit != nil {
+			fmt.Fprintf(&b, "Привязано <b>%d из %d</b>\n\n", len(devices), *st.Plan.DeviceLimit)
+		} else {
+			fmt.Fprintf(&b, "Привязано <b>%d</b> · без лимита\n\n", len(devices))
+		}
+		b.WriteString("Нажми на устройство, чтобы посмотреть его или отвязать.\n\n")
+		for i, d := range devices {
+			rows = append(rows, row(a.btn(icDevice, deviceLabel(d, i+1), cbDevicePref+strconv.FormatInt(d.ID, 10))))
+		}
+		rows = append(rows, row(styled(a.btn(icTrash, "Отвязать все", cbDevicesAsk), styleDanger)))
+	}
+	b.WriteString(a.ic(icInfo) + " Устройство привязывается, когда клиент с HWID (Happ, v2RayTun и другие) обновляет подписку.")
+	rows = append(rows, a.backRow())
+	return b.String(), keyboard(rows...)
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "клиент не сообщил"
+	}
+	return html.EscapeString(s)
+}
+
+func (a *App) deviceView(d Device, n int) (string, *models.InlineKeyboardMarkup) {
+	var b strings.Builder
+	b.WriteString(a.header(icDevice, html.EscapeString(deviceLabel(Device{Model: d.Model, OS: d.OS}, n))))
+	fmt.Fprintf(&b, "%s <b>Система</b>\n%s\n\n", a.ic(icGear), orUnknown(d.OS))
+	fmt.Fprintf(&b, "%s <b>Клиент</b>\n%s\n\n", a.ic(icClient), orUnknown(d.UserAgent))
+	fmt.Fprintf(&b, "%s <b>Привязано</b>\n%s\n\n", a.ic(icLink), a.when(d.FirstSeen))
+	fmt.Fprintf(&b, "%s <b>Последний раз</b>\n%s", a.ic(icRecent), a.when(d.LastSeen))
+	return b.String(), keyboard(
+		row(styled(a.btn(icTrash, "Отвязать", cbDeviceDel+strconv.FormatInt(d.ID, 10)), styleDanger)),
+		row(a.btn(icBack, "К устройствам", cbDevices)),
+	)
 }
 
 func (a *App) canceledText() string {
@@ -192,7 +270,7 @@ func (a *App) link(token string) string {
 }
 
 func (a *App) linkBlock(title, token string) string {
-	return a.ic(icLink) + " <b>" + title + "</b>\nТапни, чтобы скопировать:\n<code>" + html.EscapeString(a.link(token)) + "</code>"
+	return a.ic(icLink) + " <b>" + title + "</b>\nТапни, чтобы скопировать:\n\n<code>" + html.EscapeString(a.link(token)) + "</code>"
 }
 
 func exhausted(st *Status) bool {

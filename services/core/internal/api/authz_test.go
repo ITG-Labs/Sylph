@@ -31,6 +31,8 @@ var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/maintenance/payments/poll", []string{mtls.RoleCron, mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/rotate", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/devices/reset", []string{mtls.RoleBot, mtls.RolePanel}},
+	{http.MethodGet, "/v1/users/1/devices", []string{mtls.RoleBot, mtls.RolePanel}},
+	{http.MethodDelete, "/v1/users/1/devices/1", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodPost, "/v1/subscription", []string{mtls.RoleSubs, mtls.RolePanel}},
 	{http.MethodPost, "/v1/maintenance/expire", []string{mtls.RoleCron, mtls.RolePanel}},
 	{http.MethodPost, "/v1/maintenance/cleanup", []string{mtls.RoleCron, mtls.RolePanel}},

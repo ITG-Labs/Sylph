@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 type DeviceInfo struct {
@@ -66,4 +68,34 @@ func (s *Store) ResetDevices(ctx context.Context, userID int64) error {
 	}
 	_, err := s.pool.Exec(ctx, `DELETE FROM devices WHERE user_id = $1`, userID)
 	return err
+}
+
+func (s *Store) ListDevices(ctx context.Context, userID int64) ([]model.Device, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, user_agent, device_os, device_model, first_seen, last_seen
+		 FROM devices WHERE user_id = $1 ORDER BY first_seen, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Device{}
+	for rows.Next() {
+		var d model.Device
+		if err := rows.Scan(&d.ID, &d.UserID, &d.UserAgent, &d.OS, &d.Model, &d.FirstSeen, &d.LastSeen); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RemoveDevice(ctx context.Context, userID, deviceID int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM devices WHERE id = $1 AND user_id = $2`, deviceID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

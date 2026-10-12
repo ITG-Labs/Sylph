@@ -22,6 +22,8 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "GET /v1/plans", s.handlePlansOnSale, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/rotate", s.handleRotate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "GET /v1/users/{user_id}/devices", s.handleDevicesList, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "DELETE /v1/users/{user_id}/devices/{device_id}", s.handleDeviceRemove, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/subscription", s.handleSubscription, mtls.RoleSubs, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/expire", s.handleMaintenanceExpire, mtls.RoleCron, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/cleanup", s.handleMaintenanceCleanup, mtls.RoleCron, mtls.RolePanel)
@@ -233,6 +235,34 @@ func (s *Server) handleDevicesReset(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("devices_reset_failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal", "reset failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDevicesList(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(r.PathValue("user_id"), 10, 64)
+	if err != nil || userID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid user_id")
+		return
+	}
+	list, err := s.svc.ListUserDevices(r.Context(), userID)
+	if err != nil {
+		s.writeServiceError(w, err, "user")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleDeviceRemove(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(r.PathValue("user_id"), 10, 64)
+	deviceID, err2 := strconv.ParseInt(r.PathValue("device_id"), 10, 64)
+	if err != nil || err2 != nil || userID <= 0 || deviceID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid user_id or device_id")
+		return
+	}
+	if err := s.svc.RemoveUserDevice(r.Context(), userID, deviceID); err != nil {
+		s.writeServiceError(w, err, "device")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
