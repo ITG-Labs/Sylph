@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/api"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
+	"github.com/ITG-Labs/sylph/services/core/internal/yookassa"
 )
 
 func main() {
@@ -56,6 +58,16 @@ func run(logger *slog.Logger) error {
 
 	st := store.NewStore(pool)
 	svc := service.NewService(st, logger)
+	payCfg, err := paymentsConfig()
+	if err != nil {
+		return err
+	}
+	if payCfg == nil {
+		logger.Warn("yookassa_disabled")
+	} else {
+		svc.EnablePayments(yookassa.New(yookassa.Config{BaseURL: payCfg.API, ShopID: payCfg.ShopID, SecretKey: payCfg.SecretKey}), payCfg.ReturnURL)
+		logger.Info("yookassa_ready", slog.String("api", payCfg.API), slog.String("shop_id", payCfg.ShopID))
+	}
 
 	tlsConfig, err := loadTLSConfig()
 	if err != nil {
@@ -90,6 +102,40 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("stopped")
 	return nil
+}
+
+type payments struct {
+	ShopID    string
+	SecretKey string
+	ReturnURL string
+	API       string
+}
+
+func paymentsConfig() (*payments, error) {
+	cfg := &payments{
+		ShopID:    os.Getenv("SYLPH_YOOKASSA_SHOP_ID"),
+		SecretKey: os.Getenv("SYLPH_YOOKASSA_SECRET_KEY"),
+		ReturnURL: os.Getenv("SYLPH_YOOKASSA_RETURN_URL"),
+		API:       envOr("SYLPH_YOOKASSA_API", "https://api.yookassa.ru/v3"),
+	}
+	if cfg.ShopID == "" && cfg.SecretKey == "" && cfg.ReturnURL == "" {
+		return nil, nil
+	}
+	if cfg.ShopID == "" || cfg.SecretKey == "" || cfg.ReturnURL == "" {
+		return nil, errors.New("SYLPH_YOOKASSA_SHOP_ID, SYLPH_YOOKASSA_SECRET_KEY and SYLPH_YOOKASSA_RETURN_URL must be set together")
+	}
+	if !httpURL(cfg.ReturnURL) {
+		return nil, errors.New("SYLPH_YOOKASSA_RETURN_URL must be an http(s) URL")
+	}
+	if !httpURL(cfg.API) {
+		return nil, errors.New("SYLPH_YOOKASSA_API must be an http(s) URL")
+	}
+	return cfg, nil
+}
+
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 func loadTLSConfig() (*tls.Config, error) {

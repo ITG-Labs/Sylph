@@ -10,8 +10,10 @@ import (
 )
 
 type Service struct {
-	store *store.Store
-	log   *slog.Logger
+	store     *store.Store
+	log       *slog.Logger
+	pay       PaymentProvider
+	returnURL string
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
@@ -57,6 +59,10 @@ func (s *Service) GetUserFullByToken(ctx context.Context, token string) (*model.
 		return nil, nil, nil, nil, err
 	}
 	return u, keys, sub, plan, nil
+}
+
+func (s *Service) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
+	return s.store.ListPlansOnSale(ctx)
 }
 
 func (s *Service) ResetUserDevices(ctx context.Context, userID int64) error {

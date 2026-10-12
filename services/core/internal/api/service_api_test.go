@@ -211,10 +211,11 @@ func TestRotateEndpointHidesKey(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	if m["ok"] != true || len(m) != 1 {
-		t.Fatalf("resp = %v, want only ok:true", m)
+	token, _ := m["sub_token"].(string)
+	if token == "" || len(m) != 1 {
+		t.Fatalf("resp = %v, want only the new sub_token", m)
 	}
-	_, keys, _, _, err := svc.GetUserFullByToken(ctx, u.SubToken)
+	_, keys, _, _, err := svc.GetUserFullByToken(ctx, token)
 	if err != nil {
 		t.Fatal(err)
 	}

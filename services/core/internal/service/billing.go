@@ -12,13 +12,13 @@ import (
 )
 
 func (s *Service) RegisterUser(ctx context.Context, telegramID int64) (*model.User, string, error) {
-	u := &model.User{TelegramID: &telegramID, SubToken: model.NewToken(), Status: "active"}
-	if err := s.store.CreateUser(ctx, u); err != nil {
+	key := model.NewUUID()
+	u, created, err := s.store.RegisterTelegramUser(ctx, telegramID, model.NewToken(), key)
+	if err != nil {
 		return nil, "", err
 	}
-	key := model.NewUUID()
-	if err := s.store.AddUserKey(ctx, u.ID, key); err != nil {
-		return nil, "", err
+	if !created {
+		return u, "", nil
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "user_registered",
 		slog.Int64("user_id", u.ID),
@@ -33,64 +33,69 @@ func (s *Service) HandlePayment(ctx context.Context, paymentID string, userID in
 	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
 		return err
 	}
-	existing, err := s.store.GetPayment(ctx, paymentID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
-	if existing != nil && existing.Status == "succeeded" {
-		s.log.LogAttrs(ctx, slog.LevelInfo, "payment_duplicate_ignored",
-			slog.String("payment_id", paymentID))
-		return nil
-	}
-	if existing == nil {
-		if err := s.store.CreatePayment(ctx, &model.Payment{PaymentID: paymentID, UserID: userID, PlanID: planID, AmountRub: amountRub, Status: "pending"}); err != nil {
-			return err
-		}
-	} else {
-		if err := s.store.SetPaymentStatus(ctx, paymentID, "pending"); err != nil {
-			return err
-		}
-	}
-	applied, err := s.store.ApplyPayment(ctx, userID, planID, time.Now().UTC())
+	res, err := s.store.RecordManualPayment(ctx, &model.Payment{PaymentID: paymentID, UserID: userID, PlanID: planID, AmountRub: amountRub}, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	if err := s.store.SetPaymentStatus(ctx, paymentID, "succeeded"); err != nil {
-		return err
+	if !res.Applied {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "payment_duplicate_ignored",
+			slog.String("payment_id", paymentID),
+			slog.String("status", res.Payment.Status))
+		return nil
 	}
-	mode := "queued"
-	if applied.StartsNow {
-		mode = "now"
-	}
-	s.log.LogAttrs(ctx, slog.LevelInfo, "payment_applied",
-		slog.String("payment_id", paymentID),
-		slog.Int64("user_id", userID),
-		slog.Int64("plan_id", planID),
-		slog.String("mode", mode))
+	s.logApplied(ctx, res)
 	return nil
 }
 
-func (s *Service) RotateUserKey(ctx context.Context, userID int64) (string, error) {
-	keys, err := s.store.RotateUserKeys(ctx, userID)
-	if err != nil {
-		return "", err
+func (s *Service) logApplied(ctx context.Context, res store.SettleResult) {
+	mode := "queued"
+	if res.Period.StartsNow {
+		mode = "now"
 	}
-	s.log.LogAttrs(ctx, slog.LevelInfo, "user_key_rotated", slog.Int64("user_id", userID))
-	return keys[0].UUID, nil
+	s.log.LogAttrs(ctx, slog.LevelInfo, "payment_applied",
+		slog.String("payment_id", res.Payment.PaymentID),
+		slog.Int64("user_id", res.Payment.UserID),
+		slog.Int64("plan_id", res.Payment.PlanID),
+		slog.String("source", res.Payment.Source),
+		slog.String("mode", mode))
 }
 
-func (s *Service) GetUserSubscriptionInfo(ctx context.Context, telegramID int64) (*model.Subscription, *model.Plan, error) {
+func (s *Service) RotateUser(ctx context.Context, userID int64) (string, error) {
+	token := model.NewToken()
+	if _, err := s.store.RotateUserCredentials(ctx, userID, token); err != nil {
+		return "", err
+	}
+	s.log.LogAttrs(ctx, slog.LevelInfo, "user_link_rotated", slog.Int64("user_id", userID))
+	return token, nil
+}
+
+type UserStatus struct {
+	User         *model.User         `json:"user"`
+	Subscription *model.Subscription `json:"subscription"`
+	Plan         *model.Plan         `json:"plan"`
+	Devices      int                 `json:"devices"`
+}
+
+func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserStatus, error) {
 	u, err := s.store.GetUserByTelegramID(ctx, telegramID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	st := &UserStatus{User: u}
 	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
-	if err != nil {
-		return nil, nil, err
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return nil, err
+	default:
+		plan, err := s.store.GetPlan(ctx, sub.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		st.Subscription, st.Plan = sub, plan
 	}
-	plan, err := s.store.GetPlan(ctx, sub.PlanID)
-	if err != nil {
-		return nil, nil, err
+	if st.Devices, err = s.store.CountDevices(ctx, u.ID); err != nil {
+		return nil, err
 	}
-	return sub, plan, nil
+	return st, nil
 }

@@ -57,6 +57,13 @@ func (s *Store) CountDevices(ctx context.Context, userID int64) (int, error) {
 }
 
 func (s *Store) ResetDevices(ctx context.Context, userID int64) error {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
 	_, err := s.pool.Exec(ctx, `DELETE FROM devices WHERE user_id = $1`, userID)
 	return err
 }

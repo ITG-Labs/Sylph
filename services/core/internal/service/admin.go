@@ -99,6 +99,7 @@ type PlanPatch struct {
 	TrafficLimitBytes Optional[int64] `json:"traffic_limit_bytes"`
 	LocationGroupID   Optional[int64] `json:"location_group_id"`
 	DeviceLimit       Optional[int]   `json:"device_limit"`
+	OnSale            *bool           `json:"on_sale"`
 }
 
 func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*model.Plan, error) {
@@ -123,6 +124,9 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	}
 	if patch.DeviceLimit.Set {
 		p.DeviceLimit = patch.DeviceLimit.Value
+	}
+	if patch.OnSale != nil {
+		p.OnSale = *patch.OnSale
 	}
 	if err := validatePlan(p); err != nil {
 		return nil, err

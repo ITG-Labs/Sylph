@@ -83,8 +83,8 @@ func TestMigration003DownAndUpAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeDB()
-	if err := m.Steps(-3); err != nil {
-		t.Fatalf("down 005, 004 and 003: %v", err)
+	if err := m.Migrate(2); err != nil {
+		t.Fatalf("down to 002: %v", err)
 	}
 	if tableExists(t, pool, "traffic_batches") {
 		t.Fatal("traffic_batches survived down migration")
@@ -102,8 +102,8 @@ func TestMigration003DownAndUpAgain(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("version after down = %d, want 1 (+1 counter)", v)
 	}
-	if err := m.Steps(3); err != nil {
-		t.Fatalf("up 003, 004 and 005 again: %v", err)
+	if err := m.Up(); err != nil {
+		t.Fatalf("up from 002 again: %v", err)
 	}
 	if !tableExists(t, pool, "traffic_batches") {
 		t.Fatal("traffic_batches missing after up")
@@ -139,8 +139,8 @@ func TestMigration004DownAndUpAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeDB()
-	if err := m.Steps(-2); err != nil {
-		t.Fatalf("down 004: %v", err)
+	if err := m.Migrate(3); err != nil {
+		t.Fatalf("down to 003: %v", err)
 	}
 	if tableExists(t, pool, "node_inbounds") || columnExists(t, pool, "nodes", "address") || !columnExists(t, pool, "nodes", "config") ||
 		columnExists(t, pool, "devices", "device_os") {
@@ -162,8 +162,8 @@ func TestMigration004DownAndUpAgain(t *testing.T) {
 	if after <= before {
 		t.Fatalf("config bump trigger not restored by down: %d -> %d", before, after)
 	}
-	if err := m.Steps(2); err != nil {
-		t.Fatalf("up 004 again: %v", err)
+	if err := m.Up(); err != nil {
+		t.Fatalf("up from 003 again: %v", err)
 	}
 	if !tableExists(t, pool, "node_inbounds") || columnExists(t, pool, "nodes", "config") {
 		t.Fatal("up 004 again did not reshape nodes")
@@ -266,8 +266,8 @@ func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeDB()
-	if err := m.Steps(-1); err != nil {
-		t.Fatalf("down 005: %v", err)
+	if err := m.Migrate(4); err != nil {
+		t.Fatalf("down to 004: %v", err)
 	}
 	type row struct {
 		starts, expires string
@@ -296,7 +296,61 @@ func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
 			t.Fatalf("user %d after down: status %q, live rows %d, %+v; want %s, one row %s..%s used %d", user, status, live, r, want.status, wantStart, wantEnd, want.used)
 		}
 	}
+	if err := m.Up(); err != nil {
+		t.Fatalf("up from 004 again: %v", err)
+	}
+}
+
+func TestMigration006DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(5); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO plans (name, price_rub, period_days) VALUES ('p', 1, 30)`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 't1')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status) VALUES ('old-ok', 1, 1, 1, 'succeeded'), ('old-wait', 1, 1, 1, 'pending')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
 	if err := m.Steps(1); err != nil {
-		t.Fatalf("up 005 again: %v", err)
+		t.Fatalf("up 006: %v", err)
+	}
+	var source string
+	var paid bool
+	var onSale bool
+	if err := pool.QueryRow(ctx, `SELECT source, paid_at IS NOT NULL, (SELECT on_sale FROM plans WHERE id = 1) FROM payments WHERE payment_id = 'old-ok'`).Scan(&source, &paid, &onSale); err != nil {
+		t.Fatal(err)
+	}
+	if source != "manual" || !paid || !onSale {
+		t.Fatalf("old payment after up 006: source %q, paid %v, plan on sale %v", source, paid, onSale)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE payments SET status = 'weird' WHERE payment_id = 'old-wait'`); err == nil {
+		t.Fatal("unknown payment status accepted")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE payments SET source = 'cash' WHERE payment_id = 'old-wait'`); err == nil {
+		t.Fatal("unknown payment source accepted")
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 006: %v", err)
+	}
+	for _, c := range [][2]string{{"payments", "source"}, {"payments", "confirmation_url"}, {"payments", "paid_at"}, {"plans", "on_sale"}} {
+		if columnExists(t, pool, c[0], c[1]) {
+			t.Fatalf("down 006 left %s.%s", c[0], c[1])
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 006 again: %v", err)
 	}
 }
