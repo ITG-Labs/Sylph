@@ -1,0 +1,82 @@
+{
+  "admin": {
+    "listen": "127.0.0.1:2019"
+  },
+  "apps": {
+    "layer4": {
+      "servers": {
+        "p443": {
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "match": [
+                {
+                  "tls": {
+                    "sni": [
+                      "www.alpha.example",
+                      "alpha.example"
+                    ]
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "proxy_protocol": "v2",
+                  "upstreams": [
+                    {
+                      "dial": [
+                        "127.0.0.1:20001"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "tls": {
+                    "sni": [
+                      "beta.example"
+                    ]
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "proxy_protocol": "v2",
+                  "upstreams": [
+                    {
+                      "dial": [
+                        "127.0.0.1:20002"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "proxy_protocol": "v2",
+                  "upstreams": [
+                    {
+                      "dial": [
+                        "127.0.0.1:20001"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
