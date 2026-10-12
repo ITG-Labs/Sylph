@@ -15,6 +15,7 @@ type Config struct {
 	ServerName    string
 	ExpireEvery   time.Duration
 	CleanupEvery  time.Duration
+	PaymentsEvery time.Duration
 	RetentionDays int
 }
 
@@ -27,6 +28,7 @@ func LoadConfig() (*Config, error) {
 		ServerName:    envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
 		ExpireEvery:   time.Minute,
 		CleanupEvery:  time.Hour,
+		PaymentsEvery: time.Minute,
 		RetentionDays: 30,
 	}
 	if cfg.CoreURL == "" {
@@ -40,6 +42,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if cfg.CleanupEvery, err = interval("SYLPH_CRON_CLEANUP_EVERY", cfg.CleanupEvery); err != nil {
+		return nil, err
+	}
+	if cfg.PaymentsEvery, err = interval("SYLPH_CRON_PAYMENTS_EVERY", cfg.PaymentsEvery); err != nil {
 		return nil, err
 	}
 	if v := os.Getenv("SYLPH_CRON_RETENTION_DAYS"); v != "" {

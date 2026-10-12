@@ -267,20 +267,20 @@ func TestRotatedKeyStillCountsAndLeavesTheNodes(t *testing.T) {
 	pay(t, s, u.ID, p.ID, time.Now().UTC())
 	n := deltaNode(t, s)
 	record(t, s, n.ID, "b-1", model.TrafficDelta{KeyUUID: oldKey, BytesUp: 400})
-	fresh, err := s.RotateUserKeys(ctx, u.ID)
+	fresh, err := s.RotateUserCredentials(ctx, u.ID, model.NewToken())
 	if err != nil {
 		t.Fatal(err)
 	}
-	record(t, s, n.ID, "b-2", model.TrafficDelta{KeyUUID: oldKey, BytesUp: 100}, model.TrafficDelta{KeyUUID: fresh[0].UUID, BytesDown: 500})
+	record(t, s, n.ID, "b-2", model.TrafficDelta{KeyUUID: oldKey, BytesUp: 100}, model.TrafficDelta{KeyUUID: fresh, BytesDown: 500})
 	if got := userPeriods(t, s, u.ID)[0].TrafficUsedBytes; got != 1000 {
 		t.Fatalf("used after rotation = %d, want 1000", got)
 	}
 	keys, err := s.GetUserKeys(ctx, u.ID)
-	if err != nil || len(keys) != 1 || keys[0].UUID != fresh[0].UUID {
+	if err != nil || len(keys) != 1 || keys[0].UUID != fresh {
 		t.Fatalf("keys = %+v, %v", keys, err)
 	}
 	onNode, err := s.ListNodeUserKeys(ctx, n.ID)
-	if err != nil || len(onNode) != 1 || onNode[0] != fresh[0].UUID {
+	if err != nil || len(onNode) != 1 || onNode[0] != fresh {
 		t.Fatalf("node keys = %v, %v", onNode, err)
 	}
 }
@@ -372,7 +372,7 @@ func TestCleanupHistoryKeepsFreshData(t *testing.T) {
 	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
 	n := deltaNode(t, s)
 	record(t, s, n.ID, "b-old", model.TrafficDelta{KeyUUID: oldKey, BytesUp: 100})
-	if _, err := s.RotateUserKeys(ctx, u.ID); err != nil {
+	if _, err := s.RotateUserCredentials(ctx, u.ID, model.NewToken()); err != nil {
 		t.Fatal(err)
 	}
 	record(t, s, n.ID, "b-new", model.TrafficDelta{KeyUUID: oldKey, BytesUp: 1})

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
@@ -10,12 +11,16 @@ import (
 )
 
 type Service struct {
-	store *store.Store
-	log   *slog.Logger
+	store       *store.Store
+	log         *slog.Logger
+	pay         PaymentProvider
+	returnURL   string
+	createLocks [64]sync.Mutex
+	pollBudget  time.Duration
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log}
+	return &Service{store: st, log: log, pollBudget: 20 * time.Second}
 }
 
 func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {
@@ -57,6 +62,25 @@ func (s *Service) GetUserFullByToken(ctx context.Context, token string) (*model.
 		return nil, nil, nil, nil, err
 	}
 	return u, keys, sub, plan, nil
+}
+
+func (s *Service) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
+	return s.store.ListPlansOnSale(ctx)
+}
+
+func (s *Service) ListUserDevices(ctx context.Context, userID int64) ([]model.Device, error) {
+	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+		return nil, err
+	}
+	return s.store.ListDevices(ctx, userID)
+}
+
+func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) error {
+	if err := s.store.RemoveDevice(ctx, userID, deviceID); err != nil {
+		return err
+	}
+	s.log.LogAttrs(ctx, slog.LevelInfo, "device_removed", slog.Int64("user_id", userID), slog.Int64("device_id", deviceID))
+	return nil
 }
 
 func (s *Service) ResetUserDevices(ctx context.Context, userID int64) error {

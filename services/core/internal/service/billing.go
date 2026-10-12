@@ -12,13 +12,13 @@ import (
 )
 
 func (s *Service) RegisterUser(ctx context.Context, telegramID int64) (*model.User, string, error) {
-	u := &model.User{TelegramID: &telegramID, SubToken: model.NewToken(), Status: "active"}
-	if err := s.store.CreateUser(ctx, u); err != nil {
+	key := model.NewUUID()
+	u, created, err := s.store.RegisterTelegramUser(ctx, telegramID, model.NewToken(), key)
+	if err != nil {
 		return nil, "", err
 	}
-	key := model.NewUUID()
-	if err := s.store.AddUserKey(ctx, u.ID, key); err != nil {
-		return nil, "", err
+	if !created {
+		return u, "", nil
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "user_registered",
 		slog.Int64("user_id", u.ID),
@@ -27,70 +27,83 @@ func (s *Service) RegisterUser(ctx context.Context, telegramID int64) (*model.Us
 }
 
 func (s *Service) HandlePayment(ctx context.Context, paymentID string, userID int64, planID int64, amountRub int64) error {
+	_, err := s.RecordPayment(ctx, paymentID, userID, planID, amountRub)
+	return err
+}
+
+func (s *Service) RecordPayment(ctx context.Context, paymentID string, userID int64, planID int64, amountRub int64) (store.SettleResult, error) {
 	if _, err := s.store.GetPlan(ctx, planID); err != nil {
-		return fmt.Errorf("plan %d: %w", planID, err)
+		return store.SettleResult{}, fmt.Errorf("plan %d: %w", planID, err)
 	}
 	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
-		return err
+		return store.SettleResult{}, err
 	}
-	existing, err := s.store.GetPayment(ctx, paymentID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return err
+	res, err := s.store.RecordManualPayment(ctx, &model.Payment{PaymentID: paymentID, UserID: userID, PlanID: planID, AmountRub: amountRub}, time.Now().UTC())
+	if errors.Is(err, store.ErrConflict) {
+		return store.SettleResult{}, &ConflictError{Field: "payment_id", Message: "payment_id already belongs to another payment"}
 	}
-	if existing != nil && existing.Status == "succeeded" {
-		s.log.LogAttrs(ctx, slog.LevelInfo, "payment_duplicate_ignored",
-			slog.String("payment_id", paymentID))
-		return nil
-	}
-	if existing == nil {
-		if err := s.store.CreatePayment(ctx, &model.Payment{PaymentID: paymentID, UserID: userID, PlanID: planID, AmountRub: amountRub, Status: "pending"}); err != nil {
-			return err
-		}
-	} else {
-		if err := s.store.SetPaymentStatus(ctx, paymentID, "pending"); err != nil {
-			return err
-		}
-	}
-	applied, err := s.store.ApplyPayment(ctx, userID, planID, time.Now().UTC())
 	if err != nil {
-		return err
+		return store.SettleResult{}, err
 	}
-	if err := s.store.SetPaymentStatus(ctx, paymentID, "succeeded"); err != nil {
-		return err
+	if !res.Applied {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "payment_duplicate_ignored",
+			slog.String("payment_id", paymentID),
+			slog.String("status", res.Payment.Status))
+		return res, nil
 	}
+	s.logApplied(ctx, res)
+	return res, nil
+}
+
+func (s *Service) logApplied(ctx context.Context, res store.SettleResult) {
 	mode := "queued"
-	if applied.StartsNow {
+	if res.Period.StartsNow {
 		mode = "now"
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "payment_applied",
-		slog.String("payment_id", paymentID),
-		slog.Int64("user_id", userID),
-		slog.Int64("plan_id", planID),
+		slog.String("payment_id", res.Payment.PaymentID),
+		slog.Int64("user_id", res.Payment.UserID),
+		slog.Int64("plan_id", res.Payment.PlanID),
+		slog.String("source", res.Payment.Source),
 		slog.String("mode", mode))
-	return nil
 }
 
-func (s *Service) RotateUserKey(ctx context.Context, userID int64) (string, error) {
-	keys, err := s.store.RotateUserKeys(ctx, userID)
-	if err != nil {
+func (s *Service) RotateUser(ctx context.Context, userID int64) (string, error) {
+	token := model.NewToken()
+	if _, err := s.store.RotateUserCredentials(ctx, userID, token); err != nil {
 		return "", err
 	}
-	s.log.LogAttrs(ctx, slog.LevelInfo, "user_key_rotated", slog.Int64("user_id", userID))
-	return keys[0].UUID, nil
+	s.log.LogAttrs(ctx, slog.LevelInfo, "user_link_rotated", slog.Int64("user_id", userID))
+	return token, nil
 }
 
-func (s *Service) GetUserSubscriptionInfo(ctx context.Context, telegramID int64) (*model.Subscription, *model.Plan, error) {
+type UserStatus struct {
+	User         *model.User         `json:"user"`
+	Subscription *model.Subscription `json:"subscription"`
+	Plan         *model.Plan         `json:"plan"`
+	Devices      int                 `json:"devices"`
+}
+
+func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserStatus, error) {
 	u, err := s.store.GetUserByTelegramID(ctx, telegramID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	st := &UserStatus{User: u}
 	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
-	if err != nil {
-		return nil, nil, err
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return nil, err
+	default:
+		plan, err := s.store.GetPlan(ctx, sub.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		st.Subscription, st.Plan = sub, plan
 	}
-	plan, err := s.store.GetPlan(ctx, sub.PlanID)
-	if err != nil {
-		return nil, nil, err
+	if st.Devices, err = s.store.CountDevices(ctx, u.ID); err != nil {
+		return nil, err
 	}
-	return sub, plan, nil
+	return st, nil
 }

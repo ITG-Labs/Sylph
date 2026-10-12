@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -22,6 +23,7 @@ func Jobs(core *CoreClient, cfg *Config) []Job {
 		{Name: "cleanup", Every: cfg.CleanupEvery, Do: func(ctx context.Context) ([]slog.Attr, error) {
 			return core.cleanup(ctx, cfg.RetentionDays)
 		}},
+		{Name: "payments", Every: cfg.PaymentsEvery, Do: core.payments},
 	}
 }
 
@@ -45,4 +47,25 @@ func (c *CoreClient) cleanup(ctx context.Context, retentionDays int) ([]slog.Att
 		return nil, err
 	}
 	return []slog.Attr{slog.Int64("deltas", out.Deltas), slog.Int64("batches", out.Batches), slog.Int64("keys", out.Keys)}, nil
+}
+
+func (c *CoreClient) payments(ctx context.Context) ([]slog.Attr, error) {
+	var out struct {
+		Checked   int64 `json:"checked"`
+		Succeeded int64 `json:"succeeded"`
+		Canceled  int64 `json:"canceled"`
+		Mismatch  int64 `json:"mismatch"`
+		Failed    int64 `json:"failed"`
+	}
+	if err := c.api.Do(ctx, http.MethodPost, "/v1/maintenance/payments/poll", nil, &out); err != nil {
+		var apiErr *apiclient.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == "payments_disabled" {
+			return []slog.Attr{slog.Bool("disabled", true)}, nil
+		}
+		return nil, err
+	}
+	return []slog.Attr{
+		slog.Int64("checked", out.Checked), slog.Int64("succeeded", out.Succeeded), slog.Int64("canceled", out.Canceled),
+		slog.Int64("mismatch", out.Mismatch), slog.Int64("failed", out.Failed),
+	}, nil
 }

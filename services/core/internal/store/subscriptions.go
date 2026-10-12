@@ -55,6 +55,14 @@ func (s *Store) ApplyPayment(ctx context.Context, userID int64, planID int64, no
 		return PaymentResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	res, err := applyPaymentTx(ctx, tx, userID, planID, now)
+	if err != nil {
+		return PaymentResult{}, err
+	}
+	return res, tx.Commit(ctx)
+}
+
+func applyPaymentTx(ctx context.Context, tx pgx.Tx, userID int64, planID int64, now time.Time) (PaymentResult, error) {
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR NO KEY UPDATE`, userID); err != nil {
 		return PaymentResult{}, err
 	}
@@ -78,7 +86,7 @@ func (s *Store) ApplyPayment(ctx context.Context, userID int64, planID int64, no
 		if err != nil {
 			return PaymentResult{}, err
 		}
-		return PaymentResult{PeriodID: id}, tx.Commit(ctx)
+		return PaymentResult{PeriodID: id}, nil
 	}
 	if current != nil {
 		if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE, expires_at = $2 WHERE id = $1`, current.id, now); err != nil {
@@ -97,7 +105,7 @@ func (s *Store) ApplyPayment(ctx context.Context, userID int64, planID int64, no
 		}
 		cursor = next
 	}
-	return PaymentResult{PeriodID: id, StartsNow: true}, tx.Commit(ctx)
+	return PaymentResult{PeriodID: id, StartsNow: true}, nil
 }
 
 func lockTimeline(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) ([]period, error) {
@@ -156,38 +164,4 @@ func (s *Store) ExpireOverdue(ctx context.Context, now time.Time) (int64, error)
 		return 0, err
 	}
 	return tag.RowsAffected(), tx.Commit(ctx)
-}
-
-func (s *Store) CreatePayment(ctx context.Context, p *model.Payment) error {
-	return s.pool.QueryRow(ctx,
-		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
-		p.PaymentID, p.UserID, p.PlanID, p.AmountRub, p.Status,
-	).Scan(&p.ID, &p.CreatedAt)
-}
-
-func (s *Store) GetPayment(ctx context.Context, paymentID string) (*model.Payment, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, payment_id, user_id, plan_id, amount_rub, status, created_at
-		 FROM payments WHERE payment_id = $1`, paymentID)
-	p := &model.Payment{}
-	err := row.Scan(&p.ID, &p.PaymentID, &p.UserID, &p.PlanID, &p.AmountRub, &p.Status, &p.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-func (s *Store) SetPaymentStatus(ctx context.Context, paymentID string, status string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE payments SET status = $2 WHERE payment_id = $1`, paymentID, status)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
 }

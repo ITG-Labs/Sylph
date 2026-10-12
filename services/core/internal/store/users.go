@@ -65,23 +65,56 @@ func (s *Store) GetUserKeys(ctx context.Context, userID int64) ([]model.UserKey,
 	return keys, rows.Err()
 }
 
-func (s *Store) RotateUserKeys(ctx context.Context, userID int64) ([]model.UserKey, error) {
+func (s *Store) RotateUserCredentials(ctx context.Context, userID int64, subToken string) (string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE users SET sub_token = $2 WHERE id = $1`, userID, subToken)
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ErrNotFound
+	}
 	if _, err := tx.Exec(ctx, `UPDATE user_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
-		return nil, err
+		return "", err
 	}
 	uuid := model.NewUUID()
 	if _, err := tx.Exec(ctx, `INSERT INTO user_keys (user_id, uuid) VALUES ($1, $2)`, userID, uuid); err != nil {
-		return nil, err
+		return "", err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	return uuid, tx.Commit(ctx)
+}
+
+func (s *Store) RegisterTelegramUser(ctx context.Context, telegramID int64, subToken, keyUUID string) (*model.User, bool, error) {
+	if u, err := s.GetUserByTelegramID(ctx, telegramID); err == nil {
+		return u, false, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, false, err
 	}
-	return []model.UserKey{{UserID: userID, UUID: uuid}}, nil
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(ctx)
+	u, err := s.scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (telegram_id, email, sub_token, status) VALUES ($1, '', $2, 'active')
+		 ON CONFLICT (telegram_id) DO NOTHING
+		 RETURNING id, telegram_id, email, sub_token, status, created_at`, telegramID, subToken))
+	if errors.Is(err, ErrNotFound) {
+		existing, err := s.scanUser(tx.QueryRow(ctx,
+			`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE telegram_id = $1`, telegramID))
+		return existing, false, err
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_keys (user_id, uuid) VALUES ($1, $2)`, u.ID, keyUUID); err != nil {
+		return nil, false, err
+	}
+	return u, true, tx.Commit(ctx)
 }
 
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*model.User, error) {

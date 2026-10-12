@@ -131,3 +131,43 @@ func TestTouchNodeSyncKeepsVersion(t *testing.T) {
 		t.Fatalf("sync mark bumped version %d -> %d", before.UsersVersion, got.UsersVersion)
 	}
 }
+
+func TestPlansOnSale(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	keep := mkPlan(t, s)
+	hide := mkPlan(t, s)
+	if !keep.OnSale || !hide.OnSale {
+		t.Fatalf("new plans must be on sale: %+v %+v", keep, hide)
+	}
+	hide.OnSale = false
+	if err := s.UpdatePlan(ctx, hide); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPlan(ctx, hide.ID)
+	if err != nil || got.OnSale {
+		t.Fatalf("hidden plan = %+v, %v", got, err)
+	}
+	list, err := s.ListPlansOnSale(ctx)
+	if err != nil || len(list) != 1 || list[0].ID != keep.ID {
+		t.Fatalf("on sale = %+v, %v", list, err)
+	}
+	all, err := s.ListPlans(ctx)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all plans = %+v, %v", all, err)
+	}
+}
+
+func TestFreePlansAreNotOnSale(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	paid := mkPlan(t, s)
+	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3}
+	if err := s.CreatePlan(ctx, free); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListPlansOnSale(ctx)
+	if err != nil || len(list) != 1 || list[0].ID != paid.ID {
+		t.Fatalf("on sale = %+v, %v", list, err)
+	}
+}

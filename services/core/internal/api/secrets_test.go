@@ -50,7 +50,7 @@ func userKeysByToken(t *testing.T, c *http.Client, base string, token string) []
 }
 
 func TestNoSecretsInLogs(t *testing.T) {
-	e := newAPIEnv(t)
+	e, yk := newPaymentsEnv(t)
 	ctx := context.Background()
 	bot := e.client(t, "bot", mtls.RoleBot)
 	subs := e.client(t, "subs", mtls.RoleSubs)
@@ -73,8 +73,24 @@ func TestNoSecretsInLogs(t *testing.T) {
 	if status := postJSON(t, bot, e.ts.URL+"/v1/users", map[string]int64{"telegram_id": 4242}, &created); status != http.StatusOK {
 		t.Fatalf("create status = %d", status)
 	}
-	if status := postJSON(t, bot, e.ts.URL+"/v1/users", map[string]int64{"telegram_id": 4242}, nil); status != http.StatusInternalServerError {
-		t.Fatalf("duplicate create status = %d, want 500", status)
+	if status := postJSON(t, bot, e.ts.URL+"/v1/users", map[string]int64{"telegram_id": 4242}, nil); status != http.StatusOK {
+		t.Fatalf("duplicate create status = %d, want 200", status)
+	}
+	var created2 struct {
+		PaymentID string `json:"payment_id"`
+	}
+	if status := postJSON(t, bot, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": created.ID, "plan_id": p.ID}, &created2); status != http.StatusOK {
+		t.Fatalf("payment create status = %d", status)
+	}
+	yk.setStatus(created2.PaymentID, "succeeded")
+	if status := postJSON(t, bot, e.ts.URL+"/v1/payments/"+created2.PaymentID+"/check", nil, nil); status != http.StatusOK {
+		t.Fatalf("payment check status = %d", status)
+	}
+	if status := postJSON(t, cron, e.ts.URL+"/v1/maintenance/payments/poll", nil, nil); status != http.StatusOK {
+		t.Fatalf("payment poll status = %d", status)
+	}
+	if r := adminCall(t, bot, http.MethodGet, e.ts.URL+"/v1/plans", nil); r.status != http.StatusOK {
+		t.Fatalf("plans status = %d", r.status)
 	}
 	if status := postJSON(t, panel, e.ts.URL+"/v1/payments", map[string]any{"payment_id": "pay-secret-test", "user_id": created.ID, "plan_id": p.ID, "amount_rub": 100}, nil); status != http.StatusOK {
 		t.Fatalf("payment status = %d", status)
@@ -115,11 +131,14 @@ func TestNoSecretsInLogs(t *testing.T) {
 	if status := postJSON(t, node, e.ts.URL+"/v1/sync/heartbeat", map[string]any{"agent_version": "v1", "xray_version": "25.9.11", "agent_uptime_sec": 1, "xray_uptime_sec": 1, "active_users": 1}, nil); status != http.StatusOK {
 		t.Fatalf("heartbeat status = %d", status)
 	}
-	var rotated map[string]any
+	var rotated struct {
+		SubToken string `json:"sub_token"`
+	}
 	if status := postJSON(t, bot, fmt.Sprintf("%s/v1/users/%d/rotate", e.ts.URL, created.ID), nil, &rotated); status != http.StatusOK {
 		t.Fatalf("rotate status = %d", status)
 	}
-	secrets = append(secrets, userKeysByToken(t, subs, e.ts.URL, created.SubToken)...)
+	secrets = append(secrets, rotated.SubToken, fakeSecret)
+	secrets = append(secrets, userKeysByToken(t, subs, e.ts.URL, rotated.SubToken)...)
 	if status := postJSON(t, bot, fmt.Sprintf("%s/v1/users/%d/devices/reset", e.ts.URL, created.ID), nil, nil); status != http.StatusOK {
 		t.Fatalf("reset status = %d", status)
 	}
@@ -131,7 +150,7 @@ func TestNoSecretsInLogs(t *testing.T) {
 	}
 
 	logs := e.logs.String()
-	if !strings.Contains(logs, `"msg":"http_request"`) || !strings.Contains(logs, `"msg":"user_create_failed"`) {
+	if !strings.Contains(logs, `"msg":"http_request"`) || !strings.Contains(logs, `"msg":"payment_applied"`) || !strings.Contains(logs, `"msg":"user_link_rotated"`) {
 		t.Fatalf("scenario did not log as expected: %s", logs)
 	}
 	for _, s := range secrets {

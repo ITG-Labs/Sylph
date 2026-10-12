@@ -60,6 +60,7 @@ type Plan struct {
 	TrafficLimitBytes *int64    `json:"traffic_limit_bytes"`
 	LocationGroupID   *int64    `json:"location_group_id"`
 	DeviceLimit       *int      `json:"device_limit"`
+	OnSale            bool      `json:"on_sale"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
@@ -92,13 +93,16 @@ type Subscription struct {
 }
 
 type Payment struct {
-	ID        int64     `json:"id"`
-	PaymentID string    `json:"payment_id"`
-	UserID    int64     `json:"user_id"`
-	PlanID    int64     `json:"plan_id"`
-	AmountRub int64     `json:"amount_rub"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              int64      `json:"id"`
+	PaymentID       string     `json:"payment_id"`
+	UserID          int64      `json:"user_id"`
+	PlanID          int64      `json:"plan_id"`
+	AmountRub       int64      `json:"amount_rub"`
+	Status          string     `json:"status"`
+	Source          string     `json:"source"`
+	ConfirmationURL string     `json:"confirmation_url,omitempty"`
+	PaidAt          *time.Time `json:"paid_at"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 type TrafficDelta struct {
@@ -112,9 +116,11 @@ type TrafficDelta struct {
 
 type Device struct {
 	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Fingerprint string    `json:"fingerprint"`
+	UserID      int64     `json:"-"`
+	Fingerprint string    `json:"-"`
 	UserAgent   string    `json:"user_agent"`
+	OS          string    `json:"os"`
+	Model       string    `json:"model"`
 	FirstSeen   time.Time `json:"first_seen"`
 	LastSeen    time.Time `json:"last_seen"`
 }
