@@ -185,10 +185,13 @@ func (a *App) devicesView(st *Status, devices []Device, notice string) (string, 
 	if len(devices) == 0 {
 		b.WriteString("Пока ни одного устройства.\n\n")
 	} else {
-		if st.Plan != nil && st.Plan.DeviceLimit != nil {
+		switch {
+		case st.Plan != nil && st.Plan.DeviceLimit != nil:
 			fmt.Fprintf(&b, "Привязано <b>%d из %d</b>\n\n", len(devices), *st.Plan.DeviceLimit)
-		} else {
+		case st.Plan != nil:
 			fmt.Fprintf(&b, "Привязано <b>%d</b> · без лимита\n\n", len(devices))
+		default:
+			fmt.Fprintf(&b, "Привязано <b>%d</b>\n\n", len(devices))
 		}
 		b.WriteString("Нажми на устройство, чтобы посмотреть его или отвязать.\n\n")
 		for i, d := range devices {
@@ -255,7 +258,7 @@ func (a *App) planGoneText() string {
 
 func (a *App) buyRulesText() string {
 	return "<blockquote expandable>" + a.ic(icInfo) + " <b>Как работает продление</b>\n\n" +
-		"Тот же тариф, что сейчас, встанет в очередь — начнётся, когда закончится текущий период.\n\n" +
+		"Тот же тариф, что сейчас, встанет в очередь — начнётся после всех уже оплаченных периодов.\n\n" +
 		"Другой тариф включится сразу после оплаты, а остаток текущего сгорит.\n\n" +
 		"Если трафик кончился, доступ закрыт до конца периода. Оплатишь сейчас — любой тариф включится сразу, " +
 		"а уже оплаченные периоды сдвинутся следом и не пропадут.</blockquote>"
@@ -367,7 +370,7 @@ func (a *App) plansView(st *Status, plans []Plan) (string, *models.InlineKeyboar
 }
 
 func offSaleCurrent(st *Status, plans []Plan) *Plan {
-	if st.Subscription == nil || st.Plan == nil {
+	if st.Subscription == nil || st.Plan == nil || st.Plan.PriceRub <= 0 {
 		return nil
 	}
 	for _, p := range plans {
@@ -386,7 +389,7 @@ func (a *App) paymentView(st *Status, plan Plan, pay *Payment) (string, *models.
 		fmt.Fprintf(&b, "%s Трафик исчерпан — новый период начнётся сразу после оплаты, трафик снова появится.\n\n", a.ic(icInfo))
 	} else if st.Subscription != nil && st.Plan != nil {
 		if st.Plan.ID == plan.ID {
-			fmt.Fprintf(&b, "%s Новый период встанет в очередь после текущего.\n\n", a.ic(icInfo))
+			fmt.Fprintf(&b, "%s Новый период встанет в очередь — после всех уже оплаченных.\n\n", a.ic(icInfo))
 		} else {
 			fmt.Fprintf(&b, "%s Сейчас у тебя тариф «%s» — его остаток сгорит, новый включится сразу после оплаты.\n\n", a.ic(icWarn), html.EscapeString(st.Plan.Name))
 		}

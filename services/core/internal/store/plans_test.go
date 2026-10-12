@@ -157,3 +157,17 @@ func TestPlansOnSale(t *testing.T) {
 		t.Fatalf("all plans = %+v, %v", all, err)
 	}
 }
+
+func TestFreePlansAreNotOnSale(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	paid := mkPlan(t, s)
+	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3}
+	if err := s.CreatePlan(ctx, free); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListPlansOnSale(ctx)
+	if err != nil || len(list) != 1 || list[0].ID != paid.ID {
+		t.Fatalf("on sale = %+v, %v", list, err)
+	}
+}

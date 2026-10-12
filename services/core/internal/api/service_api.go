@@ -108,17 +108,21 @@ func (s *Server) handlePayment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "payment_id, user_id and plan_id are required")
 		return
 	}
-	err := s.svc.HandlePayment(r.Context(), body.PaymentID, body.UserID, body.PlanID, body.AmountRub)
+	res, err := s.svc.RecordPayment(r.Context(), body.PaymentID, body.UserID, body.PlanID, body.AmountRub)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		var ce *service.ConflictError
+		switch {
+		case errors.As(err, &ce):
+			writeFieldError(w, http.StatusConflict, "conflict", ce.Field, ce.Message)
+		case errors.Is(err, store.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "user or plan not found")
-			return
+		default:
+			s.log.Error("payment_failed", "error", err.Error())
+			writeError(w, http.StatusInternalServerError, "internal", "payment failed")
 		}
-		s.log.Error("payment_failed", "error", err.Error())
-		writeError(w, http.StatusInternalServerError, "internal", "payment failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "applied": res.Applied, "status": res.Payment.Status})
 }
 
 func (s *Server) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {

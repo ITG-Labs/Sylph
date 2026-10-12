@@ -244,7 +244,7 @@ func TestFindPendingPaymentForReuse(t *testing.T) {
 	}
 }
 
-func TestListPendingPaymentsOldestFirstWithinWindow(t *testing.T) {
+func TestListPendingPaymentsNewestFirstWithinWindow(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	u, p := mkUser(t, s), mkPlan(t, s)
@@ -268,11 +268,42 @@ func TestListPendingPaymentsOldestFirstWithinWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].PaymentID != a.PaymentID || got[1].PaymentID != b.PaymentID {
+	if len(got) != 2 || got[0].PaymentID != b.PaymentID || got[1].PaymentID != a.PaymentID {
 		t.Fatalf("pending = %+v", got)
 	}
 	got, err = s.ListPendingPayments(ctx, time.Now().Add(-24*time.Hour), 1)
-	if err != nil || len(got) != 1 || got[0].PaymentID != a.PaymentID {
+	if err != nil || len(got) != 1 || got[0].PaymentID != b.PaymentID {
 		t.Fatalf("limit 1 = %+v, %v", got, err)
+	}
+}
+
+func TestManualPaymentRefusesSomeoneElsesID(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, other, p := mkUser(t, s), mkUser(t, s), mkPlan(t, s)
+	provider := mkProviderPayment(t, s, u.ID, p.ID)
+	if _, err := s.RecordManualPayment(ctx, &model.Payment{PaymentID: provider.PaymentID, UserID: u.ID, PlanID: p.ID, AmountRub: 100}, time.Now().UTC()); err != ErrConflict {
+		t.Fatalf("manual over a provider payment: %v", err)
+	}
+	if got := paymentRow(t, s, provider.PaymentID); got.Status != "pending" {
+		t.Fatalf("provider payment touched: %q", got.Status)
+	}
+	if _, err := s.RecordManualPayment(ctx, &model.Payment{PaymentID: "m-1", UserID: u.ID, PlanID: p.ID, AmountRub: 100}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	for name, pm := range map[string]*model.Payment{
+		"other user":   {PaymentID: "m-1", UserID: other.ID, PlanID: p.ID, AmountRub: 100},
+		"other amount": {PaymentID: "m-1", UserID: u.ID, PlanID: p.ID, AmountRub: 1},
+	} {
+		if _, err := s.RecordManualPayment(ctx, pm, time.Now().UTC()); err != ErrConflict {
+			t.Fatalf("%s: err = %v, want ErrConflict", name, err)
+		}
+	}
+	res, err := s.RecordManualPayment(ctx, &model.Payment{PaymentID: "m-1", UserID: u.ID, PlanID: p.ID, AmountRub: 100}, time.Now().UTC())
+	if err != nil || res.Applied || res.Payment.Status != "succeeded" {
+		t.Fatalf("exact repeat = %+v, %v", res, err)
+	}
+	if ps := userPeriods(t, s, other.ID); len(ps) != 0 {
+		t.Fatalf("other user got a period: %+v", ps)
 	}
 }

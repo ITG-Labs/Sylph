@@ -70,6 +70,14 @@ func (s *Store) RecordManualPayment(ctx context.Context, p *model.Payment, now t
 		p.PaymentID, p.UserID, p.PlanID, p.AmountRub); err != nil {
 		return SettleResult{}, mapWriteErr(err)
 	}
+	var userID, planID, amount int64
+	var source string
+	if err := tx.QueryRow(ctx, `SELECT user_id, plan_id, amount_rub, source FROM payments WHERE payment_id = $1 FOR UPDATE`, p.PaymentID).Scan(&userID, &planID, &amount, &source); err != nil {
+		return SettleResult{}, err
+	}
+	if source != "manual" || userID != p.UserID || planID != p.PlanID || amount != p.AmountRub {
+		return SettleResult{}, ErrConflict
+	}
 	res, err := settleTx(ctx, tx, p.PaymentID, now)
 	if err != nil {
 		return SettleResult{}, err
@@ -116,7 +124,7 @@ func (s *Store) ListPendingPayments(ctx context.Context, since time.Time, limit 
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+paymentColumns+` FROM payments
 		 WHERE status = 'pending' AND source = 'yookassa' AND created_at > $1
-		 ORDER BY created_at, id LIMIT $2`, since, limit)
+		 ORDER BY created_at DESC, id DESC LIMIT $2`, since, limit)
 	if err != nil {
 		return nil, err
 	}

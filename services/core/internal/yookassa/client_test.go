@@ -209,3 +209,31 @@ func TestAmountKopecks(t *testing.T) {
 		t.Fatalf("RUB(199) = %+v", RUB(199))
 	}
 }
+
+func TestNetworkErrorIsRetriedWithTheSameKey(t *testing.T) {
+	var mu sync.Mutex
+	var keys []string
+	calls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		keys = append(keys, r.Header.Get("Idempotence-Key"))
+		mu.Unlock()
+		if n == 1 {
+			hj, _ := w.(http.Hijacker)
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+			return
+		}
+		w.Write([]byte(createdReply))
+	}))
+	t.Cleanup(ts.Close)
+	c := New(Config{BaseURL: ts.URL, ShopID: testShop, SecretKey: testSecret, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})
+	if _, err := c.CreatePayment(context.Background(), CreateRequest{Amount: RUB(1)}, "key-net"); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0] != "key-net" || keys[1] != "key-net" {
+		t.Fatalf("keys = %v", keys)
+	}
+}

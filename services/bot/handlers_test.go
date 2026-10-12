@@ -187,7 +187,9 @@ func newTestApp(t *testing.T, core *fakeCore) (*App, *fakeTelegram) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewApp(core, "https://subs.example.com", loc, slog.New(slog.NewJSONHandler(io.Discard, nil))), &fakeTelegram{}
+	app := NewApp(core, "https://subs.example.com", loc, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	app.checkCooldown = 0
+	return app, &fakeTelegram{}
 }
 
 func message(text string, chatType models.ChatType) *models.Update {
@@ -867,4 +869,67 @@ func TestForgedOrStaleDevices(t *testing.T) {
 			t.Fatalf("answers = %+v", tg.only(t, "answerCallbackQuery"))
 		}
 	}
+}
+
+func TestFreeCurrentPlanIsNotOfferedForRenewal(t *testing.T) {
+	st := activeStatus()
+	st.Plan.OnSale, st.Plan.PriceRub = false, 0
+	core := &fakeCore{status: st, plans: []Plan{{ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true}}}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("menu:buy"))
+	m := tg.last(t)
+	if _, ok := buttons(m.keyboard)["buy:2"]; ok || strings.Contains(m.text, "Продлить текущий") || strings.Contains(m.text, "снят с продажи") {
+		t.Fatalf("free plan offered for renewal:\n%s\n%+v", m.text, m.keyboard)
+	}
+	app.Handle(context.Background(), tg, callback("buy:2"))
+	if core.called("create") {
+		t.Fatal("payment created for a free plan")
+	}
+}
+
+func TestCheckButtonSpamIsThrottled(t *testing.T) {
+	core := &fakeCore{check: &Check{Status: "pending", TelegramID: i64(tgUser)}}
+	app, tg := newTestApp(t, core)
+	app.checkCooldown = time.Hour
+	for range 4 {
+		app.Handle(context.Background(), tg, callback("chk:p1"))
+	}
+	n := 0
+	for _, c := range core.calls {
+		if c == "check:p1" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("core checked %d times within the cooldown", n)
+	}
+	for _, a := range tg.only(t, "answerCallbackQuery") {
+		if !strings.Contains(a.text, "ещё не пришла") {
+			t.Fatalf("answers = %+v", tg.only(t, "answerCallbackQuery"))
+		}
+	}
+	app.Handle(context.Background(), tg, callback("chk:p2"))
+	if !core.called("check:p2") {
+		t.Fatal("another payment throttled too")
+	}
+}
+
+func TestDevicesWithoutSubscriptionDoNotClaimUnlimited(t *testing.T) {
+	core := &fakeCore{status: &Status{User: User{ID: 7, SubToken: "tok"}}, devices: testDevices()[:2]}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("dev:list"))
+	m := tg.last(t).text
+	mustContain(t, m, "Привязано <b>2</b>")
+	if strings.Contains(m, "без лимита") {
+		t.Fatalf("no subscription is not «без лимита»:\n%s", m)
+	}
+}
+
+func TestQueueWordingCoversExistingQueue(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), plans: []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, OnSale: true}}, payment: &Payment{PaymentID: "p1", ConfirmationURL: "https://yoomoney.ru/x", AmountRub: 199}}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("buy:2"))
+	mustContain(t, tg.last(t).text, "после всех уже оплаченных")
+	app.Handle(context.Background(), tg, callback("menu:buy"))
+	mustContain(t, tg.last(t).text, "после всех уже оплаченных")
 }

@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -57,6 +58,10 @@ func (c *CoreClient) payments(ctx context.Context) ([]slog.Attr, error) {
 		Failed    int64 `json:"failed"`
 	}
 	if err := c.api.Do(ctx, http.MethodPost, "/v1/maintenance/payments/poll", nil, &out); err != nil {
+		var apiErr *apiclient.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == "payments_disabled" {
+			return []slog.Attr{slog.Bool("disabled", true)}, nil
+		}
 		return nil, err
 	}
 	return []slog.Attr{

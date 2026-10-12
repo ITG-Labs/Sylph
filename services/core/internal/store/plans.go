@@ -86,7 +86,7 @@ func (s *Store) ListPlans(ctx context.Context) ([]model.Plan, error) {
 }
 
 func (s *Store) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
-	return s.listPlans(ctx, `SELECT `+planColumns+` FROM plans WHERE on_sale ORDER BY price_rub, id`)
+	return s.listPlans(ctx, `SELECT `+planColumns+` FROM plans WHERE on_sale AND price_rub > 0 ORDER BY price_rub, id`)
 }
 
 func (s *Store) listPlans(ctx context.Context, query string) ([]model.Plan, error) {

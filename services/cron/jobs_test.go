@@ -86,3 +86,25 @@ func TestJobsReportCoreErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestPaymentsJobSkipsWhenPaymentsAreOff(t *testing.T) {
+	core := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"code":"payments_disabled","message":"payments are not configured"}`)
+	})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30})
+	attrs, err := jobs[2].Do(context.Background())
+	if err != nil {
+		t.Fatalf("disabled payments must be a skip, got %v", err)
+	}
+	if len(attrs) != 1 || attrs[0].Key != "disabled" || !attrs[0].Value.Bool() {
+		t.Fatalf("attrs = %v", attrs)
+	}
+	other := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"code":"unavailable","message":"x"}`)
+	})
+	if _, err := Jobs(other, &Config{PaymentsEvery: time.Minute})[2].Do(context.Background()); err == nil {
+		t.Fatal("other 503 swallowed")
+	}
+}

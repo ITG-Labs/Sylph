@@ -21,6 +21,7 @@ type fakeProvider struct {
 	gets     int
 	getErr   error
 	failIDs  map[string]bool
+	delay    time.Duration
 }
 
 func newFakeProvider() *fakeProvider {
@@ -28,6 +29,7 @@ func newFakeProvider() *fakeProvider {
 }
 
 func (f *fakeProvider) CreatePayment(_ context.Context, req yookassa.CreateRequest, key string) (*yookassa.Payment, error) {
+	time.Sleep(f.delay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, req)
@@ -45,6 +47,7 @@ func (f *fakeProvider) CreatePayment(_ context.Context, req yookassa.CreateReque
 }
 
 func (f *fakeProvider) GetPayment(_ context.Context, id string) (*yookassa.Payment, error) {
+	time.Sleep(f.delay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gets++
@@ -488,5 +491,103 @@ func TestPaidUntilComesFromTheQueue(t *testing.T) {
 	sub, _ := svc.store.GetActiveSubscription(ctx, u.ID)
 	if sub.PaidUntil == nil || sub.PaidUntil.Sub(sub.ExpiresAt) < 29*24*time.Hour {
 		t.Fatalf("second payment did not queue: %+v", sub)
+	}
+}
+
+func TestConcurrentCreatesMakeOnePayment(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	fp.delay = 50 * time.Millisecond
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 50, 199)
+	var wg sync.WaitGroup
+	ids := make([]string, 6)
+	for i := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pm, err := svc.CreatePayment(ctx, u.ID, p.ID)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			ids[i] = pm.PaymentID
+		}()
+	}
+	wg.Wait()
+	for _, id := range ids {
+		if id != ids[0] {
+			t.Fatalf("payment ids = %v", ids)
+		}
+	}
+	if len(fp.requests) != 1 {
+		t.Fatalf("provider asked to create %d payments", len(fp.requests))
+	}
+}
+
+func TestReuseChecksThatTheOldLinkIsStillAlive(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 51, 199)
+	first, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp.set(first.PaymentID, func(y *yookassa.Payment) { y.Status = "canceled" })
+	second, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PaymentID == first.PaymentID || len(fp.requests) != 2 {
+		t.Fatalf("canceled link handed out again: %+v", second)
+	}
+	if got, _ := svc.store.GetPayment(ctx, first.PaymentID); got.Status != "canceled" {
+		t.Fatalf("old payment = %q", got.Status)
+	}
+	fp.getErr = errors.New("down")
+	third, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || third.PaymentID != second.PaymentID {
+		t.Fatalf("provider down must not block the fresh link: %+v, %v", third, err)
+	}
+}
+
+func TestReusePaidLinkSettlesItAndMakesANewOne(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 52, 199)
+	first, _ := svc.CreatePayment(ctx, u.ID, p.ID)
+	succeed(fp, first.PaymentID)
+	second, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || second.PaymentID == first.PaymentID {
+		t.Fatalf("second = %+v, %v", second, err)
+	}
+	if got, _ := svc.store.GetPayment(ctx, first.PaymentID); got.Status != "succeeded" {
+		t.Fatalf("paid payment found on reuse was not settled: %q", got.Status)
+	}
+}
+
+func TestPollStopsWithinItsTimeBudgetNewestFirst(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	var ids []string
+	for i, tg := range []int64{60, 61, 62, 63, 64} {
+		u, p := userAndPlan(t, svc, tg, int64(100+i))
+		pm, err := svc.CreatePayment(ctx, u.ID, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, pm.PaymentID)
+		if _, err := poolOf(svc).Exec(ctx, `UPDATE payments SET created_at = now() - make_interval(mins => $2) WHERE payment_id = $1`, pm.PaymentID, 10-i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	succeed(fp, ids[4])
+	fp.delay = 40 * time.Millisecond
+	svc.pollBudget = 60 * time.Millisecond
+	res, err := svc.PollPayments(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Checked == 0 || res.Checked >= 5 || res.Succeeded != 1 {
+		t.Fatalf("poll = %+v; want a partial run that started from the newest payment", res)
 	}
 }

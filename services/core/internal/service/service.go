@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
@@ -10,14 +11,16 @@ import (
 )
 
 type Service struct {
-	store     *store.Store
-	log       *slog.Logger
-	pay       PaymentProvider
-	returnURL string
+	store       *store.Store
+	log         *slog.Logger
+	pay         PaymentProvider
+	returnURL   string
+	createLocks [64]sync.Mutex
+	pollBudget  time.Duration
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log}
+	return &Service{store: st, log: log, pollBudget: 20 * time.Second}
 }
 
 func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {

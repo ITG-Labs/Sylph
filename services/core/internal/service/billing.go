@@ -27,24 +27,32 @@ func (s *Service) RegisterUser(ctx context.Context, telegramID int64) (*model.Us
 }
 
 func (s *Service) HandlePayment(ctx context.Context, paymentID string, userID int64, planID int64, amountRub int64) error {
+	_, err := s.RecordPayment(ctx, paymentID, userID, planID, amountRub)
+	return err
+}
+
+func (s *Service) RecordPayment(ctx context.Context, paymentID string, userID int64, planID int64, amountRub int64) (store.SettleResult, error) {
 	if _, err := s.store.GetPlan(ctx, planID); err != nil {
-		return fmt.Errorf("plan %d: %w", planID, err)
+		return store.SettleResult{}, fmt.Errorf("plan %d: %w", planID, err)
 	}
 	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
-		return err
+		return store.SettleResult{}, err
 	}
 	res, err := s.store.RecordManualPayment(ctx, &model.Payment{PaymentID: paymentID, UserID: userID, PlanID: planID, AmountRub: amountRub}, time.Now().UTC())
+	if errors.Is(err, store.ErrConflict) {
+		return store.SettleResult{}, &ConflictError{Field: "payment_id", Message: "payment_id already belongs to another payment"}
+	}
 	if err != nil {
-		return err
+		return store.SettleResult{}, err
 	}
 	if !res.Applied {
 		s.log.LogAttrs(ctx, slog.LevelInfo, "payment_duplicate_ignored",
 			slog.String("payment_id", paymentID),
 			slog.String("status", res.Payment.Status))
-		return nil
+		return res, nil
 	}
 	s.logApplied(ctx, res)
-	return nil
+	return res, nil
 }
 
 func (s *Service) logApplied(ctx context.Context, res store.SettleResult) {

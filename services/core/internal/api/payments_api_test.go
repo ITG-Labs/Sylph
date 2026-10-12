@@ -238,3 +238,24 @@ func TestRotateGivesANewLinkAndUnknownUsersAre404(t *testing.T) {
 	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/users/424242/rotate", nil), http.StatusNotFound)
 	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/users/424242/devices/reset", nil), http.StatusNotFound)
 }
+
+func TestManualPaymentAnswersHonestly(t *testing.T) {
+	e, _ := newPaymentsEnv(t)
+	panel := e.client(t, "panel", mtls.RolePanel)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	u, p := botUserAndPlan(t, e, 5300, 199)
+	other, _ := botUserAndPlan(t, e, 5301, 199)
+	body := map[string]any{"payment_id": "manual-5300", "user_id": u.ID, "plan_id": p.ID, "amount_rub": 199}
+	var first, again map[string]any
+	r := adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/payments", body)
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &first)
+	adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/payments", body).decode(t, &again)
+	if first["applied"] != true || first["status"] != "succeeded" || again["applied"] != false || again["status"] != "succeeded" {
+		t.Fatalf("first = %v, again = %v", first, again)
+	}
+	mustField(t, adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/payments", map[string]any{"payment_id": "manual-5300", "user_id": other.ID, "plan_id": p.ID, "amount_rub": 199}), http.StatusConflict, "conflict", "payment_id")
+	var created createdPayment
+	adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID}).decode(t, &created)
+	mustField(t, adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/payments", map[string]any{"payment_id": created.PaymentID, "user_id": u.ID, "plan_id": p.ID, "amount_rub": 199}), http.StatusConflict, "conflict", "payment_id")
+}

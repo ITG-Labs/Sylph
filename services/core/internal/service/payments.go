@@ -73,11 +73,17 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 			return nil, &ConflictError{Field: "plan_id", Message: "plan is not on sale"}
 		}
 	}
+	lock := &s.createLocks[uint64(userID)%uint64(len(s.createLocks))]
+	lock.Lock()
+	defer lock.Unlock()
 	existing, err := s.store.FindPendingPayment(ctx, userID, planID, plan.PriceRub, time.Now().Add(-reuseWindow))
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
+	switch {
+	case err == nil:
+		status, _, err := s.reconcile(ctx, existing, time.Time{})
+		if err != nil || status == "pending" {
+			return existing, nil
+		}
+	case !errors.Is(err, store.ErrNotFound):
 		return nil, err
 	}
 	pctx, cancel := context.WithTimeout(ctx, providerTimeout)
@@ -96,7 +102,7 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 			slog.String("error", err.Error()))
 		return nil, fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
 	}
-	if remote.ID == "" || len(remote.ID) > 64 || remote.Confirmation == nil || remote.Confirmation.ConfirmationURL == "" {
+	if remote.ID == "" || len(remote.ID) > 60 || remote.Confirmation == nil || remote.Confirmation.ConfirmationURL == "" {
 		s.log.LogAttrs(ctx, slog.LevelError, "yookassa_request_failed",
 			slog.String("op", "create"),
 			slog.String("payment_id", remote.ID),
@@ -130,7 +136,7 @@ func (s *Service) CheckPayment(ctx context.Context, paymentID string) (*CheckRes
 	}
 	status, applied := local.Status, false
 	if status == "pending" {
-		if status, applied, err = s.reconcile(ctx, local); err != nil {
+		if status, applied, err = s.reconcile(ctx, local, time.Time{}); err != nil {
 			return nil, err
 		}
 	}
@@ -164,12 +170,16 @@ func (s *Service) PollPayments(ctx context.Context) (PollResult, error) {
 		return PollResult{}, err
 	}
 	var res PollResult
+	deadline := time.Now().Add(s.pollBudget)
 	for i := range pending {
 		if ctx.Err() != nil {
 			return res, ctx.Err()
 		}
+		if !time.Now().Before(deadline) {
+			break
+		}
 		res.Checked++
-		status, applied, err := s.reconcile(ctx, &pending[i])
+		status, applied, err := s.reconcile(ctx, &pending[i], deadline)
 		switch {
 		case err != nil:
 			res.Failed++
@@ -184,8 +194,11 @@ func (s *Service) PollPayments(ctx context.Context) (PollResult, error) {
 	return res, nil
 }
 
-func (s *Service) reconcile(ctx context.Context, local *model.Payment) (string, bool, error) {
-	pctx, cancel := context.WithTimeout(ctx, providerTimeout)
+func (s *Service) reconcile(ctx context.Context, local *model.Payment, deadline time.Time) (string, bool, error) {
+	if deadline.IsZero() {
+		deadline = time.Now().Add(providerTimeout)
+	}
+	pctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	remote, err := s.pay.GetPayment(pctx, local.PaymentID)
 	if err != nil {

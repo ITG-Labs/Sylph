@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tgbot "github.com/go-telegram/bot"
@@ -19,15 +20,40 @@ type Telegram interface {
 }
 
 type App struct {
-	core        Core
-	subsURL     string
-	loc         *time.Location
-	log         *slog.Logger
-	customEmoji bool
+	core          Core
+	subsURL       string
+	loc           *time.Location
+	log           *slog.Logger
+	customEmoji   bool
+	checkCooldown time.Duration
+	checkedMu     sync.Mutex
+	lastCheck     map[string]time.Time
 }
 
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
-	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log}
+	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log, checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}}
+}
+
+func (a *App) checkTooSoon(tgID int64, paymentID string) bool {
+	if a.checkCooldown <= 0 {
+		return false
+	}
+	key := strconv.FormatInt(tgID, 10) + ":" + paymentID
+	now := time.Now()
+	a.checkedMu.Lock()
+	defer a.checkedMu.Unlock()
+	if last, ok := a.lastCheck[key]; ok && now.Sub(last) < a.checkCooldown {
+		return true
+	}
+	if len(a.lastCheck) > 1000 {
+		for k, at := range a.lastCheck {
+			if now.Sub(at) >= a.checkCooldown {
+				delete(a.lastCheck, k)
+			}
+		}
+	}
+	a.lastCheck[key] = now
+	return false
 }
 
 type reply struct {
@@ -194,6 +220,9 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, paymentID string) string {
 	if !validPaymentID(paymentID) {
 		return textNotFound
+	}
+	if a.checkTooSoon(tgID, paymentID) {
+		return textPending
 	}
 	chk, err := a.core.CheckPayment(ctx, paymentID)
 	if errors.Is(err, ErrNotFound) {

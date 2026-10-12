@@ -89,6 +89,11 @@ func (s *Store) RotateUserCredentials(ctx context.Context, userID int64, subToke
 }
 
 func (s *Store) RegisterTelegramUser(ctx context.Context, telegramID int64, subToken, keyUUID string) (*model.User, bool, error) {
+	if u, err := s.GetUserByTelegramID(ctx, telegramID); err == nil {
+		return u, false, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, false, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, false, err
