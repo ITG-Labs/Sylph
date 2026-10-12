@@ -22,7 +22,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	want := Config{
 		CoreURL: "https://core.sylph.internal:8443", TLSCert: "/certs/cert.pem", TLSKey: "/certs/key.pem", CACert: "/certs/ca.pem",
-		ServerName: "core.sylph.internal", ExpireEvery: time.Minute, CleanupEvery: time.Hour, RetentionDays: 30,
+		ServerName: "core.sylph.internal", ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30,
 	}
 	if *cfg != want {
 		t.Fatalf("cfg = %+v", *cfg)
@@ -35,11 +35,12 @@ func TestLoadConfigOverrides(t *testing.T) {
 	t.Setenv("SYLPH_CRON_EXPIRE_EVERY", "30s")
 	t.Setenv("SYLPH_CRON_CLEANUP_EVERY", "24h")
 	t.Setenv("SYLPH_CRON_RETENTION_DAYS", "90")
+	t.Setenv("SYLPH_CRON_PAYMENTS_EVERY", "2m")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ServerName != "core.example" || cfg.ExpireEvery != 30*time.Second || cfg.CleanupEvery != 24*time.Hour || cfg.RetentionDays != 90 {
+	if cfg.ServerName != "core.example" || cfg.ExpireEvery != 30*time.Second || cfg.CleanupEvery != 24*time.Hour || cfg.RetentionDays != 90 || cfg.PaymentsEvery != 2*time.Minute {
 		t.Fatalf("cfg = %+v", *cfg)
 	}
 }
@@ -51,6 +52,7 @@ func TestLoadConfigRejects(t *testing.T) {
 		"bad expire":        {"SYLPH_CRON_EXPIRE_EVERY", "often"},
 		"too fast expire":   {"SYLPH_CRON_EXPIRE_EVERY", "500ms"},
 		"bad cleanup":       {"SYLPH_CRON_CLEANUP_EVERY", "-1h"},
+		"bad payments":      {"SYLPH_CRON_PAYMENTS_EVERY", "soon"},
 		"zero retention":    {"SYLPH_CRON_RETENTION_DAYS", "0"},
 		"huge retention":    {"SYLPH_CRON_RETENTION_DAYS", "3651"},
 		"retention as text": {"SYLPH_CRON_RETENTION_DAYS", "month"},

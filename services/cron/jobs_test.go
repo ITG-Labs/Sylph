@@ -45,12 +45,15 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 		case "/v1/maintenance/cleanup":
 			_ = json.NewDecoder(r.Body).Decode(&cleanupBody)
 			_, _ = io.WriteString(w, `{"deltas":120000,"batches":3000,"keys":2}`)
+		case "/v1/maintenance/payments/poll":
+			_, _ = io.WriteString(w, `{"checked":5,"succeeded":2,"canceled":1,"mismatch":1,"failed":1}`)
 		default:
 			http.NotFound(w, r)
 		}
 	})
-	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, RetentionDays: 45})
-	if len(jobs) != 2 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour {
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45})
+	if len(jobs) != 3 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour ||
+		jobs[2].Name != "payments" || jobs[2].Every != 2*time.Minute {
 		t.Fatalf("jobs = %+v", jobs)
 	}
 	attrs, err := jobs[0].Do(context.Background())
@@ -65,6 +68,11 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 	if len(cleanupBody) != 1 || cleanupBody["older_than_days"] != float64(45) {
 		t.Fatalf("cleanup body = %v", cleanupBody)
 	}
+	attrs, err = jobs[2].Do(context.Background())
+	got = attrsOf(attrs)
+	if err != nil || got["checked"] != 5 || got["succeeded"] != 2 || got["canceled"] != 1 || got["mismatch"] != 1 || got["failed"] != 1 {
+		t.Fatalf("payments = %v, %v", attrs, err)
+	}
 }
 
 func TestJobsReportCoreErrors(t *testing.T) {
@@ -72,7 +80,7 @@ func TestJobsReportCoreErrors(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = io.WriteString(w, `{"code":"forbidden","message":"role cron is not allowed"}`)
 	})
-	for _, job := range Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, RetentionDays: 30}) {
+	for _, job := range Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30}) {
 		if _, err := job.Do(context.Background()); err == nil {
 			t.Fatalf("%s swallowed a 403", job.Name)
 		}

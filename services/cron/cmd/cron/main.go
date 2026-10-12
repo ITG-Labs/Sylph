@@ -38,6 +38,7 @@ func run(logger *slog.Logger) error {
 	logger.Info("scheduled",
 		slog.String("expire_every", cfg.ExpireEvery.String()),
 		slog.String("cleanup_every", cfg.CleanupEvery.String()),
+		slog.String("payments_every", cfg.PaymentsEvery.String()),
 		slog.Int("retention_days", cfg.RetentionDays))
 	cron.Run(ctx, cron.Jobs(core, cfg), logger)
 	logger.Info("stopped")
