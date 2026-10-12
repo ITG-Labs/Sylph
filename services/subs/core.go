@@ -1,6 +1,13 @@
 package subs
 
-import "time"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/apiclient"
+)
 
 const (
 	StatusOK              = "ok"
@@ -30,4 +37,39 @@ type View struct {
 	TrafficLimitBytes *int64       `json:"traffic_limit_bytes"`
 	ExpiresAt         *time.Time   `json:"expires_at"`
 	Connections       []Connection `json:"connections"`
+}
+
+var ErrNotFound = errors.New("subscription not found")
+
+type Request struct {
+	SubToken    string `json:"sub_token"`
+	HWID        string `json:"hwid"`
+	UserAgent   string `json:"user_agent"`
+	DeviceOS    string `json:"device_os"`
+	DeviceModel string `json:"device_model"`
+}
+
+type Core interface {
+	Subscription(ctx context.Context, req Request) (*View, error)
+}
+
+type CoreClient struct {
+	api *apiclient.Client
+}
+
+func NewCoreClient(api *apiclient.Client) *CoreClient {
+	return &CoreClient{api: api}
+}
+
+func (c *CoreClient) Subscription(ctx context.Context, req Request) (*View, error) {
+	var view View
+	err := c.api.Do(ctx, http.MethodPost, "/v1/subscription", req, &view)
+	var apiErr *apiclient.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &view, nil
 }
