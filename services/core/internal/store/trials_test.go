@@ -241,3 +241,41 @@ func TestConcurrentTrialClaimsOfOneHWID(t *testing.T) {
 		t.Fatalf("accounts allowed on one device = %d, want 1", allowed)
 	}
 }
+
+func TestDeviceRegistrationDoesNotWaitForDeltaBatches(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkTgUser(t, s, 5301)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR KEY SHARE`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	quick, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := s.RegisterDevice(quick, u.ID, DeviceInfo{HWID: "hw-1"}, nil); err != nil {
+		t.Fatalf("device registration waited for a delta batch: %v", err)
+	}
+	if _, err := s.RegisterTrialDevice(quick, u.ID, DeviceInfo{HWID: "hw-2"}, nil); err != nil {
+		t.Fatalf("trial device registration waited for a delta batch: %v", err)
+	}
+}
+
+func TestTakenTrialDeviceWinsOverDeviceLimit(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	owner, full := mkTgUser(t, s, 5302), mkTgUser(t, s, 5303)
+	if v, err := s.RegisterTrialDevice(ctx, owner.ID, DeviceInfo{HWID: "hw-shared"}, nil); err != nil || v != DeviceAllowed {
+		t.Fatalf("owner claim = %v, %v", v, err)
+	}
+	limit := 1
+	if v, err := s.RegisterTrialDevice(ctx, full.ID, DeviceInfo{HWID: "hw-own"}, &limit); err != nil || v != DeviceAllowed {
+		t.Fatalf("own device = %v, %v", v, err)
+	}
+	if v, err := s.RegisterTrialDevice(ctx, full.ID, DeviceInfo{HWID: "hw-shared"}, &limit); err != nil || v != DeviceTrialTaken {
+		t.Fatalf("taken trial device on a full account = %v, %v; want trial taken, not over limit", v, err)
+	}
+}

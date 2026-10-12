@@ -47,11 +47,22 @@ func (s *Store) registerDevice(ctx context.Context, userID int64, d DeviceInfo, 
 	}
 	defer tx.Rollback(ctx)
 	var id int64
-	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE`, userID).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrNotFound
 		}
 		return 0, err
+	}
+	hash := hwidHash(d.HWID)
+	if trial {
+		var owner int64
+		err := tx.QueryRow(ctx, `SELECT user_id FROM trial_devices WHERE hwid_hash = $1`, hash).Scan(&owner)
+		if err == nil && owner != userID {
+			return DeviceTrialTaken, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return 0, err
+		}
 	}
 	if limit != nil {
 		var known bool
@@ -67,7 +78,6 @@ func (s *Store) registerDevice(ctx context.Context, userID int64, d DeviceInfo, 
 		}
 	}
 	if trial {
-		hash := hwidHash(d.HWID)
 		if _, err := tx.Exec(ctx, `INSERT INTO trial_devices (hwid_hash, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, hash, userID); err != nil {
 			return 0, err
 		}

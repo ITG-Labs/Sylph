@@ -410,6 +410,9 @@ func TestMigration007DownAndUpAgain(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days, trial, on_sale) VALUES ('t3', 0, 3, TRUE, FALSE)`); err != nil {
 		t.Fatalf("trial off sale rejected: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days, visibility) VALUES ('vip', 99, 30, 'private')`); err != nil {
+		t.Fatal(err)
+	}
 	for _, table := range []string{"trials", "trial_devices", "plan_invites", "plan_access", "traffic_daily"} {
 		if !tableExists(t, pool, table) {
 			t.Fatalf("up 007 did not create %s", table)
@@ -417,6 +420,13 @@ func TestMigration007DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(-1); err != nil {
 		t.Fatalf("down 007: %v", err)
+	}
+	var vipOnSale, openOnSale bool
+	if err := pool.QueryRow(ctx, `SELECT (SELECT on_sale FROM plans WHERE name = 'vip'), (SELECT on_sale FROM plans WHERE name = 'open')`).Scan(&vipOnSale, &openOnSale); err != nil {
+		t.Fatal(err)
+	}
+	if vipOnSale || !openOnSale {
+		t.Fatalf("after down 007: private plan on sale %v, public plan on sale %v", vipOnSale, openOnSale)
 	}
 	for _, c := range []string{"hwid_required", "trial", "visibility"} {
 		if columnExists(t, pool, "plans", c) {

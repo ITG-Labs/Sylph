@@ -62,9 +62,12 @@ func (a *App) onInvite(ctx context.Context, tgID, userID int64, code string) (st
 	text := a.header(icUnlock, "Тебе открыт тариф") + a.planBlock(p) + "\n\n" +
 		a.ic(icInfo) + " Он виден только тебе — в «Купить / продлить»."
 	var rows [][]models.InlineKeyboardButton
-	if p.Trial {
+	switch {
+	case !p.OnSale:
+		text += "\n\n" + a.ic(icWarn) + " Сейчас этот тариф не продаётся — загляни позже."
+	case p.Trial:
 		rows = append(rows, row(styled(a.btn(icGift, "Попробовать бесплатно", cbTrialAsk), styleSuccess)))
-	} else if p.PriceRub > 0 {
+	case p.PriceRub > 0:
 		rows = append(rows, row(styled(a.btn(icPlan, planButton(p), cbPlanPrefix+fmt.Sprint(p.ID)), styleSuccess)))
 	}
 	return text, keyboard(append(rows, a.backRow())...)

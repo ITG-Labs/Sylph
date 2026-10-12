@@ -1,3 +1,5 @@
+UPDATE plans SET on_sale = FALSE WHERE visibility = 'private' AND on_sale;
+
 DROP TABLE traffic_daily;
 DROP TABLE plan_access;
 DROP TABLE plan_invites;

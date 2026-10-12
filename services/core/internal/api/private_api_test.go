@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 func TestPrivatePlansAPI(t *testing.T) {
@@ -126,4 +128,44 @@ func TestPrivatePlansAPI(t *testing.T) {
 		t.Fatalf("plans after a revoked redeem = %v", ids)
 	}
 	mustStatus(t, adminCall(t, bot, http.MethodGet, e.ts.URL+"/v1/users/424242/plans", nil), http.StatusNotFound)
+}
+
+func TestPrivatePlanPaymentsThroughTheAPI(t *testing.T) {
+	e, yk := newPaymentsEnv(t)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	panel := e.client(t, "panel", mtls.RolePanel)
+	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate}
+	if err := e.svc.CreatePlan(context.Background(), vip); err != nil {
+		t.Fatal(err)
+	}
+	var u struct {
+		ID int64 `json:"id"`
+	}
+	adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/users", map[string]any{"telegram_id": 5200}).decode(t, &u)
+	create := func() adminResp {
+		return adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": vip.ID})
+	}
+	mustField(t, create(), http.StatusConflict, "conflict", "plan_id")
+	if yk.createCount() != 0 {
+		t.Fatal("provider called for a private plan without access")
+	}
+	mustStatus(t, adminCall(t, panel, http.MethodPut, fmt.Sprintf("%s/v1/admin/plans/%d/access/5200", e.ts.URL, vip.ID), nil), http.StatusOK)
+	r := create()
+	mustStatus(t, r, http.StatusOK)
+	var created createdPayment
+	r.decode(t, &created)
+	yk.setStatus(created.PaymentID, "succeeded")
+	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/"+created.PaymentID+"/check", nil), http.StatusOK)
+	mustStatus(t, adminCall(t, panel, http.MethodDelete, fmt.Sprintf("%s/v1/admin/plans/%d/access/5200", e.ts.URL, vip.ID), nil), http.StatusOK)
+	mustStatus(t, create(), http.StatusOK)
+}
+
+func TestRedeemForAnUnknownUserSaysUser(t *testing.T) {
+	e := newAdminEnv(t)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	r := adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/invites/redeem", map[string]any{"user_id": 424242, "code": "AAAAAAAAAAAAAAAAAAAAAA"})
+	mustStatus(t, r, http.StatusNotFound)
+	if !strings.Contains(string(r.body), "user") {
+		t.Fatalf("404 body = %s", r.body)
+	}
 }

@@ -160,6 +160,7 @@ func cspHash(s string) string {
 
 func wantsPage(r *http.Request) bool {
 	return r.URL.Query().Get("format") == "" &&
+		r.Header.Get("X-Hwid") == "" &&
 		strings.HasPrefix(r.UserAgent(), "Mozilla/") &&
 		strings.Contains(r.Header.Get("Accept"), "text/html")
 }

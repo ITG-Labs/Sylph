@@ -194,3 +194,14 @@ func TestPrivatePlansAreMarked(t *testing.T) {
 	}
 	mustContain(t, tg.last(t).text, "закрытый")
 }
+
+func TestInviteToAPlanOffSaleHasNoBuyButton(t *testing.T) {
+	core := &fakeCore{redeem: &Redeem{Plan: Plan{ID: 5, Name: "Друзья", PriceRub: 99, PeriodDays: 30, OnSale: false, Visibility: "private"}}}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, message("/start "+inviteCode, models.ChatTypePrivate))
+	m := tg.last(t)
+	if _, ok := buttons(m.keyboard)["buy:5"]; ok {
+		t.Fatalf("buy button for a plan off sale: %+v", m.keyboard)
+	}
+	mustContain(t, m.text, "Друзья", "не продаётся")
+}

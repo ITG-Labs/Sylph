@@ -58,7 +58,7 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrAccessRevoked):
 		writeError(w, http.StatusConflict, "access_revoked", "access to this plan was revoked")
 	case err != nil:
-		s.writeServiceError(w, err, "invite")
+		s.writeServiceError(w, err, "user or invite")
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "already": already})
 	}

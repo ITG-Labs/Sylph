@@ -31,7 +31,7 @@ func browserGet(h http.Handler, host string, extra map[string]string) *httptest.
 
 func TestBrowserGetsAPage(t *testing.T) {
 	core := &fakeCore{view: okView()}
-	rec := browserGet(newTestServer(core, nil), "sub.example.com", map[string]string{"X-Forwarded-Proto": "https", "X-Hwid": "hw-1"})
+	rec := browserGet(newTestServer(core, nil), "sub.example.com", map[string]string{"X-Forwarded-Proto": "https"})
 	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("page = %d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -83,9 +83,10 @@ func between(t *testing.T, s, open, close string) string {
 
 func TestClientsStillGetProfiles(t *testing.T) {
 	for name, hdr := range map[string]map[string]string{
-		"mozilla without html": {"User-Agent": "Mozilla/5.0", "Accept": "*/*"},
-		"happ asking for html": {"User-Agent": "Happ/1.6.0", "Accept": "text/html"},
-		"forced format":        browser,
+		"mozilla without html":   {"User-Agent": "Mozilla/5.0", "Accept": "*/*"},
+		"happ asking for html":   {"User-Agent": "Happ/1.6.0", "Accept": "text/html"},
+		"forced format":          browser,
+		"browser-like with hwid": {"User-Agent": browser["User-Agent"], "Accept": browser["Accept"], "X-Hwid": "hw-1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			target := "/" + testToken
