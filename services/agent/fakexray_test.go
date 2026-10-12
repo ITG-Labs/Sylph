@@ -9,24 +9,27 @@ import (
 )
 
 type fakeXray struct {
-	mu         sync.Mutex
-	users      map[string]bool
-	stats      map[string]int64
-	addErr     error
-	failAdd    map[string]bool
-	failRemove map[string]bool
-	listErr    error
-	uptime     time.Duration
-	uptimeErr  error
-	uptimeFail int
-	uptimeHits int
+	mu          sync.Mutex
+	users       map[string]bool
+	flows       map[string]string
+	stats       map[string]int64
+	addErr      error
+	failAdd     map[string]bool
+	failRemove  map[string]bool
+	afterAdd    func()
+	afterRemove func()
+	listErr     error
+	uptime      time.Duration
+	uptimeErr   error
+	uptimeFail  int
+	uptimeHits  int
 }
 
 func newFakeXray() *fakeXray {
-	return &fakeXray{users: map[string]bool{}, stats: map[string]int64{}}
+	return &fakeXray{users: map[string]bool{}, flows: map[string]string{}, stats: map[string]int64{}}
 }
 
-func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
+func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string, flow string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.addErr != nil {
@@ -36,6 +39,10 @@ func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string) error {
 		return errors.New("add failed for " + uuid)
 	}
 	f.users[tag+"/"+uuid] = true
+	f.flows[tag+"/"+uuid] = flow
+	if f.afterAdd != nil {
+		f.afterAdd()
+	}
 	return nil
 }
 
@@ -46,6 +53,9 @@ func (f *fakeXray) RemoveUser(ctx context.Context, tag string, uuid string) erro
 		return errors.New("remove failed for " + uuid)
 	}
 	delete(f.users, tag+"/"+uuid)
+	if f.afterRemove != nil {
+		f.afterRemove()
+	}
 	return nil
 }
 
@@ -99,6 +109,12 @@ func (f *fakeXray) hasUser(tag, uuid string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.users[tag+"/"+uuid]
+}
+
+func (f *fakeXray) flowOf(tag, uuid string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.flows[tag+"/"+uuid]
 }
 
 func (f *fakeXray) userCount() int {

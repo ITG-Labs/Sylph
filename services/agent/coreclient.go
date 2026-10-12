@@ -15,10 +15,28 @@ type SyncUser struct {
 	UUID string `json:"uuid"`
 }
 
+type Reality struct {
+	Dest        string   `json:"dest"`
+	ServerNames []string `json:"server_names"`
+	ShortIDs    []string `json:"short_ids"`
+	Fingerprint string   `json:"fingerprint"`
+	PrivateKey  string   `json:"private_key"`
+}
+
+type Inbound struct {
+	Tag       string   `json:"tag"`
+	Port      int      `json:"port"`
+	Protocol  string   `json:"protocol"`
+	Transport string   `json:"transport"`
+	Security  string   `json:"security"`
+	Flow      string   `json:"flow"`
+	Reality   *Reality `json:"reality,omitempty"`
+}
+
 type SyncResp struct {
-	Version int64      `json:"version"`
-	Users   []SyncUser `json:"users"`
-	Config  string     `json:"config"`
+	Version  int64      `json:"version"`
+	Users    []SyncUser `json:"users"`
+	Inbounds []Inbound  `json:"inbounds"`
 }
 
 type Delta struct {

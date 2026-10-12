@@ -12,7 +12,7 @@ import (
 
 func testLoop(t *testing.T, fx *fakeXray, coreURL string) (*Loop, *Engine) {
 	t.Helper()
-	cfg := &Config{CoreURL: coreURL, InboundTag: "vless-in", CachePath: filepath.Join(t.TempDir(), "c.json"), SyncInterval: 10 * time.Millisecond}
+	cfg := &Config{CoreURL: coreURL, CachePath: filepath.Join(t.TempDir(), "c.json"), SyncInterval: 10 * time.Millisecond}
 	core := newCoreClientForTest(cfg, discardLogger())
 	e := NewEngine(cfg, core, fx, discardLogger())
 	sc := NewStatsCollector(fx, discardLogger())
@@ -30,12 +30,12 @@ func deadCoreURL(t *testing.T) string {
 func TestRunOnceFullCycle(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 42})
-	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}}
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	if err := loop.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !fx.hasUser("vless-in", "u-1") {
+	if !fx.hasUser("main", "u-1") {
 		t.Fatal("user not applied")
 	}
 	if len(fc.deltasSeen) != 1 || fc.deltasSeen[0].BytesUp != 42 {
@@ -60,7 +60,7 @@ func TestRunOnceCoreDownKeepsXray(t *testing.T) {
 func TestLoopStartsWithCoreDown(t *testing.T) {
 	fx := newFakeXray()
 	loop, e := testLoop(t, fx, deadCoreURL(t))
-	if err := SaveCache(e.cfg.CachePath, &Cache{Version: 9, Users: []SyncUser{{UUID: "cached-user"}}}); err != nil {
+	if err := SaveCache(e.cfg.CachePath, &Cache{Version: 9, Users: []SyncUser{{UUID: "cached-user"}}, Inbounds: mainIn}); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.LoadState(e.cfg.CachePath); err != nil {
@@ -69,8 +69,30 @@ func TestLoopStartsWithCoreDown(t *testing.T) {
 	if err := loop.RunOnce(context.Background()); err == nil {
 		t.Fatal("tick should fail with core down")
 	}
-	if !fx.hasUser("vless-in", "cached-user") {
-		t.Fatal("cached user lost after failed tick")
+	if !fx.hasUser("main", "cached-user") {
+		t.Fatal("cached user not served with core down")
+	}
+}
+
+func TestApplyCachedServesUsersBeforeFirstSync(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 9}
+	loop, e := testLoop(t, fx, httptestOf(fc, t).URL)
+	if err := SaveCache(e.cfg.CachePath, &Cache{Version: 9, Users: []SyncUser{{UUID: "cached-user"}}, Inbounds: mainIn}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.LoadState(e.cfg.CachePath); err != nil {
+		t.Fatal(err)
+	}
+	loop.ApplyCached(context.Background())
+	if !fx.hasUser("main", "cached-user") {
+		t.Fatal("cached user not applied before the first sync")
+	}
+	fc.mu.Lock()
+	beats := fc.heartbeats
+	fc.mu.Unlock()
+	if beats != 0 {
+		t.Fatalf("ApplyCached talked to core: %d heartbeats", beats)
 	}
 }
 
@@ -100,7 +122,7 @@ func tick(t *testing.T, loop *Loop) {
 func TestFailedReportResendsSameBatch(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 42})
-	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failDeltas: true}
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn, failDeltas: true}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	tick(t, loop)
 	setCore(fc, func(f *fakeCore) { f.failDeltas = false })
@@ -121,7 +143,7 @@ func TestFailedReportResendsSameBatch(t *testing.T) {
 func TestLostResponseNotDoubleCounted(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 42})
-	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failAfterCommit: true}
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn, failAfterCommit: true}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	tick(t, loop)
 	setCore(fc, func(f *fakeCore) { f.failAfterCommit = false })
@@ -136,7 +158,7 @@ func TestLostResponseNotDoubleCounted(t *testing.T) {
 func TestCrashAfterSendResendsSameBatch(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 42})
-	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, failAfterCommit: true}
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn, failAfterCommit: true}
 	url := httptestOf(fc, t).URL
 	statsPath := filepath.Join(t.TempDir(), "stats.json")
 	first, _ := testLoop(t, fx, url)
@@ -195,7 +217,7 @@ func lastHeartbeat(fc *fakeCore) (map[string]any, int) {
 func TestHeartbeatReportsXrayState(t *testing.T) {
 	fx := newFakeXray()
 	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
-	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}}
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, syncInbounds: testInbounds("alpha", "beta")}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	loop.cfg.XrayVersion = "25.9.11"
 	loop.started = time.Now().Add(-2 * time.Minute)
@@ -208,7 +230,7 @@ func TestHeartbeatReportsXrayState(t *testing.T) {
 		t.Fatalf("versions = %v", hb)
 	}
 	if hb["active_users"] != float64(2) {
-		t.Fatalf("active_users = %v, want 2 users live in xray", hb["active_users"])
+		t.Fatalf("active_users = %v, want 2 unique users across both inbounds", hb["active_users"])
 	}
 	if hb["xray_uptime_sec"] != float64(90) {
 		t.Fatalf("xray_uptime_sec = %v, want 90", hb["xray_uptime_sec"])
@@ -224,7 +246,7 @@ func TestHeartbeatSentWhenXrayProbesFail(t *testing.T) {
 		f.listErr = errors.New("xray api down")
 		f.uptimeErr = errors.New("xray api down")
 	})
-	fc := &fakeCore{syncVersion: 2}
+	fc := &fakeCore{syncVersion: 2, syncInbounds: mainIn}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	_ = loop.RunOnce(context.Background())
 	hb, beats := lastHeartbeat(fc)
@@ -236,5 +258,22 @@ func TestHeartbeatSentWhenXrayProbesFail(t *testing.T) {
 	}
 	if v, ok := hb["xray_uptime_sec"]; !ok || v != nil {
 		t.Fatalf("xray_uptime_sec = %v (present %v), want null", v, ok)
+	}
+}
+
+func TestHeartbeatActiveUsersUnknownWithoutInbounds(t *testing.T) {
+	fx := newFakeXray()
+	fx.users["main/live"] = true
+	loop, _ := testLoop(t, fx, deadCoreURL(t))
+	hb := loop.heartbeat(context.Background())
+	if hb.ActiveUsers != nil {
+		t.Fatalf("active_users = %d, want null while inbounds are unknown", *hb.ActiveUsers)
+	}
+	fc := &fakeCore{syncVersion: 1, syncUsers: []SyncUser{}, syncInbounds: []Inbound{}}
+	loop, _ = testLoop(t, fx, httptestOf(fc, t).URL)
+	tick(t, loop)
+	hb = loop.heartbeat(context.Background())
+	if hb.ActiveUsers == nil || *hb.ActiveUsers != 0 {
+		t.Fatalf("active_users = %v, want 0 on a node without inbounds", hb.ActiveUsers)
 	}
 }

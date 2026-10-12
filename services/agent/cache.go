@@ -9,9 +9,9 @@ import (
 )
 
 type Cache struct {
-	Version int64      `json:"version"`
-	Users   []SyncUser `json:"users"`
-	Config  string     `json:"config"`
+	Version  int64      `json:"version"`
+	Users    []SyncUser `json:"users"`
+	Inbounds []Inbound  `json:"inbounds"`
 }
 
 func LoadCache(path string) (*Cache, error) {

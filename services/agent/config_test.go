@@ -43,9 +43,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.StatsPath != "stats.json" {
 		t.Fatalf("stats = %q", cfg.StatsPath)
 	}
-	if cfg.InboundTag != "vless-in" {
-		t.Fatalf("tag = %q", cfg.InboundTag)
-	}
 	if cfg.SyncInterval != 30*time.Second {
 		t.Fatalf("interval = %v", cfg.SyncInterval)
 	}
@@ -95,7 +92,6 @@ func TestLoadConfigXrayDefaults(t *testing.T) {
 	setRequiredEnv(t)
 	unsetEnv(t, "SYLPH_XRAY_API")
 	unsetEnv(t, "SYLPH_XRAY_TIMEOUT")
-	unsetEnv(t, "SYLPH_VLESS_FLOW")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -106,44 +102,18 @@ func TestLoadConfigXrayDefaults(t *testing.T) {
 	if cfg.XrayTimeout != 5*time.Second {
 		t.Fatalf("xray timeout = %v", cfg.XrayTimeout)
 	}
-	if cfg.VLESSFlow != "xtls-rprx-vision" {
-		t.Fatalf("flow = %q", cfg.VLESSFlow)
-	}
 }
 
 func TestLoadConfigXrayOverrides(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("SYLPH_XRAY_API", "10.0.0.5:10085")
 	t.Setenv("SYLPH_XRAY_TIMEOUT", "2s")
-	t.Setenv("SYLPH_VLESS_FLOW", "xtls-rprx-vision")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.XrayAPI != "10.0.0.5:10085" || cfg.XrayTimeout != 2*time.Second || cfg.VLESSFlow != "xtls-rprx-vision" {
+	if cfg.XrayAPI != "10.0.0.5:10085" || cfg.XrayTimeout != 2*time.Second {
 		t.Fatalf("cfg = %+v", cfg)
-	}
-}
-
-func TestLoadConfigEmptyFlowMeansNoFlow(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("SYLPH_VLESS_FLOW", "")
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.VLESSFlow != "" {
-		t.Fatalf("flow = %q, want empty", cfg.VLESSFlow)
-	}
-}
-
-func TestLoadConfigRejectsUnknownFlow(t *testing.T) {
-	setRequiredEnv(t)
-	for _, flow := range []string{"xtls-rprx-direct", "xtls-rprx-vision-udp443", "vision", " xtls-rprx-vision"} {
-		t.Setenv("SYLPH_VLESS_FLOW", flow)
-		if _, err := LoadConfig(); err == nil {
-			t.Fatalf("flow %q accepted", flow)
-		}
 	}
 }
 

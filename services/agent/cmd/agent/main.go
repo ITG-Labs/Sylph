@@ -35,12 +35,12 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("core client: %w", err)
 	}
-	xray, err := xraygrpc.Dial(cfg.XrayAPI, cfg.VLESSFlow, cfg.XrayTimeout)
+	xray, err := xraygrpc.Dial(cfg.XrayAPI, cfg.XrayTimeout)
 	if err != nil {
 		return fmt.Errorf("xray: %w", err)
 	}
 	defer func() { _ = xray.Close() }()
-	logger.Info("xray_api", slog.String("addr", cfg.XrayAPI), slog.String("flow", cfg.VLESSFlow))
+	logger.Info("xray_api", slog.String("addr", cfg.XrayAPI))
 	agent.WaitForXray(ctx, xray, 30*time.Second, time.Second, logger)
 	if ctx.Err() != nil {
 		return nil
@@ -54,6 +54,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("stats state: %w", err)
 	}
 	loop := agent.NewLoop(engine, stats, core, xray, cfg, logger)
+	loop.ApplyCached(ctx)
 	logger.Info("loop_started", slog.String("interval", cfg.SyncInterval.String()))
 	return loop.Run(ctx)
 }

@@ -30,15 +30,14 @@ type Client struct {
 	conn    *grpc.ClientConn
 	handler proxymancmd.HandlerServiceClient
 	stats   statscmd.StatsServiceClient
-	flow    string
 	timeout time.Duration
 }
 
-func Dial(addr string, flow string, timeout time.Duration) (*Client, error) {
-	return dial(addr, flow, timeout)
+func Dial(addr string, timeout time.Duration) (*Client, error) {
+	return dial(addr, timeout)
 }
 
-func dial(target string, flow string, timeout time.Duration, opts ...grpc.DialOption) (*Client, error) {
+func dial(target string, timeout time.Duration, opts ...grpc.DialOption) (*Client, error) {
 	if timeout <= 0 {
 		return nil, errors.New("xray timeout must be positive")
 	}
@@ -57,7 +56,6 @@ func dial(target string, flow string, timeout time.Duration, opts ...grpc.DialOp
 		conn:    conn,
 		handler: proxymancmd.NewHandlerServiceClient(conn),
 		stats:   statscmd.NewStatsServiceClient(conn),
-		flow:    flow,
 		timeout: timeout,
 	}, nil
 }
@@ -66,11 +64,11 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string) error {
+func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string, flow string) error {
 	if !uuidPattern.MatchString(uuid) {
 		return errInvalidUserID
 	}
-	account, err := typed(&vless.Account{Id: uuid, Flow: c.flow})
+	account, err := typed(&vless.Account{Id: uuid, Flow: flow})
 	if err != nil {
 		return err
 	}
