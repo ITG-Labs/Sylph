@@ -3,41 +3,12 @@ package store
 import (
 	"context"
 	"errors"
-	"math"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
-
-func TestRecordAndSumTraffic(t *testing.T) {
-	s := setupStore(t)
-	ctx := context.Background()
-	u := mkUser(t, s)
-	k := model.NewUUID()
-	if err := s.AddUserKey(ctx, u.ID, k); err != nil {
-		t.Fatal(err)
-	}
-	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := s.UpsertNode(ctx, n); err != nil {
-		t.Fatal(err)
-	}
-	dup, err := s.RecordDeltaBatch(ctx, n.ID, "b-1", []model.TrafficDelta{
-		{KeyUUID: k, BytesUp: 100, BytesDown: 200},
-		{KeyUUID: k, BytesUp: 300, BytesDown: 400},
-	})
-	if err != nil || dup {
-		t.Fatalf("dup = %v, err = %v", dup, err)
-	}
-	sum, err := s.SumTrafficSince(ctx, u.ID, time.Now().Add(-time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sum != 1000 {
-		t.Fatalf("sum = %d, want 1000", sum)
-	}
-}
 
 func TestRegisterDevice(t *testing.T) {
 	s := setupStore(t)
@@ -86,6 +57,7 @@ func TestRecordDeltaBatchDeduplicates(t *testing.T) {
 	if err := s.AddUserKey(ctx, u.ID, k); err != nil {
 		t.Fatal(err)
 	}
+	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
 	n1 := &model.Node{CertCN: "node-1", Name: "n1"}
 	n2 := &model.Node{CertCN: "node-2", Name: "n2"}
 	if err := s.UpsertNode(ctx, n1); err != nil {
@@ -95,20 +67,16 @@ func TestRecordDeltaBatchDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	batch := []model.TrafficDelta{{KeyUUID: k, BytesUp: 100, BytesDown: 200}}
-	if dup, err := s.RecordDeltaBatch(ctx, n1.ID, "b-1", batch); err != nil || dup {
-		t.Fatalf("first: dup = %v, err = %v", dup, err)
+	if res, err := s.RecordDeltaBatch(ctx, n1.ID, "b-1", batch); err != nil || res.Duplicate {
+		t.Fatalf("first: res = %+v, err = %v", res, err)
 	}
-	if dup, err := s.RecordDeltaBatch(ctx, n1.ID, "b-1", batch); err != nil || !dup {
-		t.Fatalf("repeat: dup = %v, err = %v; want duplicate", dup, err)
+	if res, err := s.RecordDeltaBatch(ctx, n1.ID, "b-1", batch); err != nil || !res.Duplicate {
+		t.Fatalf("repeat: res = %+v, err = %v; want duplicate", res, err)
 	}
-	if dup, err := s.RecordDeltaBatch(ctx, n2.ID, "b-1", batch); err != nil || dup {
-		t.Fatalf("same id from another node: dup = %v, err = %v; want new batch", dup, err)
+	if res, err := s.RecordDeltaBatch(ctx, n2.ID, "b-1", batch); err != nil || res.Duplicate {
+		t.Fatalf("same id from another node: res = %+v, err = %v; want new batch", res, err)
 	}
-	sum, err := s.SumTrafficSince(ctx, u.ID, time.Now().Add(-time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sum != 600 {
+	if sum := userPeriods(t, s, u.ID)[0].TrafficUsedBytes; sum != 600 {
 		t.Fatalf("sum = %d, want 600 (node-1 once + node-2 once)", sum)
 	}
 }
@@ -121,6 +89,7 @@ func TestRecordDeltaBatchConcurrentRepeats(t *testing.T) {
 	if err := s.AddUserKey(ctx, u.ID, k); err != nil {
 		t.Fatal(err)
 	}
+	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := s.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
@@ -133,7 +102,9 @@ func TestRecordDeltaBatchConcurrentRepeats(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], errs[i] = s.RecordDeltaBatch(ctx, n.ID, "b-race", batch)
+			var res BatchResult
+			res, errs[i] = s.RecordDeltaBatch(ctx, n.ID, "b-race", batch)
+			results[i] = res.Duplicate
 		}()
 	}
 	wg.Wait()
@@ -149,40 +120,7 @@ func TestRecordDeltaBatchConcurrentRepeats(t *testing.T) {
 	if fresh != 1 {
 		t.Fatalf("fresh writes = %d, want exactly 1", fresh)
 	}
-	sum, err := s.SumTrafficSince(ctx, u.ID, time.Now().Add(-time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sum != 10 {
+	if sum := userPeriods(t, s, u.ID)[0].TrafficUsedBytes; sum != 10 {
 		t.Fatalf("sum = %d, want 10", sum)
-	}
-}
-
-func TestSumTrafficSaturatesInsteadOfFailing(t *testing.T) {
-	s := setupStore(t)
-	ctx := context.Background()
-	u := mkUser(t, s)
-	k := model.NewUUID()
-	if err := s.AddUserKey(ctx, u.ID, k); err != nil {
-		t.Fatal(err)
-	}
-	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := s.UpsertNode(ctx, n); err != nil {
-		t.Fatal(err)
-	}
-	huge := int64(1) << 62
-	forged := []model.TrafficDelta{
-		{KeyUUID: k, BytesUp: huge, BytesDown: huge},
-		{KeyUUID: k, BytesUp: huge, BytesDown: 0},
-	}
-	if _, err := s.RecordDeltaBatch(ctx, n.ID, "b-forged", forged); err != nil {
-		t.Fatal(err)
-	}
-	sum, err := s.SumTrafficSince(ctx, u.ID, time.Now().Add(-time.Hour))
-	if err != nil {
-		t.Fatalf("sum over int64 must saturate, not fail: %v", err)
-	}
-	if sum != math.MaxInt64 {
-		t.Fatalf("sum = %d, want MaxInt64", sum)
 	}
 }

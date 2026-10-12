@@ -36,10 +36,23 @@ func newSubFixture(t *testing.T, deviceLimit *int, trafficLimit *int64) *subFixt
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.store.RenewSubscription(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
+	if _, err := svc.store.ApplyPayment(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	return &subFixture{svc: svc, user: u, key: key, plan: p, group: g}
+}
+
+func (f *subFixture) spend(t *testing.T, bytes int64) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := f.svc.store.GetNodeByCN(ctx, "meter"); err != nil {
+		if err := f.svc.store.UpsertNode(ctx, &model.Node{CertCN: "meter", Name: "meter"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.svc.RecordNodeDeltas(ctx, "meter", model.NewToken(), []model.TrafficDelta{{KeyUUID: f.key, BytesUp: bytes}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *subFixture) view(t *testing.T, hwid string) *SubscriptionView {
@@ -95,34 +108,15 @@ func TestSubscriptionExpired(t *testing.T) {
 	}
 }
 
-func TestSubscriptionTrafficExceededByStatus(t *testing.T) {
-	f := newSubFixture(t, nil, nil)
-	if err := f.svc.store.SetUserStatus(context.Background(), f.user.ID, "expired_traffic"); err != nil {
-		t.Fatal(err)
-	}
-	if v := f.view(t, ""); v.Status != StatusTrafficExceeded || len(v.Connections) != 0 {
-		t.Fatalf("view = %+v", v)
-	}
-}
-
 func TestSubscriptionTrafficExceededByUsage(t *testing.T) {
 	limit := int64(1000)
 	f := newSubFixture(t, nil, &limit)
-	ctx := context.Background()
-	sub, err := f.svc.store.GetActiveSubscription(ctx, f.user.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.svc.store.SetTrafficUsed(ctx, sub.ID, 999); err != nil {
-		t.Fatal(err)
-	}
+	f.spend(t, 999)
 	v := f.view(t, "")
 	if v.Status != StatusOK || v.TrafficUsedBytes != 999 || v.TrafficLimitBytes == nil || *v.TrafficLimitBytes != 1000 || v.ExpiresAt == nil {
 		t.Fatalf("under limit view = %+v", v)
 	}
-	if err := f.svc.store.SetTrafficUsed(ctx, sub.ID, 1000); err != nil {
-		t.Fatal(err)
-	}
+	f.spend(t, 1)
 	if v := f.view(t, ""); v.Status != StatusTrafficExceeded {
 		t.Fatalf("at limit status = %s, want traffic_exceeded", v.Status)
 	}
@@ -277,9 +271,7 @@ func TestSubscriptionStatusOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.store.SetTrafficUsed(ctx, sub.ID, 10); err != nil {
-		t.Fatal(err)
-	}
+	f.spend(t, 10)
 	if v := f.view(t, ""); v.Status != StatusTrafficExceeded {
 		t.Fatalf("traffic must win over hwid_required, got %s", v.Status)
 	}

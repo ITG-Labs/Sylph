@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +22,22 @@ func setupService(t *testing.T) *Service {
 	}
 	st := store.NewStore(pool)
 	return NewService(st, slog.New(slog.DiscardHandler))
+}
+
+type logBuffer struct {
+	bytes.Buffer
+}
+
+func (l *logBuffer) has(msg string) bool {
+	return strings.Contains(l.String(), `"msg":"`+msg+`"`)
+}
+
+func setupServiceWithLogs(t *testing.T) (*Service, *logBuffer) {
+	t.Helper()
+	svc := setupService(t)
+	logs := &logBuffer{}
+	svc.log = slog.New(slog.NewJSONHandler(logs, nil))
+	return svc, logs
 }
 
 func TestRegisterUser(t *testing.T) {
@@ -71,5 +89,39 @@ func TestHandlePaymentUnknownUser(t *testing.T) {
 	err := svc.HandlePayment(context.Background(), "pay-2", 424242, 1, 100)
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestPaymentLogTellsWhenThePeriodStarts(t *testing.T) {
+	svc, logs := setupServiceWithLogs(t)
+	ctx := context.Background()
+	u, _, err := svc.RegisterUser(ctx, 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	if err := svc.CreatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.HandlePayment(ctx, "pay-1", u.ID, p.ID, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.HandlePayment(ctx, "pay-2", u.ID, p.ID, 100); err != nil {
+		t.Fatal(err)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"mode":"now"`) || !strings.Contains(out, `"mode":"queued"`) {
+		t.Fatalf("payment logs lack the mode:\n%s", out)
+	}
+	view, err := svc.Subscription(ctx, SubscriptionRequest{SubToken: u.SubToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := svc.store.GetActiveSubscription(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ExpiresAt == nil || !view.ExpiresAt.Equal(*sub.PaidUntil) || !view.ExpiresAt.After(sub.ExpiresAt) {
+		t.Fatalf("subscription expires_at = %v, want paid until %v (after %v)", view.ExpiresAt, sub.PaidUntil, sub.ExpiresAt)
 	}
 }

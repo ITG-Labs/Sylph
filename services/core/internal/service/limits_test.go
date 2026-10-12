@@ -2,42 +2,12 @@ package service
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
-
-func TestTrafficLimitDisablesUser(t *testing.T) {
-	svc := setupService(t)
-	ctx := context.Background()
-	u, key, _ := svc.RegisterUser(ctx, 300)
-	limit := int64(1000)
-	p := &model.Plan{Name: "limited", PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit}
-	if err := svc.store.CreatePlan(ctx, p); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.store.RenewSubscription(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	n := &model.Node{CertCN: "node-1", Name: "n1"}
-	if err := svc.store.UpsertNode(ctx, n); err != nil {
-		t.Fatal(err)
-	}
-	_, err := svc.RecordNodeDeltas(ctx, "node-1", "b-1", []model.TrafficDelta{
-		{KeyUUID: key, BytesUp: 600, BytesDown: 600},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := svc.store.GetUserBySubToken(ctx, u.SubToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "expired_traffic" {
-		t.Fatalf("status = %q, want expired_traffic", got.Status)
-	}
-}
 
 func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, string, *model.Node) {
 	t.Helper()
@@ -51,7 +21,7 @@ func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, strin
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.store.RenewSubscription(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
+	if _, err := svc.store.ApplyPayment(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
@@ -70,10 +40,40 @@ func trafficUsed(t *testing.T, svc *Service, userID int64) int64 {
 	return sub.TrafficUsedBytes
 }
 
+func onNode(t *testing.T, svc *Service, n *model.Node, key string) bool {
+	t.Helper()
+	keys, err := svc.store.ListNodeUserKeys(context.Background(), n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.Contains(keys, key)
+}
+
+func TestTrafficLimitTakesUserOffNodes(t *testing.T) {
+	svc, logs := setupServiceWithLogs(t)
+	ctx := context.Background()
+	u, key, n := limitedUserOnNode(t, svc, 300)
+	if !onNode(t, svc, n, key) {
+		t.Fatal("paid user is not on the node")
+	}
+	if _, err := svc.RecordNodeDeltas(ctx, "node-1", "b-1", []model.TrafficDelta{{KeyUUID: key, BytesUp: 600, BytesDown: 600}}); err != nil {
+		t.Fatal(err)
+	}
+	if onNode(t, svc, n, key) {
+		t.Fatal("exhausted user is still on the node")
+	}
+	if !logs.has("traffic_period_exhausted") {
+		t.Fatalf("no exhaustion log: %s", logs)
+	}
+	if got, _ := svc.store.GetUserBySubToken(ctx, u.SubToken); got.Status != "active" {
+		t.Fatalf("user status = %q; exhaustion belongs to the period", got.Status)
+	}
+}
+
 func TestDuplicateBatchCountedOnce(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
-	u, key, _ := limitedUserOnNode(t, svc, 310)
+	u, key, n := limitedUserOnNode(t, svc, 310)
 	batch := []model.TrafficDelta{{KeyUUID: key, BytesUp: 300, BytesDown: 300}}
 	dup, err := svc.RecordNodeDeltas(ctx, "node-1", "b-1", batch)
 	if err != nil || dup {
@@ -86,46 +86,35 @@ func TestDuplicateBatchCountedOnce(t *testing.T) {
 	if used := trafficUsed(t, svc, u.ID); used != 600 {
 		t.Fatalf("traffic_used = %d, want 600", used)
 	}
-	got, err := svc.store.GetUserBySubToken(ctx, u.SubToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "active" {
-		t.Fatalf("status = %q: duplicate pushed user over the limit", got.Status)
+	if !onNode(t, svc, n, key) {
+		t.Fatal("duplicate pushed user over the limit")
 	}
 }
 
-func TestDuplicateBatchFinishesRecompute(t *testing.T) {
+func TestBatchAndCounterAreOneStep(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
 	u, key, n := limitedUserOnNode(t, svc, 311)
 	batch := []model.TrafficDelta{{KeyUUID: key, BytesUp: 700, BytesDown: 700}}
-	if _, err := svc.store.RecordDeltaBatch(ctx, n.ID, "b-crashed", batch); err != nil {
+	if _, err := svc.store.RecordDeltaBatch(ctx, n.ID, "b-1", batch); err != nil {
 		t.Fatal(err)
 	}
-	if used := trafficUsed(t, svc, u.ID); used != 0 {
-		t.Fatalf("precondition: traffic_used = %d, want 0 before recompute", used)
+	if used := trafficUsed(t, svc, u.ID); used != 1400 {
+		t.Fatalf("traffic_used = %d, want 1400 right after the batch", used)
 	}
-	dup, err := svc.RecordNodeDeltas(ctx, "node-1", "b-crashed", batch)
+	dup, err := svc.RecordNodeDeltas(ctx, "node-1", "b-1", batch)
 	if err != nil || !dup {
 		t.Fatalf("retry: dup = %v, err = %v; want duplicate", dup, err)
 	}
 	if used := trafficUsed(t, svc, u.ID); used != 1400 {
-		t.Fatalf("traffic_used = %d, want 1400 after retry", used)
-	}
-	got, err := svc.store.GetUserBySubToken(ctx, u.SubToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "expired_traffic" {
-		t.Fatalf("status = %q, want expired_traffic after retry", got.Status)
+		t.Fatalf("retry changed traffic_used to %d", used)
 	}
 }
 
 func TestForgedHugeDeltaDoesNotBlockHonestNode(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
-	u, key, n := limitedUserOnNode(t, svc, 312)
+	_, key, n := limitedUserOnNode(t, svc, 312)
 	huge := int64(1) << 62
 	if _, err := svc.store.RecordDeltaBatch(ctx, n.ID, "b-forged", []model.TrafficDelta{
 		{KeyUUID: key, BytesUp: huge, BytesDown: huge},
@@ -137,11 +126,16 @@ func TestForgedHugeDeltaDoesNotBlockHonestNode(t *testing.T) {
 	if err != nil || dup {
 		t.Fatalf("honest batch after forged one: dup = %v, err = %v; accounting must not get stuck", dup, err)
 	}
-	got, err := svc.store.GetUserBySubToken(ctx, u.SubToken)
-	if err != nil {
-		t.Fatal(err)
+	if onNode(t, svc, n, key) {
+		t.Fatal("inflated user is still on the node")
 	}
-	if got.Status != "expired_traffic" {
-		t.Fatalf("status = %q, want expired_traffic for the inflated user", got.Status)
+}
+
+func TestCleanupHistoryRejectsBadRetention(t *testing.T) {
+	svc := setupService(t)
+	for _, days := range []int{0, -5, 3651} {
+		if _, err := svc.CleanupHistory(context.Background(), days, time.Now()); err == nil {
+			t.Fatalf("retention %d accepted", days)
+		}
 	}
 }

@@ -20,6 +20,7 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/subscription", s.handleSubscription, mtls.RoleSubs, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/expire", s.handleMaintenanceExpire, mtls.RoleCron, mtls.RolePanel)
+	s.route(mux, "POST /v1/maintenance/cleanup", s.handleMaintenanceCleanup, mtls.RoleCron, mtls.RolePanel)
 }
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
@@ -165,4 +166,23 @@ func (s *Server) handleMaintenanceExpire(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"expired": n})
+}
+
+func (s *Server) handleMaintenanceCleanup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OlderThanDays *int `json:"older_than_days"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if body.OlderThanDays == nil {
+		writeFieldError(w, http.StatusBadRequest, "bad_request", "older_than_days", "is required")
+		return
+	}
+	res, err := s.svc.CleanupHistory(r.Context(), *body.OlderThanDays, time.Now().UTC())
+	if err != nil {
+		s.writeServiceError(w, err, "cleanup")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }

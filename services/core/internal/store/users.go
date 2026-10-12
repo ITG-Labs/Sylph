@@ -48,7 +48,7 @@ func (s *Store) AddUserKey(ctx context.Context, userID int64, uuid string) error
 
 func (s *Store) GetUserKeys(ctx context.Context, userID int64) ([]model.UserKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, uuid, created_at FROM user_keys WHERE user_id = $1 ORDER BY id`,
+		`SELECT id, user_id, uuid, created_at FROM user_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id`,
 		userID)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (s *Store) RotateUserKeys(ctx context.Context, userID int64) ([]model.UserK
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `DELETE FROM user_keys WHERE user_id = $1`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE user_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
 		return nil, err
 	}
 	uuid := model.NewUUID()
@@ -87,26 +87,6 @@ func (s *Store) RotateUserKeys(ctx context.Context, userID int64) ([]model.UserK
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
 	return s.scanUser(s.pool.QueryRow(ctx,
 		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE id = $1`, id))
-}
-
-func (s *Store) ListUsersByKeys(ctx context.Context, uuids []string) ([]model.User, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT u.id, u.telegram_id, u.email, u.sub_token, u.status, u.created_at
-		 FROM users u JOIN user_keys uk ON uk.user_id = u.id
-		 WHERE uk.uuid = ANY($1)`, uuids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var users []model.User
-	for rows.Next() {
-		u, err := s.scanUser(rows)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, *u)
-	}
-	return users, rows.Err()
 }
 
 func (s *Store) SetUserStatus(ctx context.Context, userID int64, status string) error {

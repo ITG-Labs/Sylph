@@ -80,14 +80,15 @@ type UserKey struct {
 }
 
 type Subscription struct {
-	ID               int64     `json:"id"`
-	UserID           int64     `json:"user_id"`
-	PlanID           int64     `json:"plan_id"`
-	StartsAt         time.Time `json:"starts_at"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	Canceled         bool      `json:"canceled"`
-	TrafficUsedBytes int64     `json:"traffic_used_bytes"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               int64      `json:"id"`
+	UserID           int64      `json:"user_id"`
+	PlanID           int64      `json:"plan_id"`
+	StartsAt         time.Time  `json:"starts_at"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	Canceled         bool       `json:"canceled"`
+	TrafficUsedBytes int64      `json:"traffic_used_bytes"`
+	PaidUntil        *time.Time `json:"paid_until,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 type Payment struct {

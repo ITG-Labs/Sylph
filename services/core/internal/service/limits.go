@@ -9,66 +9,49 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
+const (
+	minRetentionDays = 1
+	maxRetentionDays = 3650
+	cleanupChunk     = 10000
+)
+
 func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID string, deltas []model.TrafficDelta) (bool, error) {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return false, err
 	}
-	duplicate, err := s.store.RecordDeltaBatch(ctx, node.ID, batchID, deltas)
+	res, err := s.store.RecordDeltaBatch(ctx, node.ID, batchID, deltas)
 	if err != nil {
 		return false, err
 	}
-	if duplicate {
+	if res.Duplicate {
 		s.log.LogAttrs(ctx, slog.LevelInfo, "delta_batch_duplicate",
 			slog.String("node", nodeCN),
 			slog.String("batch_id", batchID))
 	}
-	return duplicate, s.applyTrafficLimits(ctx, deltas)
+	for _, e := range res.Exhausted {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "traffic_period_exhausted",
+			slog.Int64("user_id", e.UserID),
+			slog.Int64("used", e.Used),
+			slog.Int64("limit", e.Limit))
+	}
+	return res.Duplicate, nil
 }
 
-func (s *Service) applyTrafficLimits(ctx context.Context, deltas []model.TrafficDelta) error {
-	keyOwners := make(map[string]int64)
-	for _, d := range deltas {
-		keyOwners[d.KeyUUID] = 0
+func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, now time.Time) (store.CleanupResult, error) {
+	if olderThanDays < minRetentionDays || olderThanDays > maxRetentionDays {
+		return store.CleanupResult{}, fieldErr("older_than_days", "must be 1-3650")
 	}
-	uuids := make([]string, 0, len(keyOwners))
-	for uuid := range keyOwners {
-		uuids = append(uuids, uuid)
-	}
-	users, err := s.store.ListUsersByKeys(ctx, uuids)
+	res, err := s.store.CleanupHistory(ctx, now.AddDate(0, 0, -olderThanDays), cleanupChunk)
 	if err != nil {
-		return err
+		return res, err
 	}
-	for _, u := range users {
-		sub, err := s.store.GetActiveSubscription(ctx, u.ID)
-		if err != nil {
-			if err == store.ErrNotFound {
-				continue
-			}
-			return err
-		}
-		used, err := s.store.SumTrafficSince(ctx, u.ID, sub.StartsAt)
-		if err != nil {
-			return err
-		}
-		if err := s.store.SetTrafficUsed(ctx, sub.ID, used); err != nil {
-			return err
-		}
-		plan, err := s.store.GetPlan(ctx, sub.PlanID)
-		if err != nil {
-			return err
-		}
-		if plan.TrafficLimitBytes != nil && used > *plan.TrafficLimitBytes {
-			if err := s.store.SetUserStatus(ctx, u.ID, "expired_traffic"); err != nil {
-				return err
-			}
-			s.log.LogAttrs(ctx, slog.LevelInfo, "user_traffic_expired",
-				slog.Int64("user_id", u.ID),
-				slog.Int64("used", used),
-				slog.Int64("limit", *plan.TrafficLimitBytes))
-		}
-	}
-	return nil
+	s.log.LogAttrs(ctx, slog.LevelInfo, "maintenance_cleanup",
+		slog.Int("older_than_days", olderThanDays),
+		slog.Int64("deltas", res.Deltas),
+		slog.Int64("batches", res.Batches),
+		slog.Int64("keys", res.Keys))
+	return res, nil
 }
 
 func (s *Service) CheckAndExpire(ctx context.Context, now time.Time) (int64, error) {
