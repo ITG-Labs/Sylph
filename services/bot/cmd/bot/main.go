@@ -40,6 +40,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	app := bot.NewApp(core, cfg.SubsURL, cfg.Location, logger)
+	app.UseCustomEmoji(cfg.CustomEmoji)
 	tg, err := bot.NewTelegram(cfg.Token, cfg.TelegramAPI, app, logger)
 	if err != nil {
 		return err
@@ -63,7 +64,7 @@ func run(logger *slog.Logger) error {
 	} else {
 		logger.Warn("webhook_disabled")
 	}
-	logger.Info("polling", slog.String("subs_url", cfg.SubsURL))
+	logger.Info("polling", slog.String("subs_url", cfg.SubsURL), slog.Bool("custom_emoji", cfg.CustomEmoji))
 	tg.Start(ctx)
 	if srv != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

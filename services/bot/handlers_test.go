@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -248,6 +249,10 @@ func TestStartRegistersAndShowsTheMenu(t *testing.T) {
 			t.Fatalf("menu lacks %s: %+v", data, msgs[0].keyboard)
 		}
 	}
+	if b["menu:sub"].Style != "primary" || b["menu:buy"].Style != "success" {
+		t.Fatalf("menu buttons are not colored: %+v", msgs[0].keyboard)
+	}
+	mustContain(t, msgs[0].text, "<b>", "━━")
 }
 
 func TestAnyTextShowsTheMenu(t *testing.T) {
@@ -283,7 +288,51 @@ func TestStatusShowsTrafficDevicesPaidUntilAndTheLink(t *testing.T) {
 	if m.method != "editMessageText" || m.msgID != 55 || !m.html {
 		t.Fatalf("status message = %+v", m)
 	}
-	mustContain(t, m.text, "Месяц", "активна", "31.10.2026 13:00", "1 ГБ из 100 ГБ", "1 из 3", "Оплачено до: 30.11.2026 13:00", "<code>https://subs.example.com/tok</code>")
+	mustContain(t, m.text, "✅ <b>Активна</b>", "«Месяц»", "1 ГБ из 100 ГБ", "▰▱▱▱▱▱▱▱▱▱", "Устройства", "1 из 3", "Текущий период до",
+		tgTime(at("2026-10-31T10:00:00Z")), "Оплачено до", tgTime(at("2026-11-30T10:00:00Z")), "<code>https://subs.example.com/tok</code>")
+	if b := buttons(m.keyboard); b["menu:buy"].Style != "success" {
+		t.Fatalf("buy button is not green: %+v", m.keyboard)
+	}
+}
+
+func TestTrafficBar(t *testing.T) {
+	for _, tc := range []struct {
+		used, limit int64
+		want        string
+	}{
+		{0, 100, "▱▱▱▱▱▱▱▱▱▱"},
+		{1, 100, "▰▱▱▱▱▱▱▱▱▱"},
+		{25, 100, "▰▰▱▱▱▱▱▱▱▱"},
+		{99, 100, "▰▰▰▰▰▰▰▰▰▱"},
+		{100, 100, "▰▰▰▰▰▰▰▰▰▰"},
+		{250, 100, "▰▰▰▰▰▰▰▰▰▰"},
+	} {
+		if got := trafficBar(tc.used, tc.limit); got != tc.want {
+			t.Fatalf("trafficBar(%d, %d) = %q, want %q", tc.used, tc.limit, got, tc.want)
+		}
+	}
+}
+
+func TestPlurals(t *testing.T) {
+	for n, want := range map[int]string{1: "1 день", 2: "2 дня", 4: "4 дня", 5: "5 дней", 11: "11 дней", 21: "21 день", 30: "30 дней", 365: "365 дней", 112: "112 дней", 22: "22 дня"} {
+		if got := days(n); got != want {
+			t.Fatalf("days(%d) = %q, want %q", n, got, want)
+		}
+	}
+	for n, want := range map[int]string{1: "до 1 устройства", 3: "до 3 устройств", 5: "до 5 устройств", 11: "до 11 устройств", 21: "до 21 устройства"} {
+		if got := devicesUpTo(n); got != want {
+			t.Fatalf("devicesUpTo(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestDatesFollowTheUsersClock(t *testing.T) {
+	app, _ := newTestApp(t, &fakeCore{})
+	got := app.when(at("2026-11-30T10:00:00Z"))
+	want := `<tg-time unix="1796032800" format="Dt">30.11.2026 13:00</tg-time>`
+	if got != want {
+		t.Fatalf("when = %q, want %q", got, want)
+	}
 }
 
 func TestStatusWhenTrafficIsExhausted(t *testing.T) {
@@ -292,10 +341,14 @@ func TestStatusWhenTrafficIsExhausted(t *testing.T) {
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
-	mustContain(t, tg.last(t).text, "трафик исчерпан", "следующий период начнётся 31.10.2026 13:00")
+	mustContain(t, tg.last(t).text, "❗️ <b>Трафик исчерпан</b>", "Следующий оплаченный период начнётся "+tgTime(st.Subscription.ExpiresAt), "Не хочешь ждать")
 	st.Subscription.PaidUntil = tptr(st.Subscription.ExpiresAt)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
-	mustContain(t, tg.last(t).text, "трафик исчерпан до 31.10.2026 13:00", "начнётся сразу")
+	m := tg.last(t).text
+	mustContain(t, m, "❗️ <b>Трафик исчерпан</b>", "Доступ закрыт до "+tgTime(st.Subscription.ExpiresAt), "Оплатишь сейчас — новый период начнётся сразу")
+	if strings.Contains(m, "оплаченный период начнётся сразу") {
+		t.Fatalf("status still reads as if a period starts by itself:\n%s", m)
+	}
 }
 
 func TestStatusWithoutLimitsAndWithoutSubscription(t *testing.T) {
@@ -305,11 +358,11 @@ func TestStatusWithoutLimitsAndWithoutSubscription(t *testing.T) {
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
-	mustContain(t, tg.last(t).text, "1,5 ГБ (без лимита)", "1 (без лимита)")
+	mustContain(t, tg.last(t).text, "1,5 ГБ · без лимита", "1 · без лимита")
 	core.status = &Status{User: User{ID: 7, SubToken: "tok"}}
 	app.Handle(context.Background(), tg, callback("menu:sub"))
 	m := tg.last(t)
-	mustContain(t, m.text, "подписки нет", "https://subs.example.com/tok")
+	mustContain(t, m.text, "⚪️ <b>Подписки нет</b>", "https://subs.example.com/tok")
 	if strings.Contains(m.text, "Трафик") {
 		t.Fatalf("traffic shown without a subscription:\n%s", m.text)
 	}
@@ -322,7 +375,7 @@ func TestStatusOfAnUnknownUserRegistersFirst(t *testing.T) {
 	if !core.called("register") {
 		t.Fatal("unknown user not registered")
 	}
-	mustContain(t, tg.last(t).text, "подписки нет")
+	mustContain(t, tg.last(t).text, "Подписки нет")
 }
 
 func TestPlanNamesAreEscaped(t *testing.T) {
@@ -342,8 +395,15 @@ func TestBuyListsPlansAndTheRules(t *testing.T) {
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:buy"))
 	m := tg.last(t)
-	mustContain(t, m.text, "Месяц", "199 ₽", "30 дн.", "100 ГБ", "до 3 устройств", "Год", "1990 ₽", "без лимита трафика", "в очередь", "сгорит")
+	mustContain(t, m.text, "Месяц", "199 ₽", "30 дней", "100 ГБ", "до 3 устройств", "Год", "1990 ₽", "365 дней", "без лимита трафика",
+		"<blockquote expandable>", "в очередь", "сгорит", "доступ закрыт до конца периода", "Оплатишь сейчас")
+	if strings.Contains(m.text, "Если трафик кончился — новый период начнётся сразу") {
+		t.Fatalf("misleading rule is back:\n%s", m.text)
+	}
 	b := buttons(m.keyboard)
+	if b["buy:2"].Style != "success" {
+		t.Fatalf("plan buttons are not green: %+v", m.keyboard)
+	}
 	if _, ok := b["buy:2"]; !ok {
 		t.Fatalf("no button for plan 2: %+v", m.keyboard)
 	}
@@ -382,9 +442,10 @@ func TestBuyCreatesAPaymentLink(t *testing.T) {
 	m := tg.last(t)
 	mustContain(t, m.text, "Месяц", "199 ₽")
 	b := buttons(m.keyboard)
-	if pay, ok := b["https://yoomoney.ru/checkout?orderId=1"]; !ok || !strings.Contains(pay.Text, "199") {
-		t.Fatalf("no pay button: %+v", m.keyboard)
+	if pay, ok := b["https://yoomoney.ru/checkout?orderId=1"]; !ok || !strings.Contains(pay.Text, "199") || pay.Style != "success" {
+		t.Fatalf("no green pay button: %+v", m.keyboard)
 	}
+	mustContain(t, m.text, "30 дней", "Я оплатил")
 	if _, ok := b["chk:2d85d5ad-000f-5000-9000-1c4c6dd1d9e6"]; !ok {
 		t.Fatalf("no check button: %+v", m.keyboard)
 	}
@@ -407,9 +468,13 @@ func TestBuyWarnsWhatHappensToTheCurrentPeriod(t *testing.T) {
 	app.Handle(context.Background(), tg, callback("buy:2"))
 	mustContain(t, tg.last(t).text, "в очередь")
 	core.status.Subscription.TrafficUsedBytes = 100 << 30
-	app.Handle(context.Background(), tg, callback("buy:3"))
-	if strings.Contains(tg.last(t).text, "сгорит") {
-		t.Fatalf("exhausted period has nothing left to burn:\n%s", tg.last(t).text)
+	for _, plan := range []string{"buy:3", "buy:2"} {
+		app.Handle(context.Background(), tg, callback(plan))
+		m := tg.last(t).text
+		if strings.Contains(m, "сгорит") || strings.Contains(m, "в очередь") {
+			t.Fatalf("%s: exhausted period neither burns nor queues:\n%s", plan, m)
+		}
+		mustContain(t, m, "Трафик исчерпан", "начнётся сразу после оплаты")
 	}
 }
 
@@ -504,8 +569,8 @@ func TestResetDevicesAsksFirst(t *testing.T) {
 	if core.called("reset") {
 		t.Fatal("devices reset without confirmation")
 	}
-	if _, ok := buttons(tg.last(t).keyboard)["dev:ok"]; !ok {
-		t.Fatalf("no confirm button: %+v", tg.last(t))
+	if ok := buttons(tg.last(t).keyboard)["dev:ok"]; ok.Style != "danger" {
+		t.Fatalf("no red confirm button: %+v", tg.last(t))
 	}
 	app.Handle(context.Background(), tg, callback("dev:ok"))
 	if len(core.resetFor) != 1 || core.resetFor[0] != 7 {
@@ -522,6 +587,9 @@ func TestRotateLinkAsksFirstAndShowsTheNewLink(t *testing.T) {
 		t.Fatal("link rotated without confirmation")
 	}
 	mustContain(t, tg.last(t).text, "перестанут работать")
+	if ok := buttons(tg.last(t).keyboard)["link:ok"]; ok.Style != "danger" {
+		t.Fatalf("no red confirm button: %+v", tg.last(t))
+	}
 	app.Handle(context.Background(), tg, callback("link:ok"))
 	if len(core.rotateFor) != 1 || core.rotateFor[0] != 7 {
 		t.Fatalf("rotate for = %v", core.rotateFor)
@@ -617,6 +685,81 @@ func TestCheckRefusesForgedPaymentIDs(t *testing.T) {
 	for _, a := range tg.only(t, "answerCallbackQuery") {
 		if !strings.Contains(a.text, "не найден") {
 			t.Fatalf("answers = %+v", a)
+		}
+	}
+}
+
+func tgTime(tm time.Time) string {
+	loc, _ := time.LoadLocation("Europe/Moscow")
+	return fmt.Sprintf(`<tg-time unix="%d" format="Dt">%s</tg-time>`, tm.Unix(), tm.In(loc).Format("02.01.2006 15:04"))
+}
+
+func allTexts(t *testing.T, app *App, tg *fakeTelegram, core *fakeCore) []sent {
+	t.Helper()
+	core.plans = []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, TrafficLimitBytes: i64(100 << 30), DeviceLimit: iptr(3), OnSale: true}, {ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true}}
+	core.payment = &Payment{PaymentID: "p1", ConfirmationURL: "https://yoomoney.ru/x", AmountRub: 1990}
+	core.check = &Check{Status: "succeeded", TelegramID: i64(tgUser), PaidUntil: tptr(at("2026-11-30T10:00:00Z"))}
+	core.rotated = "new-tok"
+	app.Handle(context.Background(), tg, message("/start", models.ChatTypePrivate))
+	for _, data := range []string{"menu:sub", "menu:buy", "buy:3", "chk:p1", "dev:ask", "dev:ok", "link:ask", "link:ok", "menu:main"} {
+		app.Handle(context.Background(), tg, callback(data))
+	}
+	if err := app.NotifyPaid(context.Background(), tg, tgUser, tptr(at("2026-11-30T10:00:00Z"))); err != nil {
+		t.Fatal(err)
+	}
+	var out []sent
+	for _, c := range tg.calls {
+		if c.method != "answerCallbackQuery" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func TestScreensAreAiry(t *testing.T) {
+	core := &fakeCore{status: activeStatus()}
+	app, tg := newTestApp(t, core)
+	for _, m := range allTexts(t, app, tg, core) {
+		if !strings.Contains(m.text, rule+"\n\n") {
+			t.Fatalf("no air after the header:\n%s", m.text)
+		}
+		if strings.Contains(m.text, "<tg-emoji") {
+			t.Fatalf("custom emoji without the switch:\n%s", m.text)
+		}
+		for _, row := range m.keyboard {
+			for _, b := range row {
+				if b.IconCustomEmojiID != "" {
+					t.Fatalf("custom button icon without the switch: %+v", b)
+				}
+			}
+		}
+	}
+}
+
+func TestCustomEmojiFromThePack(t *testing.T) {
+	core := &fakeCore{status: activeStatus()}
+	app, tg := newTestApp(t, core)
+	app.UseCustomEmoji(true)
+	screens := allTexts(t, app, tg, core)
+	status := screens[1]
+	mustContain(t, status.text, `<tg-emoji emoji-id="6030445631921721471">🛡</tg-emoji>`, `<tg-emoji emoji-id="5936143551854285132">📊</tg-emoji>`)
+	b := buttons(status.keyboard)
+	if buy := b["menu:buy"]; buy.IconCustomEmojiID != "6037083366438737901" || buy.Text != "Купить / продлить" {
+		t.Fatalf("buy button = %+v", buy)
+	}
+	for _, m := range screens {
+		if !strings.Contains(m.text, "<tg-emoji") {
+			t.Fatalf("screen without pack icons:\n%s", m.text)
+		}
+		for _, row := range m.keyboard {
+			for _, btn := range row {
+				if btn.IconCustomEmojiID == "" {
+					t.Fatalf("button without a pack icon: %+v", btn)
+				}
+				if r := []rune(btn.Text); len(r) > 0 && r[0] > 0x2000 {
+					t.Fatalf("button keeps a plain emoji next to the pack icon: %q", btn.Text)
+				}
+			}
 		}
 	}
 }

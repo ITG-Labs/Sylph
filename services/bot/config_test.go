@@ -15,7 +15,7 @@ func setBaseEnv(t *testing.T) {
 	t.Setenv("SYLPH_TLS_KEY", "/certs/key.pem")
 	t.Setenv("SYLPH_CA_CERT", "/certs/ca.pem")
 	t.Setenv("SYLPH_SUBS_URL", "https://subs.example.com/")
-	for _, k := range []string{"SYLPH_CORE_NAME", "SYLPH_TELEGRAM_API", "SYLPH_BOT_WEBHOOK_LISTEN", "SYLPH_BOT_TRUSTED_PROXIES", "SYLPH_BOT_YOOKASSA_IPS", "SYLPH_BOT_TZ"} {
+	for _, k := range []string{"SYLPH_CORE_NAME", "SYLPH_TELEGRAM_API", "SYLPH_BOT_WEBHOOK_LISTEN", "SYLPH_BOT_TRUSTED_PROXIES", "SYLPH_BOT_YOOKASSA_IPS", "SYLPH_BOT_TZ", "SYLPH_BOT_CUSTOM_EMOJI"} {
 		t.Setenv(k, "")
 	}
 }
@@ -28,7 +28,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.Token != "123456:ABC-secret" || cfg.CoreURL != "https://core.sylph.internal:8443" || cfg.ServerName != "core.sylph.internal" ||
 		cfg.SubsURL != "https://subs.example.com" || cfg.TelegramAPI != "https://api.telegram.org" || cfg.WebhookListen != "" ||
-		len(cfg.TrustedProxies) != 0 || cfg.Location.String() != "Europe/Moscow" {
+		len(cfg.TrustedProxies) != 0 || cfg.Location.String() != "Europe/Moscow" || cfg.CustomEmoji {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	for _, ip := range []string{"185.71.76.1", "185.71.77.30", "77.75.153.100", "77.75.156.11", "77.75.156.35", "77.75.154.200", "2a02:5180::1"} {
@@ -51,9 +51,13 @@ func TestLoadConfigOverrides(t *testing.T) {
 	t.Setenv("SYLPH_BOT_TRUSTED_PROXIES", "172.18.0.0/16, 10.0.0.5")
 	t.Setenv("SYLPH_BOT_YOOKASSA_IPS", "203.0.113.0/24")
 	t.Setenv("SYLPH_BOT_TZ", "Asia/Yekaterinburg")
+	t.Setenv("SYLPH_BOT_CUSTOM_EMOJI", "true")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !cfg.CustomEmoji {
+		t.Fatal("custom emoji switch ignored")
 	}
 	if cfg.ServerName != "core.example" || cfg.TelegramAPI != "http://127.0.0.1:9000" || cfg.WebhookListen != ":8080" || cfg.Location.String() != "Asia/Yekaterinburg" {
 		t.Fatalf("cfg = %+v", cfg)
@@ -81,6 +85,7 @@ func TestLoadConfigRejects(t *testing.T) {
 		"bad proxies":   {"SYLPH_BOT_TRUSTED_PROXIES", "not-an-ip"},
 		"bad allowlist": {"SYLPH_BOT_YOOKASSA_IPS", "300.1.1.1"},
 		"bad tz":        {"SYLPH_BOT_TZ", "Mars/Olympus"},
+		"bad emoji":     {"SYLPH_BOT_CUSTOM_EMOJI", "maybe"},
 	}
 	for name, kv := range cases {
 		t.Run(name, func(t *testing.T) {

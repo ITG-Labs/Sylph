@@ -3,7 +3,6 @@ package bot
 import (
 	"context"
 	"errors"
-	"html"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -20,10 +19,11 @@ type Telegram interface {
 }
 
 type App struct {
-	core    Core
-	subsURL string
-	loc     *time.Location
-	log     *slog.Logger
+	core        Core
+	subsURL     string
+	loc         *time.Location
+	log         *slog.Logger
+	customEmoji bool
 }
 
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
@@ -53,7 +53,7 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 		a.send(ctx, tg, m.Chat.ID, textFailed, nil)
 		return
 	}
-	a.send(ctx, tg, m.Chat.ID, textMenu, menuKeyboard())
+	a.send(ctx, tg, m.Chat.ID, a.menuText(), a.menuKeyboard())
 }
 
 func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQuery) {
@@ -72,7 +72,7 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 	var alert string
 	switch {
 	case data == cbMenu:
-		a.show(ctx, tg, to, textMenu, menuKeyboard())
+		a.show(ctx, tg, to, a.menuText(), a.menuKeyboard())
 	case data == cbStatus:
 		alert = a.onStatus(ctx, tg, to, tgID)
 	case data == cbBuy:
@@ -82,11 +82,11 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 	case strings.HasPrefix(data, cbChkPrefix):
 		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
 	case data == cbDevicesAsk:
-		a.show(ctx, tg, to, textDevicesAsk, keyboard(row(button("Да, сбросить", cbDevicesOK)), row(button("Отмена", cbMenu))))
+		a.show(ctx, tg, to, a.devicesAskText(), a.confirmKeyboard(icTrash, "Да, сбросить", cbDevicesOK))
 	case data == cbDevicesOK:
 		alert = a.onReset(ctx, tg, to, tgID)
 	case data == cbLinkAsk:
-		a.show(ctx, tg, to, textLinkAsk, keyboard(row(button("Да, сменить", cbLinkOK)), row(button("Отмена", cbMenu))))
+		a.show(ctx, tg, to, a.linkAskText(), a.confirmKeyboard(icCycle, "Да, сменить", cbLinkOK))
 	case data == cbLinkOK:
 		alert = a.onRotate(ctx, tg, to, tgID)
 	}
@@ -128,7 +128,7 @@ func (a *App) onStatus(ctx context.Context, tg Telegram, to reply, tgID int64) s
 	if err != nil {
 		return a.fail(ctx, "status", tgID, err)
 	}
-	a.show(ctx, tg, to, a.statusText(st), keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+	a.show(ctx, tg, to, a.statusText(st), keyboard(a.buyRow(), a.backRow()))
 	return ""
 }
 
@@ -169,7 +169,7 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 		plan = renew
 	}
 	if plan == nil {
-		a.show(ctx, tg, to, textPlanGone, keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+		a.show(ctx, tg, to, a.planGoneText(), keyboard(a.buyRow(), a.backRow()))
 		return ""
 	}
 	pay, err := a.core.CreatePayment(ctx, st.User.ID, plan.ID)
@@ -207,11 +207,11 @@ func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, pa
 		slog.Bool("applied", chk.Applied))
 	switch chk.Status {
 	case "succeeded":
-		a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(row(button("📊 Моя подписка", cbStatus)), backRow()))
+		a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(a.statusRow(), a.backRow()))
 	case "canceled":
-		a.show(ctx, tg, to, textCanceled, keyboard(row(button("💳 Купить / продлить", cbBuy)), backRow()))
+		a.show(ctx, tg, to, a.canceledText(), keyboard(a.buyRow(), a.backRow()))
 	case "mismatch":
-		a.show(ctx, tg, to, textMismatch, keyboard(backRow()))
+		a.show(ctx, tg, to, a.mismatchText(), keyboard(a.backRow()))
 	default:
 		return textPending
 	}
@@ -227,7 +227,7 @@ func (a *App) onReset(ctx context.Context, tg Telegram, to reply, tgID int64) st
 		return a.fail(ctx, "devices_reset", tgID, err)
 	}
 	a.log.LogAttrs(ctx, slog.LevelInfo, "devices_reset", slog.Int64("telegram_id", tgID))
-	a.show(ctx, tg, to, textDevicesDone, keyboard(backRow()))
+	a.show(ctx, tg, to, a.devicesDoneText(), keyboard(a.backRow()))
 	return ""
 }
 
@@ -241,14 +241,14 @@ func (a *App) onRotate(ctx context.Context, tg Telegram, to reply, tgID int64) s
 		return a.fail(ctx, "link_rotate", tgID, err)
 	}
 	a.log.LogAttrs(ctx, slog.LevelInfo, "link_rotated", slog.Int64("telegram_id", tgID))
-	a.show(ctx, tg, to, textLinkDonePart1+"\n<code>"+html.EscapeString(a.link(token))+"</code>", keyboard(backRow()))
+	a.show(ctx, tg, to, a.rotatedText(token), keyboard(a.backRow()))
 	return ""
 }
 
 func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, paidUntil *time.Time) error {
 	_, err := tg.SendMessage(ctx, &tgbot.SendMessageParams{
 		ChatID: telegramID, Text: a.paidText(paidUntil), ParseMode: models.ParseModeHTML,
-		ReplyMarkup: keyboard(row(button("📊 Моя подписка", cbStatus))),
+		ReplyMarkup: keyboard(a.statusRow()),
 	})
 	return err
 }

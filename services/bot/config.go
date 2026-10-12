@@ -32,6 +32,7 @@ type Config struct {
 	TrustedProxies []netip.Prefix
 	YooKassaIPs    []netip.Prefix
 	Location       *time.Location
+	CustomEmoji    bool
 }
 
 func LoadConfig() (*Config, error) {
@@ -74,6 +75,13 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.Location, err = time.LoadLocation(envOr("SYLPH_BOT_TZ", "Europe/Moscow")); err != nil {
 		return nil, errors.New("SYLPH_BOT_TZ must be an IANA time zone")
+	}
+	switch os.Getenv("SYLPH_BOT_CUSTOM_EMOJI") {
+	case "", "0", "false":
+	case "1", "true":
+		cfg.CustomEmoji = true
+	default:
+		return nil, errors.New("SYLPH_BOT_CUSTOM_EMOJI must be true or false")
 	}
 	return cfg, nil
 }

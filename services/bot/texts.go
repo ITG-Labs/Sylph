@@ -23,27 +23,79 @@ const (
 )
 
 const (
-	textMenu = "👋 Привет! Здесь можно купить или продлить подписку, получить ссылку для клиента и управлять устройствами."
-
-	textBuyRules = "Тот же тариф, что сейчас, встанет в очередь после текущего периода. Другой тариф включится сразу, а остаток текущего сгорит."
-
-	textNoPlans       = "Сейчас тарифов в продаже нет."
-	textPlanGone      = "Этот тариф больше не продаётся — выбери другой."
-	textPayDisabled   = "Оплата сейчас недоступна — попробуй позже."
-	textProviderDown  = "ЮKassa не отвечает — попробуй через минуту."
-	textFailed        = "Что-то пошло не так, попробуй ещё раз чуть позже."
-	textNotFound      = "Платёж не найден."
-	textPending       = "Оплата ещё не пришла. Если уже оплатил — подожди минуту и нажми ещё раз: ЮKassa подтверждает не сразу."
-	textCanceled      = "❌ Платёж отменён или истёк. Выбери тариф заново — будет новая ссылка на оплату."
-	textMismatch      = "⚠️ С этим платежом что-то не так — подписку по нему не продлили. Напиши в поддержку, разберёмся."
-	textDevicesAsk    = "📱 Сбросить привязанные устройства?\n\nЭто нужно, если сменил телефон и упёрся в лимит. Устройства привяжутся заново, когда клиент обновит подписку."
-	textDevicesDone   = "✅ Устройства сброшены. Обнови подписку в клиенте на нужном устройстве."
-	textLinkAsk       = "🔄 Сменить ссылку подписки?\n\nСтарая ссылка и все клиенты, настроенные по ней, перестанут работать — новую нужно будет заново добавить в клиент. Трафик и оплаченные дни сохранятся."
-	textLinkDonePart1 = "✅ Ссылка сменена. Новая ссылка — нажми, чтобы скопировать, и добавь её в клиент заново:"
+	stylePrimary = "primary"
+	styleSuccess = "success"
+	styleDanger  = "danger"
 )
 
-func button(text, data string) models.InlineKeyboardButton {
-	return models.InlineKeyboardButton{Text: text, CallbackData: data}
+const rule = "━━━━━━━━━━━━━━━━━━━━"
+
+const (
+	textPlanGone     = "Этот тариф больше не продаётся — выбери другой."
+	textPayDisabled  = "Оплата сейчас недоступна — попробуй позже."
+	textProviderDown = "ЮKassa не отвечает — попробуй через минуту."
+	textFailed       = "Что-то пошло не так, попробуй ещё раз чуть позже."
+	textNotFound     = "Платёж не найден."
+	textPending      = "Оплата ещё не пришла. Если уже оплатил — подожди минуту и нажми ещё раз: ЮKassa подтверждает не сразу."
+)
+
+type icon struct {
+	plain string
+	id    string
+}
+
+var (
+	icShield   = icon{"🛡", "6030445631921721471"}
+	icDiamond  = icon{"💎", "6037083366438737901"}
+	icPlan     = icon{"📦", "5884479287171485878"}
+	icTraffic  = icon{"📊", "5936143551854285132"}
+	icDevice   = icon{"📱", "5942734685976138521"}
+	icTrash    = icon{"🗑", "6039522349517115015"}
+	icLink     = icon{"🔗", "6028171274939797252"}
+	icCycle    = icon{"🔁", "6030657343744644592"}
+	icClock    = icon{"⏰", "5983150113483134607"}
+	icCalendar = icon{"📅", "5890937706803894250"}
+	icTag      = icon{"🏷", "5890727932011223292"}
+	icPay      = icon{"💳", "5904359114531675993"}
+	icCheck    = icon{"✅", "5774022692642492953"}
+	icCross    = icon{"❌", "5774077015388852135"}
+	icWarn     = icon{"❗️", "6030563507299160824"}
+	icInfo     = icon{"ℹ️", "6028435952299413210"}
+	icEmpty    = icon{"⚪️", "5884332803016891855"}
+	icParty    = icon{"🎉", "6041731551845159060"}
+	icWave     = icon{"👋", "5985478698722136468"}
+	icSparkles = icon{"✨", "5890925363067886150"}
+	icReturn   = icon{"↩️", "6039539366177541657"}
+	icBack     = icon{"⬅️", "5960671702059848143"}
+)
+
+func (a *App) UseCustomEmoji(on bool) {
+	a.customEmoji = on
+}
+
+func (a *App) ic(i icon) string {
+	if a.customEmoji {
+		return `<tg-emoji emoji-id="` + i.id + `">` + i.plain + `</tg-emoji>`
+	}
+	return i.plain
+}
+
+func (a *App) btn(i icon, text, data string) models.InlineKeyboardButton {
+	if a.customEmoji {
+		return models.InlineKeyboardButton{Text: text, CallbackData: data, IconCustomEmojiID: i.id}
+	}
+	return models.InlineKeyboardButton{Text: i.plain + " " + text, CallbackData: data}
+}
+
+func (a *App) urlBtn(i icon, text, url string) models.InlineKeyboardButton {
+	b := a.btn(i, text, "")
+	b.URL = url
+	return b
+}
+
+func styled(b models.InlineKeyboardButton, style string) models.InlineKeyboardButton {
+	b.Style = style
+	return b
 }
 
 func keyboard(rows ...[]models.InlineKeyboardButton) *models.InlineKeyboardMarkup {
@@ -54,24 +106,93 @@ func row(b ...models.InlineKeyboardButton) []models.InlineKeyboardButton {
 	return b
 }
 
-func menuKeyboard() *models.InlineKeyboardMarkup {
+func (a *App) header(i icon, title string) string {
+	return a.ic(i) + " <b>" + title + "</b>\n" + rule + "\n\n"
+}
+
+func (a *App) menuKeyboard() *models.InlineKeyboardMarkup {
 	return keyboard(
-		row(button("📊 Моя подписка", cbStatus)),
-		row(button("💳 Купить / продлить", cbBuy)),
-		row(button("📱 Сбросить устройства", cbDevicesAsk), button("🔄 Сменить ссылку", cbLinkAsk)),
+		row(styled(a.btn(icShield, "Моя подписка", cbStatus), stylePrimary)),
+		row(styled(a.btn(icDiamond, "Купить / продлить", cbBuy), styleSuccess)),
+		row(a.btn(icDevice, "Сбросить устройства", cbDevicesAsk), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
 	)
 }
 
-func backRow() []models.InlineKeyboardButton {
-	return row(button("⬅️ Меню", cbMenu))
+func (a *App) buyRow() []models.InlineKeyboardButton {
+	return row(styled(a.btn(icDiamond, "Купить / продлить", cbBuy), styleSuccess))
+}
+
+func (a *App) backRow() []models.InlineKeyboardButton {
+	return row(a.btn(icBack, "Меню", cbMenu))
+}
+
+func (a *App) statusRow() []models.InlineKeyboardButton {
+	return row(styled(a.btn(icShield, "Моя подписка", cbStatus), stylePrimary))
+}
+
+func (a *App) confirmKeyboard(i icon, yes, data string) *models.InlineKeyboardMarkup {
+	return keyboard(row(styled(a.btn(i, yes, data), styleDanger)), row(a.btn(icBack, "Отмена", cbMenu)))
+}
+
+func (a *App) menuText() string {
+	return a.header(icWave, "Привет!") +
+		"Здесь всё для твоей подписки:\n\n" +
+		a.ic(icShield) + "  статус, трафик и «оплачено до»\n" +
+		a.ic(icDiamond) + "  покупка и продление тарифа\n" +
+		a.ic(icLink) + "  ссылка для клиента\n" +
+		a.ic(icDevice) + "  сброс устройств и смена ссылки"
+}
+
+func (a *App) canceledText() string {
+	return a.header(icCross, "Платёж не прошёл") +
+		"Платёж отменён или истёк.\n\nВыбери тариф заново — будет новая ссылка на оплату."
+}
+
+func (a *App) mismatchText() string {
+	return a.header(icWarn, "Проблема с платежом") +
+		"С этим платежом что-то не так — подписку по нему не продлили.\n\nНапиши в поддержку, разберёмся."
+}
+
+func (a *App) devicesAskText() string {
+	return a.header(icDevice, "Сбросить устройства?") +
+		"Нужно, если сменил телефон и упёрся в лимит.\n\n" +
+		a.ic(icInfo) + " Устройства привяжутся заново, когда клиент обновит подписку."
+}
+
+func (a *App) devicesDoneText() string {
+	return a.header(icCheck, "Устройства сброшены") +
+		"Обнови подписку в клиенте на нужном устройстве — оно привяжется заново."
+}
+
+func (a *App) linkAskText() string {
+	return a.header(icCycle, "Сменить ссылку?") +
+		"Старая ссылка и все клиенты, настроенные по ней, перестанут работать.\n\n" +
+		"Новую придётся заново добавить в клиент.\n\n" +
+		a.ic(icInfo) + " Трафик и оплаченные дни сохранятся."
+}
+
+func (a *App) planGoneText() string {
+	return a.header(icDiamond, "Тарифы") + textPlanGone
+}
+
+func (a *App) buyRulesText() string {
+	return "<blockquote expandable>" + a.ic(icInfo) + " <b>Как работает продление</b>\n\n" +
+		"Тот же тариф, что сейчас, встанет в очередь — начнётся, когда закончится текущий период.\n\n" +
+		"Другой тариф включится сразу после оплаты, а остаток текущего сгорит.\n\n" +
+		"Если трафик кончился, доступ закрыт до конца периода. Оплатишь сейчас — любой тариф включится сразу, " +
+		"а уже оплаченные периоды сдвинутся следом и не пропадут.</blockquote>"
 }
 
 func (a *App) when(t time.Time) string {
-	return t.In(a.loc).Format("02.01.2006 15:04")
+	return fmt.Sprintf(`<tg-time unix="%d" format="Dt">%s</tg-time>`, t.Unix(), t.In(a.loc).Format("02.01.2006 15:04"))
 }
 
 func (a *App) link(token string) string {
 	return a.subsURL + "/" + token
+}
+
+func (a *App) linkBlock(title, token string) string {
+	return a.ic(icLink) + " <b>" + title + "</b>\nТапни, чтобы скопировать:\n<code>" + html.EscapeString(a.link(token)) + "</code>"
 }
 
 func exhausted(st *Status) bool {
@@ -80,71 +201,91 @@ func exhausted(st *Status) bool {
 
 func (a *App) statusText(st *Status) string {
 	var b strings.Builder
-	b.WriteString("📊 <b>Моя подписка</b>\n\n")
+	b.WriteString(a.header(icShield, "Моя подписка"))
 	sub, plan := st.Subscription, st.Plan
 	if sub == nil || plan == nil {
-		b.WriteString("Статус: ❌ подписки нет — выбери тариф в «Купить / продлить».\n")
-	} else {
-		fmt.Fprintf(&b, "Тариф: <b>%s</b>\n", html.EscapeString(plan.Name))
-		hasNext := sub.PaidUntil != nil && sub.PaidUntil.After(sub.ExpiresAt)
-		switch {
-		case exhausted(st) && hasNext:
-			fmt.Fprintf(&b, "Статус: ⛔ трафик исчерпан — следующий период начнётся %s\n", a.when(sub.ExpiresAt))
-		case exhausted(st):
-			fmt.Fprintf(&b, "Статус: ⛔ трафик исчерпан до %s — новый оплаченный период начнётся сразу\n", a.when(sub.ExpiresAt))
-		default:
-			fmt.Fprintf(&b, "Статус: ✅ активна, текущий период до %s\n", a.when(sub.ExpiresAt))
-		}
-		if plan.TrafficLimitBytes != nil {
-			fmt.Fprintf(&b, "Трафик: %s из %s\n", formatBytes(sub.TrafficUsedBytes), formatBytes(*plan.TrafficLimitBytes))
-		} else {
-			fmt.Fprintf(&b, "Трафик: %s (без лимита)\n", formatBytes(sub.TrafficUsedBytes))
-		}
-		if plan.DeviceLimit != nil {
-			fmt.Fprintf(&b, "Устройства: %d из %d\n", st.Devices, *plan.DeviceLimit)
-		} else {
-			fmt.Fprintf(&b, "Устройства: %d (без лимита)\n", st.Devices)
-		}
-		if sub.PaidUntil != nil {
-			fmt.Fprintf(&b, "Оплачено до: %s\n", a.when(*sub.PaidUntil))
-		}
+		fmt.Fprintf(&b, "%s <b>Подписки нет</b>\n\nВыбери тариф в «Купить / продлить» — подписка включится сразу после оплаты.\n\n", a.ic(icEmpty))
+		b.WriteString(a.linkBlock("Ссылка подписки", st.User.SubToken))
+		return b.String()
 	}
-	fmt.Fprintf(&b, "\n🔗 Ссылка подписки — нажми, чтобы скопировать:\n<code>%s</code>", html.EscapeString(a.link(st.User.SubToken)))
+	hasNext := sub.PaidUntil != nil && sub.PaidUntil.After(sub.ExpiresAt)
+	switch {
+	case exhausted(st) && hasNext:
+		fmt.Fprintf(&b, "%s <b>Трафик исчерпан</b>\nСледующий оплаченный период начнётся %s.\nНе хочешь ждать — оплати сейчас, новый период начнётся сразу.\n", a.ic(icWarn), a.when(sub.ExpiresAt))
+	case exhausted(st):
+		fmt.Fprintf(&b, "%s <b>Трафик исчерпан</b>\nДоступ закрыт до %s.\nОплатишь сейчас — новый период начнётся сразу.\n", a.ic(icWarn), a.when(sub.ExpiresAt))
+	default:
+		fmt.Fprintf(&b, "%s <b>Активна</b>\n", a.ic(icCheck))
+	}
+	fmt.Fprintf(&b, "%s Тариф «%s»\n\n", a.ic(icPlan), html.EscapeString(plan.Name))
+	fmt.Fprintf(&b, "%s <b>Трафик</b>\n", a.ic(icTraffic))
+	if plan.TrafficLimitBytes != nil {
+		fmt.Fprintf(&b, "%s\n%s из %s\n\n", trafficBar(sub.TrafficUsedBytes, *plan.TrafficLimitBytes), formatBytes(sub.TrafficUsedBytes), formatBytes(*plan.TrafficLimitBytes))
+	} else {
+		fmt.Fprintf(&b, "%s · без лимита\n\n", formatBytes(sub.TrafficUsedBytes))
+	}
+	fmt.Fprintf(&b, "%s <b>Устройства</b>\n", a.ic(icDevice))
+	if plan.DeviceLimit != nil {
+		fmt.Fprintf(&b, "%d из %d\n\n", st.Devices, *plan.DeviceLimit)
+	} else {
+		fmt.Fprintf(&b, "%d · без лимита\n\n", st.Devices)
+	}
+	fmt.Fprintf(&b, "%s <b>Текущий период до</b>\n%s\n\n", a.ic(icClock), a.when(sub.ExpiresAt))
+	if sub.PaidUntil != nil {
+		fmt.Fprintf(&b, "%s <b>Оплачено до</b>\n%s\n\n", a.ic(icCalendar), a.when(*sub.PaidUntil))
+	}
+	b.WriteString(a.linkBlock("Ссылка подписки", st.User.SubToken))
 	return b.String()
 }
 
-func planLine(p Plan) string {
+func trafficBar(used, limit int64) string {
+	const width = 10
+	filled := 0
+	if limit > 0 {
+		filled = int(min(used, limit) * width / limit)
+		if used > 0 && filled == 0 {
+			filled = 1
+		}
+	}
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", width-filled)
+}
+
+func (a *App) planBlock(p Plan) string {
 	traffic := "без лимита трафика"
 	if p.TrafficLimitBytes != nil {
-		traffic = formatBytes(*p.TrafficLimitBytes)
+		traffic = formatBytes(*p.TrafficLimitBytes) + " трафика"
 	}
 	devices := "устройств без лимита"
 	if p.DeviceLimit != nil {
-		devices = fmt.Sprintf("до %d устройств", *p.DeviceLimit)
+		devices = devicesUpTo(*p.DeviceLimit)
 	}
-	return fmt.Sprintf("• <b>%s</b> — %d ₽ за %d дн. · %s · %s", html.EscapeString(p.Name), p.PriceRub, p.PeriodDays, traffic, devices)
+	return fmt.Sprintf("%s <b>%s</b>\n%s %d ₽ за %s\n%s %s\n%s %s",
+		a.ic(icPlan), html.EscapeString(p.Name),
+		a.ic(icTag), p.PriceRub, days(p.PeriodDays),
+		a.ic(icTraffic), traffic,
+		a.ic(icDevice), devices)
 }
 
 func planButton(p Plan) string {
-	return fmt.Sprintf("%s — %d ₽", p.Name, p.PriceRub)
+	return fmt.Sprintf("%s · %d ₽", p.Name, p.PriceRub)
 }
 
 func (a *App) plansView(st *Status, plans []Plan) (string, *models.InlineKeyboardMarkup) {
 	var rows [][]models.InlineKeyboardButton
-	var lines []string
+	var blocks []string
 	if renew := offSaleCurrent(st, plans); renew != nil {
-		lines = append(lines, planLine(*renew)+" — твой текущий, снят с продажи")
-		rows = append(rows, row(button("🔁 Продлить текущий: "+planButton(*renew), cbPlanPrefix+strconv.FormatInt(renew.ID, 10))))
+		blocks = append(blocks, a.planBlock(*renew)+"\n"+a.ic(icCycle)+" <i>твой текущий, снят с продажи</i>")
+		rows = append(rows, row(styled(a.btn(icCycle, "Продлить текущий: "+planButton(*renew), cbPlanPrefix+strconv.FormatInt(renew.ID, 10)), stylePrimary)))
 	}
 	for _, p := range plans {
-		lines = append(lines, planLine(p))
-		rows = append(rows, row(button(planButton(p), cbPlanPrefix+strconv.FormatInt(p.ID, 10))))
+		blocks = append(blocks, a.planBlock(p))
+		rows = append(rows, row(styled(a.btn(icPlan, planButton(p), cbPlanPrefix+strconv.FormatInt(p.ID, 10)), styleSuccess)))
 	}
-	rows = append(rows, backRow())
-	if len(lines) == 0 {
-		return textNoPlans, keyboard(backRow())
+	if len(blocks) == 0 {
+		return a.header(icDiamond, "Тарифы") + "Сейчас тарифов в продаже нет.", keyboard(a.backRow())
 	}
-	return "💳 <b>Тарифы</b>\n\n" + strings.Join(lines, "\n") + "\n\n" + textBuyRules, keyboard(rows...)
+	rows = append(rows, a.backRow())
+	return a.header(icDiamond, "Тарифы") + strings.Join(blocks, "\n\n") + "\n\n" + a.buyRulesText(), keyboard(rows...)
 }
 
 func offSaleCurrent(st *Status, plans []Plan) *Plan {
@@ -161,27 +302,58 @@ func offSaleCurrent(st *Status, plans []Plan) *Plan {
 
 func (a *App) paymentView(st *Status, plan Plan, pay *Payment) (string, *models.InlineKeyboardMarkup) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "🧾 <b>Оплата</b>\n\nТариф: <b>%s</b> — %d ₽ за %d дн.\n", html.EscapeString(plan.Name), pay.AmountRub, plan.PeriodDays)
-	if st.Subscription != nil && st.Plan != nil && !exhausted(st) {
+	b.WriteString(a.header(icTag, "Оплата"))
+	fmt.Fprintf(&b, "%s <b>%s</b>\n%d ₽ за %s\n\n", a.ic(icPlan), html.EscapeString(plan.Name), pay.AmountRub, days(plan.PeriodDays))
+	if exhausted(st) {
+		fmt.Fprintf(&b, "%s Трафик исчерпан — новый период начнётся сразу после оплаты, трафик снова появится.\n\n", a.ic(icInfo))
+	} else if st.Subscription != nil && st.Plan != nil {
 		if st.Plan.ID == plan.ID {
-			b.WriteString("ℹ️ Новый период встанет в очередь после текущего.\n")
+			fmt.Fprintf(&b, "%s Новый период встанет в очередь после текущего.\n\n", a.ic(icInfo))
 		} else {
-			fmt.Fprintf(&b, "⚠️ Сейчас у тебя тариф «%s» — его остаток сгорит, новый включится сразу после оплаты.\n", html.EscapeString(st.Plan.Name))
+			fmt.Fprintf(&b, "%s Сейчас у тебя тариф «%s» — его остаток сгорит, новый включится сразу после оплаты.\n\n", a.ic(icWarn), html.EscapeString(st.Plan.Name))
 		}
 	}
-	b.WriteString("\nОплати по кнопке ниже. Подписка продлится сама в течение пары минут, а «Я оплатил» проверит оплату сразу.")
+	fmt.Fprintf(&b, "%s Нажми «Оплатить» — картой или через СБП\n\n", a.ic(icPay))
+	fmt.Fprintf(&b, "%s Вернись сюда — подписка продлится сама за пару минут\n\n", a.ic(icReturn))
+	fmt.Fprintf(&b, "%s Не хочешь ждать — жми «Я оплатил»", a.ic(icCheck))
 	return b.String(), keyboard(
-		row(models.InlineKeyboardButton{Text: fmt.Sprintf("💳 Оплатить %d ₽", pay.AmountRub), URL: pay.ConfirmationURL}),
-		row(button("✅ Я оплатил", cbChkPrefix+pay.PaymentID)),
-		backRow(),
+		row(styled(a.urlBtn(icPay, fmt.Sprintf("Оплатить %d ₽", pay.AmountRub), pay.ConfirmationURL), styleSuccess)),
+		row(styled(a.btn(icCheck, "Я оплатил", cbChkPrefix+pay.PaymentID), stylePrimary)),
+		a.backRow(),
 	)
 }
 
 func (a *App) paidText(paidUntil *time.Time) string {
-	if paidUntil == nil {
-		return "✅ <b>Оплата прошла!</b>"
+	text := a.header(icParty, "Оплата прошла!") + "Спасибо! Подписка уже работает " + a.ic(icSparkles)
+	if paidUntil != nil {
+		text += "\n\n" + a.ic(icCalendar) + " <b>Оплачено до</b>\n" + a.when(*paidUntil)
 	}
-	return "✅ <b>Оплата прошла!</b>\n\nОплачено до " + a.when(*paidUntil) + "."
+	return text
+}
+
+func (a *App) rotatedText(token string) string {
+	return a.header(icCheck, "Ссылка обновлена") +
+		"Старая больше не работает — добавь новую в клиент заново.\n\n" + a.linkBlock("Новая ссылка", token)
+}
+
+func plural(n int, one, few, many string) string {
+	n10, n100 := n%10, n%100
+	switch {
+	case n10 == 1 && n100 != 11:
+		return one
+	case n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14):
+		return few
+	default:
+		return many
+	}
+}
+
+func days(n int) string {
+	return strconv.Itoa(n) + " " + plural(n, "день", "дня", "дней")
+}
+
+func devicesUpTo(n int) string {
+	return "до " + strconv.Itoa(n) + " " + plural(n, "устройства", "устройств", "устройств")
 }
 
 func formatBytes(n int64) string {
