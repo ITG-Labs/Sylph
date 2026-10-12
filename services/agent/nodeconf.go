@@ -240,6 +240,10 @@ func (n *NodeConfig) ensureXray(ctx context.Context, desired []Inbound, want []b
 		n.acceptXray(desired)
 		return
 	}
+	if _, err := n.caddy.Config(ctx); err != nil {
+		n.failXray("xray_apply_deferred", fmt.Errorf("caddy admin unreachable, its routes could not follow new xray ports: %w", err))
+		return
+	}
 	if uptime < n.settle {
 		n.logger.Info("xray_settling", "xray_uptime_sec", int64(uptime/time.Second))
 		if !sleepCtx(ctx, n.settle-uptime) {

@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +116,7 @@ func TestCaddyFollowsRunningInboundsAfterXrayRejection(t *testing.T) {
 func TestCaddyUnreachableIsRetried(t *testing.T) {
 	r := newNodeRig(t, newFakeXray())
 	ctx := context.Background()
+	r.node.Apply(ctx, mainIn)
 	r.node.caddy = NewCaddyAPI("127.0.0.1:1", 200*time.Millisecond)
 	r.node.Apply(ctx, mainIn)
 	if e := r.node.ConfigError(); e == nil || !strings.HasPrefix(*e, "caddy_unreachable: ") {
@@ -123,15 +126,36 @@ func TestCaddyUnreachableIsRetried(t *testing.T) {
 		t.Fatal("unreachable caddy recorded as a rejection")
 	}
 	r.node.caddy = NewCaddyAPI(r.cfg.CaddyAdmin, 2*time.Second)
-	r.caddy.set(func(f *fakeCaddy) { f.dropLoad = true })
+	r.caddy.set(func(f *fakeCaddy) { f.dropLoad = true; f.current = []byte(`{"admin":{"listen":"x"}}`) })
 	r.node.Apply(ctx, mainIn)
 	if e := r.node.ConfigError(); e == nil || !strings.HasPrefix(*e, "caddy_unreachable: ") || r.node.state.CaddyRejected != nil {
 		t.Fatalf("connection dropped during load = %v, want a transient error, not a rejection", e)
 	}
 	r.caddy.set(func(f *fakeCaddy) { f.dropLoad = false })
 	r.node.Apply(ctx, mainIn)
-	if _, loads, _ := r.caddy.state(); loads != 1 || r.node.ConfigError() != nil {
+	if _, loads, _ := r.caddy.state(); loads != 2 || r.node.ConfigError() != nil {
 		t.Fatalf("caddy not loaded once reachable: loads %d", loads)
+	}
+}
+
+func TestXrayNotRestartedWhileCaddyCannotFollow(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	r.node.caddy = NewCaddyAPI("127.0.0.1:1", 200*time.Millisecond)
+	before := r.disk()
+	r.node.Apply(context.Background(), mainIn)
+	if r.proc.killCount() != 0 || !bytes.Equal(r.disk(), before) {
+		t.Fatal("xray switched to new ports although caddy cannot be pointed at them")
+	}
+	e := r.node.ConfigError()
+	if e == nil || !strings.HasPrefix(*e, "xray_apply_deferred: ") {
+		t.Fatalf("config_error = %v", e)
+	}
+	if r.node.state.XrayRejected != nil {
+		t.Fatal("deferred apply recorded as a rejection")
+	}
+	r.node.caddy = NewCaddyAPI(r.cfg.CaddyAdmin, 2*time.Second)
+	if got := r.node.Apply(context.Background(), mainIn); !reflect.DeepEqual(got, mainIn) || r.proc.killCount() != 1 {
+		t.Fatalf("apply after caddy came back: effective %+v, kills %d", got, r.proc.killCount())
 	}
 }
 
