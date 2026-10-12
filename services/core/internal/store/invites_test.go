@@ -146,14 +146,17 @@ func TestConcurrentRedeemsRespectMaxUses(t *testing.T) {
 	one := 1
 	inv := mkInvite(t, s, plan.ID, &one, nil)
 	var users []*model.User
-	for i := range 6 {
+	for i := range 20 {
 		users = append(users, mkTgUser(t, s, int64(6200+i)))
 	}
+	warmPool(t, s)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	start := make(chan struct{})
 	ok := 0
 	for _, u := range users {
 		wg.Go(func() {
+			<-start
 			_, err := s.RedeemInvite(ctx, inv.Code, u.ID, time.Now().UTC())
 			switch {
 			case err == nil:
@@ -165,6 +168,7 @@ func TestConcurrentRedeemsRespectMaxUses(t *testing.T) {
 			}
 		})
 	}
+	close(start)
 	wg.Wait()
 	access, _ := s.ListPlanAccess(ctx, plan.ID)
 	if ok != 1 || len(access) != 1 {

@@ -59,7 +59,7 @@ func TestDailyStatsWindows(t *testing.T) {
 	for _, row := range []struct {
 		ago   int
 		bytes int64
-	}{{0, 1}, {6, 10}, {7, 100}, {29, 1000}, {30, 10000}} {
+	}{{0, 1}, {1, 2}, {6, 10}, {7, 100}, {29, 1000}, {30, 10000}} {
 		if _, err := s.pool.Exec(ctx,
 			`INSERT INTO traffic_daily (user_id, node_id, day, bytes_up) VALUES ($1, $2, (now() AT TIME ZONE 'Europe/Moscow')::date - $3::int, $4)`,
 			u.ID, n.ID, row.ago, row.bytes); err != nil {
@@ -70,7 +70,7 @@ func TestDailyStatsWindows(t *testing.T) {
 	if periodID != nil {
 		t.Fatalf("period without a subscription: %v", *periodID)
 	}
-	if st := got[n.ID]; st.Today != 1 || st.Days7 != 11 || st.Days30 != 1111 || st.Period != 0 {
+	if st := got[n.ID]; st.Today != 1 || st.Days7 != 13 || st.Days30 != 1113 || st.Period != 0 {
 		t.Fatalf("windows = %+v", st)
 	}
 }
@@ -111,25 +111,32 @@ func TestDailyStatsWithoutActivePeriod(t *testing.T) {
 func TestDailyStatsDayFollowsTheTimezone(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
-	const tz = "Pacific/Kiritimati"
-	if err := s.SetStatsTimezone(ctx, tz); err != nil {
-		t.Fatal(err)
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		t.Fatal(err)
-	}
 	u, k := userWithKey(t, s)
 	n := deltaNode(t, s)
-	before := time.Now().In(loc).Format(time.DateOnly)
-	record(t, s, n.ID, "tz-1", model.TrafficDelta{KeyUUID: k, BytesUp: 1})
-	after := time.Now().In(loc).Format(time.DateOnly)
-	var day time.Time
-	if err := s.pool.QueryRow(ctx, `SELECT day FROM traffic_daily WHERE user_id = $1`, u.ID).Scan(&day); err != nil {
-		t.Fatal(err)
+	days := map[string]string{}
+	for i, tz := range []string{"Pacific/Kiritimati", "Pacific/Pago_Pago"} {
+		if err := s.SetStatsTimezone(ctx, tz); err != nil {
+			t.Fatal(err)
+		}
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := time.Now().In(loc).Format(time.DateOnly)
+		record(t, s, n.ID, "tz-"+tz, model.TrafficDelta{KeyUUID: k, BytesUp: int64(i + 1)})
+		after := time.Now().In(loc).Format(time.DateOnly)
+		var day time.Time
+		if err := s.pool.QueryRow(ctx, `SELECT day FROM traffic_daily WHERE user_id = $1 AND bytes_up = $2`, u.ID, i+1).Scan(&day); err != nil {
+			t.Fatal(err)
+		}
+		got := day.Format(time.DateOnly)
+		if got != before && got != after {
+			t.Fatalf("day = %s, want %s in %s", got, before, tz)
+		}
+		days[tz] = got
 	}
-	if got := day.Format(time.DateOnly); got != before && got != after {
-		t.Fatalf("day = %s, want %s in %s", got, before, tz)
+	if days["Pacific/Kiritimati"] == days["Pacific/Pago_Pago"] {
+		t.Fatalf("UTC+14 and UTC-11 gave the same day %s", days["Pacific/Kiritimati"])
 	}
 	if err := s.SetStatsTimezone(ctx, "Mars/Olympus"); err == nil {
 		t.Fatal("unknown timezone accepted")

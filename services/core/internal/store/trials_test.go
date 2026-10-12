@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
@@ -17,6 +19,28 @@ func mkTgUser(t *testing.T, s *Store, tg int64) *model.User {
 		t.Fatal(err)
 	}
 	return u
+}
+
+func warmPool(t *testing.T, s *Store) {
+	t.Helper()
+	n := int(s.pool.Config().MaxConns)
+	conns := make(chan *pgxpool.Conn, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			c, err := s.pool.Acquire(context.Background())
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			conns <- c
+		})
+	}
+	wg.Wait()
+	close(conns)
+	for c := range conns {
+		c.Release()
+	}
 }
 
 func mkTrialPlan(t *testing.T, s *Store, visibility string) *model.Plan {
@@ -119,11 +143,14 @@ func TestConcurrentTrialGrantsGiveOnePeriod(t *testing.T) {
 	ctx := context.Background()
 	mkTrialPlan(t, s, model.VisibilityPublic)
 	u := mkTgUser(t, s, 5005)
+	warmPool(t, s)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	start := make(chan struct{})
 	ok := 0
 	for range 8 {
 		wg.Go(func() {
+			<-start
 			if _, err := s.GrantTrial(ctx, u.ID, time.Now().UTC()); err == nil {
 				mu.Lock()
 				ok++
@@ -133,6 +160,7 @@ func TestConcurrentTrialGrantsGiveOnePeriod(t *testing.T) {
 			}
 		})
 	}
+	close(start)
 	wg.Wait()
 	if ok != 1 || len(userPeriods(t, s, u.ID)) != 1 {
 		t.Fatalf("grants ok = %d, periods = %d", ok, len(userPeriods(t, s, u.ID)))
@@ -187,11 +215,14 @@ func TestConcurrentTrialClaimsOfOneHWID(t *testing.T) {
 	for i := range 6 {
 		users = append(users, mkTgUser(t, s, int64(5200+i)))
 	}
+	warmPool(t, s)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	start := make(chan struct{})
 	allowed := 0
 	for _, u := range users {
 		wg.Go(func() {
+			<-start
 			v, err := s.RegisterTrialDevice(ctx, u.ID, DeviceInfo{HWID: "hw-race"}, nil)
 			if err != nil {
 				t.Error(err)
@@ -204,6 +235,7 @@ func TestConcurrentTrialClaimsOfOneHWID(t *testing.T) {
 			}
 		})
 	}
+	close(start)
 	wg.Wait()
 	if allowed != 1 {
 		t.Fatalf("accounts allowed on one device = %d, want 1", allowed)
