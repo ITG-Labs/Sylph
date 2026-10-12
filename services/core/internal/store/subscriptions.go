@@ -55,7 +55,7 @@ func (s *Store) ApplyPayment(ctx context.Context, userID int64, planID int64, no
 		return PaymentResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR NO KEY UPDATE`, userID); err != nil {
 		return PaymentResult{}, err
 	}
 	var periodDays int

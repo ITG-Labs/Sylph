@@ -488,3 +488,133 @@ func TestCleanupStaysFastWhenStatisticsLag(t *testing.T) {
 		t.Fatalf("cleanup after the table shrank and grew again = %+v, %v; a stale-statistics plan must not hang it", res, err)
 	}
 }
+
+func waitForLockWaiter(t *testing.T, s *Store, done <-chan struct{}) {
+	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		var waiting int
+		if err := s.pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			return
+		}
+	}
+	t.Fatal("nobody started waiting for the lock")
+}
+
+func TestRotationAndPaymentDoNotDeadlock(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, _ := userWithKey(t, s)
+	p := mkPlan(t, s)
+	deltaNode(t, s)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE user_keys SET revoked_at = now() WHERE user_id = $1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	var payErr error
+	go func() {
+		defer close(done)
+		_, payErr = s.ApplyPayment(ctx, u.ID, p.ID, time.Now().UTC())
+	}()
+	waitForLockWaiter(t, s, done)
+	if _, err := tx.Exec(ctx, `INSERT INTO user_keys (user_id, uuid) VALUES ($1, $2)`, u.ID, model.NewUUID()); err != nil {
+		t.Fatalf("rotation lost to the payment: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if payErr != nil {
+		t.Fatalf("payment lost to the rotation: %v", payErr)
+	}
+}
+
+func TestConcurrentPaymentsQueueInsteadOfOverlapping(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkUser(t, s), mkPlan(t, s)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR NO KEY UPDATE`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES ($1, $2, now(), now() + interval '30 days')`, u.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	var res PaymentResult
+	var payErr error
+	go func() {
+		defer close(done)
+		res, payErr = s.ApplyPayment(ctx, u.ID, p.ID, time.Now().UTC())
+	}()
+	waitForLockWaiter(t, s, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if payErr != nil || res.StartsNow {
+		t.Fatalf("second payment = %+v, %v: it must wait and queue, not overlap", res, payErr)
+	}
+	ps := userPeriods(t, s, u.ID)
+	if len(ps) != 2 || !sameTime(ps[1].StartsAt, ps[0].ExpiresAt) {
+		t.Fatalf("periods overlap: %+v", ps)
+	}
+}
+
+func TestBatchDuringPeriodSwitchCountsIntoTheNewPeriod(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, k := userWithKey(t, s)
+	p := mkPlan(t, s)
+	first := pay(t, s, u.ID, p.ID, time.Now().UTC())
+	n := deltaNode(t, s)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE, expires_at = now() WHERE id = $1`, first.PeriodID); err != nil {
+		t.Fatal(err)
+	}
+	var fresh int64
+	if err := tx.QueryRow(ctx, `INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES ($1, $2, now(), now() + interval '30 days') RETURNING id`, u.ID, p.ID).Scan(&fresh); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	var batchErr error
+	go func() {
+		defer close(done)
+		_, batchErr = s.RecordDeltaBatch(ctx, n.ID, "b-switch", []model.TrafficDelta{{KeyUUID: k, BytesUp: 500}})
+	}()
+	waitForLockWaiter(t, s, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if batchErr != nil {
+		t.Fatal(batchErr)
+	}
+	for _, period := range userPeriods(t, s, u.ID) {
+		if period.ID == fresh && period.TrafficUsedBytes == 500 {
+			return
+		}
+	}
+	t.Fatalf("traffic reported during the switch was lost: %+v", userPeriods(t, s, u.ID))
+}

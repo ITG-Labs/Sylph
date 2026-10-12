@@ -62,19 +62,10 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	slices.Sort(users)
 	var res BatchResult
 	for _, id := range users {
-		var before, used int64
-		var limit *int64
-		err := tx.QueryRow(ctx,
-			`WITH cur AS (
-			     SELECT id, traffic_used_bytes AS before FROM subscriptions
-			     WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
-			     ORDER BY starts_at DESC, id DESC LIMIT 1 FOR UPDATE)
-			 UPDATE subscriptions s
-			 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
-			 FROM cur, plans p
-			 WHERE s.id = cur.id AND p.id = s.plan_id
-			 RETURNING cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
-			id, totals[id]).Scan(&before, &used, &limit)
+		before, used, limit, err := addToActivePeriod(ctx, tx, id, totals[id])
+		if errors.Is(err, pgx.ErrNoRows) {
+			before, used, limit, err = addToActivePeriod(ctx, tx, id, totals[id])
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -91,6 +82,21 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		}
 	}
 	return res, tx.Commit(ctx)
+}
+
+func addToActivePeriod(ctx context.Context, tx pgx.Tx, userID, bytes int64) (before, used int64, limit *int64, err error) {
+	err = tx.QueryRow(ctx,
+		`WITH cur AS (
+		     SELECT id, traffic_used_bytes AS before FROM subscriptions
+		     WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
+		     ORDER BY starts_at DESC, id DESC LIMIT 1 FOR UPDATE)
+		 UPDATE subscriptions s
+		 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
+		 FROM cur, plans p
+		 WHERE s.id = cur.id AND p.id = s.plan_id
+		 RETURNING cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
+		userID, bytes).Scan(&before, &used, &limit)
+	return before, used, limit, err
 }
 
 func keyOwners(ctx context.Context, tx pgx.Tx, deltas []model.TrafficDelta) (map[string]int64, error) {

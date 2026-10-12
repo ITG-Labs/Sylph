@@ -237,3 +237,66 @@ func TestMigration005DownAndUpAgain(t *testing.T) {
 		t.Fatalf("up 005 again: %v", err)
 	}
 }
+
+func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes) VALUES ('p', 1, 30, 1000)`,
+		`INSERT INTO users (telegram_id, sub_token, status) VALUES (1, 't1', 'active'), (2, 't2', 'active')`,
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes) VALUES
+		     (1, 1, now() - interval '1 day', now() + interval '29 days', 1500),
+		     (1, 1, now() + interval '29 days', now() + interval '59 days', 0),
+		     (1, 1, now() - interval '40 days', now() - interval '10 days', 700),
+		     (2, 1, now() - interval '1 day', now() + interval '29 days', 300),
+		     (2, 1, now() + interval '29 days', now() + interval '59 days', 0)`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 005: %v", err)
+	}
+	type row struct {
+		starts, expires string
+		used            int64
+	}
+	for user, want := range map[int]struct {
+		status string
+		used   int64
+	}{1: {"expired_traffic", 1500}, 2: {"active", 300}} {
+		var status string
+		var live int
+		var r row
+		if err := pool.QueryRow(ctx, `SELECT status FROM users WHERE id = $1`, user).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*), min(starts_at)::date::text, max(expires_at)::date::text, max(traffic_used_bytes)
+			 FROM subscriptions WHERE user_id = $1 AND NOT canceled AND expires_at > now()`, user).Scan(&live, &r.starts, &r.expires, &r.used); err != nil {
+			t.Fatal(err)
+		}
+		var wantStart, wantEnd string
+		if err := pool.QueryRow(ctx, `SELECT (now() - interval '1 day')::date::text, (now() + interval '59 days')::date::text`).Scan(&wantStart, &wantEnd); err != nil {
+			t.Fatal(err)
+		}
+		if status != want.status || live != 1 || r.starts != wantStart || r.expires != wantEnd || r.used != want.used {
+			t.Fatalf("user %d after down: status %q, live rows %d, %+v; want %s, one row %s..%s used %d", user, status, live, r, want.status, wantStart, wantEnd, want.used)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 005 again: %v", err)
+	}
+}
