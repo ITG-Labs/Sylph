@@ -4,5 +4,6 @@ use (
 	.
 	./services/core
 	./services/agent
+	./services/cron
 	./services/subs
 )
