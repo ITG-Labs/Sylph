@@ -102,6 +102,12 @@ type fakeCore struct {
 	devices   []Device
 	removed   [][2]int64
 	removeErr error
+
+	trialUntil time.Time
+	trialErr   error
+	stats      *Stats
+	redeem     *Redeem
+	redeemErr  error
 }
 
 func (c *fakeCore) note(s string) {
@@ -129,9 +135,27 @@ func (c *fakeCore) Status(_ context.Context, tg int64) (*Status, error) {
 	return c.status, nil
 }
 
-func (c *fakeCore) Plans(context.Context) ([]Plan, error) {
-	c.note("plans")
+func (c *fakeCore) Plans(_ context.Context, userID int64) ([]Plan, error) {
+	c.note(fmt.Sprintf("plans:%d", userID))
 	return c.plans, nil
+}
+
+func (c *fakeCore) GrantTrial(_ context.Context, userID int64) (time.Time, error) {
+	c.note(fmt.Sprintf("trial:%d", userID))
+	return c.trialUntil, c.trialErr
+}
+
+func (c *fakeCore) Stats(_ context.Context, userID int64) (*Stats, error) {
+	c.note(fmt.Sprintf("stats:%d", userID))
+	if c.stats == nil {
+		return &Stats{}, nil
+	}
+	return c.stats, nil
+}
+
+func (c *fakeCore) RedeemInvite(_ context.Context, userID int64, code string) (*Redeem, error) {
+	c.note(fmt.Sprintf("redeem:%d:%s", userID, code))
+	return c.redeem, c.redeemErr
 }
 
 func (c *fakeCore) CreatePayment(_ context.Context, userID, planID int64) (*Payment, error) {
