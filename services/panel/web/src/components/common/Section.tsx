@@ -16,5 +16,5 @@ export function Section({ title, description, action, children, className }: { t
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{children}</div>
+  return <div className="rounded-xl border border-dashed border-white/12 px-4 py-6 text-center text-sm text-muted-foreground">{children}</div>
 }

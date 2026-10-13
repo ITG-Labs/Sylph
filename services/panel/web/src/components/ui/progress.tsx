@@ -4,10 +4,10 @@ import { cn } from "@/lib/utils"
 
 function Progress({ className, value, indicatorClassName, ...props }: React.ComponentProps<typeof ProgressPrimitive.Root> & { indicatorClassName?: string }) {
   return (
-    <ProgressPrimitive.Root data-slot="progress" className={cn("relative h-2 w-full overflow-hidden rounded-full bg-white/8", className)} {...props}>
+    <ProgressPrimitive.Root data-slot="progress" className={cn("relative h-2 w-full overflow-hidden rounded-full bg-black/30 shadow-[inset_0_1px_1px_0_oklch(0_0_0/35%)]", className)} {...props}>
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className={cn("h-full w-full flex-1 rounded-full bg-primary transition-all", indicatorClassName)}
+        className={cn("h-full w-full flex-1 rounded-full bg-primary shadow-[inset_0_1px_0_0_oklch(1_0_0/35%)] transition-transform duration-700 ease-glide", indicatorClassName)}
         style={{ transform: `translateX(-${100 - Math.min(100, Math.max(0, value ?? 0))}%)` }}
       />
     </ProgressPrimitive.Root>

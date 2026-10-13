@@ -41,14 +41,14 @@ export function LoginPage() {
   }
 
   return (
-    <div className="bg-glow flex min-h-dvh items-center justify-center px-4 py-10">
+    <div className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
           <Logo />
         </div>
-        <form onSubmit={submit} className="flex flex-col gap-5 rounded-2xl border bg-card/80 p-6 shadow-2xl backdrop-blur">
+        <form onSubmit={submit} className="glass-strong flex flex-col gap-5 rounded-3xl p-6 sm:p-7">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Вход</h1>
+            <h1 className="text-2xl font-bold tracking-[-0.025em]">Вход</h1>
             <p className="mt-1 text-sm text-muted-foreground">Имя, пароль и код из аутентификатора</p>
           </div>
           <div className="flex flex-col gap-2">

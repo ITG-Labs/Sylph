@@ -18,14 +18,14 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
 }
 
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
-  return <tr data-slot="table-row" className={cn("border-b transition-colors hover:bg-white/[0.03] data-[state=selected]:bg-muted", className)} {...props} />
+  return <tr data-slot="table-row" className={cn("border-b border-white/6 transition-colors hover:bg-white/[0.04] data-[state=selected]:bg-muted", className)} {...props} />
 }
 
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
-      className={cn("h-10 px-3 text-left align-middle text-xs font-medium tracking-wide whitespace-nowrap text-muted-foreground uppercase", className)}
+      className={cn("h-10 px-3 text-left align-middle text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase", className)}
       {...props}
     />
   )
