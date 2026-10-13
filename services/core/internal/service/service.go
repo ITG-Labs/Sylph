@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -56,6 +57,9 @@ func (s *Service) GetUserFullByToken(ctx context.Context, token string) (*model.
 		return nil, nil, nil, nil, err
 	}
 	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return u, keys, nil, nil, nil
+	}
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

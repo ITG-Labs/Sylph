@@ -76,6 +76,7 @@ var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/admin/payments/p-1/reject", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/payments/p-1/refund", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/overview", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/audit", []string{mtls.RolePanel}},
 }
 
 type caller struct {

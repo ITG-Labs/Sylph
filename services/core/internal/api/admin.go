@@ -23,6 +23,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "PATCH /v1/admin/inbounds/{id}", s.handleInboundUpdate, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/inbounds/{id}", s.handleInboundDelete, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/overview", s.handleOverview, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/audit", s.handleAuditList, mtls.RolePanel)
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
@@ -32,10 +33,6 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ov)
-}
-
-func (s *Server) logChange(r *http.Request, entity, action string, id int64) {
-	s.log.Info("admin_change", "entity", entity, "action", action, "id", id, "peer", clientCN(r))
 }
 
 func (s *Server) handleGroupCreate(w http.ResponseWriter, r *http.Request) {

@@ -109,3 +109,17 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 	}
 	return ov, nil
 }
+
+func (s *Service) RecordAudit(ctx context.Context, e store.AuditEntry) error {
+	return s.store.InsertAudit(ctx, e)
+}
+
+func (s *Service) ListAudit(ctx context.Context, f store.AuditFilter) ([]store.AuditEntry, error) {
+	if f.Limit == 0 {
+		f.Limit = defaultPageSize
+	}
+	if f.Limit < 1 || f.Limit > maxPageSize {
+		return nil, fieldErr("limit", "must be 1-100")
+	}
+	return s.store.ListAudit(ctx, f)
+}

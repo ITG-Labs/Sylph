@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -84,8 +83,7 @@ func (s *Server) handleUserByToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SubToken string `json:"sub_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if !decodeBody(w, r, &body) {
 		return
 	}
 	if body.SubToken == "" {

@@ -90,7 +90,7 @@ func (s *Server) paymentAction(action string, do func(ctx context.Context, payme
 			s.writePaymentError(w, err, "payment "+action)
 			return
 		}
-		s.log.Info("admin_change", "entity", "payment", "action", action, "payment_id", id, "peer", clientCN(r))
+		s.logChange(r, "payment", action, id)
 		writeJSON(w, http.StatusOK, res)
 	}
 }

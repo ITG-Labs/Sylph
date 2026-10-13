@@ -243,3 +243,22 @@ func TestUsersListAndCard(t *testing.T) {
 	}
 	mustStatus(t, e.call(t, http.MethodGet, "/v1/admin/users/999999", nil), http.StatusNotFound)
 }
+
+func TestByTokenAnswersUsersWithoutAPeriod(t *testing.T) {
+	e := newAdminEnv(t)
+	u, _ := botUserAndPlan(t, e.apiEnv, 7100, 199)
+	r := e.call(t, http.MethodPost, "/v1/users/by-token", map[string]any{"sub_token": u.SubToken})
+	mustStatus(t, r, http.StatusOK)
+	var got struct {
+		User         map[string]any `json:"user"`
+		Keys         []any          `json:"keys"`
+		Subscription any            `json:"subscription"`
+		Plan         any            `json:"plan"`
+	}
+	r.decode(t, &got)
+	if got.User == nil || len(got.Keys) != 1 || got.Subscription != nil || got.Plan != nil {
+		t.Fatalf("by-token = %s", r.body)
+	}
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/users/by-token", map[string]any{"sub_token": "nope"}), http.StatusNotFound)
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/users/by-token", map[string]any{"sub_token": u.SubToken, "x": 1}), http.StatusBadRequest)
+}
