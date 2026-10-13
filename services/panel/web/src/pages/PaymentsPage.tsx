@@ -52,7 +52,7 @@ export function PaymentsPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={status} onValueChange={(v) => set("status", v)}>
-          <SelectTrigger className="w-[calc(50%-4px)] sm:w-44">
+          <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -65,7 +65,7 @@ export function PaymentsPage() {
           </SelectContent>
         </Select>
         <Select value={source} onValueChange={(v) => set("source", v)}>
-          <SelectTrigger className="w-[calc(50%-4px)] sm:w-48">
+          <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -74,12 +74,12 @@ export function PaymentsPage() {
             <SelectItem value="manual">Вручную</SelectItem>
           </SelectContent>
         </Select>
-        <Button variant={stuck ? "default" : "outline"} onClick={() => set("stuck", stuck ? null : "true")} className={cn(!stuck && "text-muted-foreground")}>
+        <Button variant={stuck ? "default" : "outline"} onClick={() => set("stuck", stuck ? null : "true")} className={cn("h-10", !stuck && "text-muted-foreground")}>
           <Clock />
           Зависшие
         </Button>
         {userId && (
-          <Button variant="secondary" onClick={() => set("user_id", null)}>
+          <Button variant="secondary" className="h-10" onClick={() => set("user_id", null)}>
             юзер № {userId}
             <X />
           </Button>
@@ -94,7 +94,7 @@ export function PaymentsPage() {
         <Empty>{stuck ? "Зависших платежей нет" : "Платежей не нашлось"}</Empty>
       ) : (
         <>
-          <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+          <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -137,7 +137,7 @@ export function PaymentsPage() {
           </div>
           <div className="flex flex-col gap-2 md:hidden">
             {rows.map((p) => (
-              <Link key={p.id} to={`/payments/${encodeURIComponent(p.payment_id)}`} className="flex flex-col gap-2 rounded-xl border bg-card p-4">
+              <Link key={p.id} to={`/payments/${encodeURIComponent(p.payment_id)}`} className="glass-thin flex flex-col gap-2 rounded-2xl p-4 transition-transform duration-200 ease-glide active:scale-[0.985]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium">

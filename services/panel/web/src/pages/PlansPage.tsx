@@ -39,7 +39,7 @@ export function PlansPage() {
         <Empty>Тарифов пока нет</Empty>
       ) : (
         <>
-          <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+          <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -79,7 +79,7 @@ export function PlansPage() {
           </div>
           <div className="flex flex-col gap-2 md:hidden">
             {plans.data.map((p) => (
-              <Link key={p.id} to={`/plans/${p.id}`} className="flex flex-col gap-2 rounded-xl border bg-card p-4">
+              <Link key={p.id} to={`/plans/${p.id}`} className="glass-thin flex flex-col gap-2 rounded-2xl p-4 transition-transform duration-200 ease-glide active:scale-[0.985]">
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-medium">{p.name}</span>
                   <span className="tabular-nums">{fmtRub(p.price_rub)}</span>

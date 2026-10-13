@@ -160,9 +160,24 @@
     inset 0 -1px 0 0 oklch(1 0 0 / 5%);
 }
 
+@utility well {
+  background-color: oklch(1 0 0 / 3.5%);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 6%),
+    inset 0 0 0 1px oklch(1 0 0 / 7%);
+}
+
+@utility tint-rim {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 9%),
+    0 10px 30px -18px oklch(0.05 0.03 275 / 60%);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 18%) transparent;
   }
   html {
     color-scheme: dark;
@@ -281,7 +296,7 @@
 }
 
 @media (max-width: 1023px), (prefers-reduced-motion: reduce) {
-  .app-backdrop > span,
+  .app-backdrop > span[class],
   .login-halo {
     animation: none;
     will-change: auto;

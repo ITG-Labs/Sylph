@@ -75,7 +75,7 @@ export function ActionDialog({
             {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
           </DialogHeader>
           {consequences && (
-            <div className={destructive ? "flex gap-3 rounded-lg border border-destructive/30 bg-destructive/[0.07] p-3 text-sm" : "flex gap-3 rounded-lg border border-warning/25 bg-warning/[0.06] p-3 text-sm"}>
+            <div className={destructive ? "flex gap-3 tint-rim rounded-xl border border-destructive/30 bg-destructive/[0.08] p-3 text-sm" : "flex gap-3 tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm"}>
               <AlertTriangle className={destructive ? "mt-0.5 size-4 shrink-0 text-destructive" : "mt-0.5 size-4 shrink-0 text-warning"} />
               <div className="flex flex-col gap-1.5 leading-relaxed">{consequences}</div>
             </div>
@@ -91,7 +91,7 @@ export function ActionDialog({
             </div>
           )}
           {error && (
-            <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/12 px-3.5 py-2.5 text-sm text-[oklch(0.82_0.12_22)]">
               {error}
             </div>
           )}

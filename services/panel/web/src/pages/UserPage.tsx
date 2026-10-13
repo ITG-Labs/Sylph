@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
+import { motion } from "motion/react"
 import { ArrowLeft, Ban, CalendarPlus, ChevronRight, Gift, Gauge, History, KeyRound, MoreHorizontal, Repeat, ShieldCheck, Smartphone, Trash2 } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { CopyButton } from "@/components/common/CopyButton"
@@ -83,7 +84,7 @@ export function UserPage() {
 
   return (
     <>
-      <Link to="/users" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link to="/users" className="glass-pill mb-4 inline-flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-sm text-muted-foreground transition-[background-color,color,scale] duration-200 hover:bg-white/16 hover:text-foreground active:scale-[0.96]">
         <ArrowLeft className="size-4" />
         Юзеры
       </Link>
@@ -143,7 +144,7 @@ export function UserPage() {
       />
 
       {banned && (
-        <div className="mb-6 flex gap-3 rounded-xl border border-destructive/30 bg-destructive/[0.07] p-4 text-sm">
+        <div className="tint-rim mb-6 flex gap-3 rounded-2xl border border-destructive/30 bg-destructive/[0.08] p-4 text-sm">
           <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
             <div className="font-medium">Забанен {fmtDateTime(u.banned_at)}</div>
@@ -179,7 +180,7 @@ export function UserPage() {
                 {queued.length > 0 && (
                   <div>
                     <div className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">В очереди</div>
-                    <ul className="flex flex-col divide-y rounded-lg border">
+                    <ul className="well flex flex-col divide-y divide-white/6 rounded-xl">
                       {queued.map((p) => (
                         <PeriodLine key={p.id} p={p} onClose={open({ kind: "close", period: p })} />
                       ))}
@@ -219,8 +220,13 @@ export function UserPage() {
                             <span>{n.name}</span>
                             <span className="tabular-nums">{fmtBytes(n[k])}</span>
                           </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
-                            <div className="h-full rounded-full bg-info/80" style={{ width: `${(n[k] / max) * 100}%` }} />
+                          <div className="h-1.5 overflow-hidden rounded-full bg-black/30 shadow-[inset_0_1px_1px_0_oklch(0_0_0/35%)]">
+                            <motion.div
+                              className="h-full rounded-full bg-linear-to-r from-info/60 to-info shadow-[inset_0_1px_0_0_oklch(1_0_0/35%)]"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${(n[k] / max) * 100}%` }}
+                              transition={{ type: "spring", bounce: 0.15, duration: 0.8 }}
+                            />
                           </div>
                         </div>
                       ))}
@@ -248,7 +254,7 @@ export function UserPage() {
               <ul className="-mx-2 flex flex-col">
                 {c.payments.map((p) => (
                   <li key={p.id}>
-                    <Link to={`/payments/${encodeURIComponent(p.payment_id)}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-2 py-2.5 hover:bg-white/[0.03]">
+                    <Link to={`/payments/${encodeURIComponent(p.payment_id)}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-2 py-2.5 hover:bg-white/[0.05]">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{p.plan_name}</div>
                         <div className="truncate font-mono text-xs text-muted-foreground">{p.payment_id}</div>
@@ -271,7 +277,7 @@ export function UserPage() {
 
           {closed.length > 0 && (
             <Section title="Прошлые периоды" description="последние 10">
-              <ul className="flex flex-col divide-y rounded-lg border">
+              <ul className="well flex flex-col divide-y divide-white/6 rounded-xl">
                 {closed.map((p) => (
                   <PeriodLine key={p.id} p={p} />
                 ))}
@@ -282,7 +288,7 @@ export function UserPage() {
 
         <div className="flex flex-col gap-4">
           <Section title="Ссылка подписки" description="токен из ссылки — по нему же ищется юзер">
-            <div className="flex items-center gap-1 rounded-lg border bg-black/20 py-1 pr-1 pl-3">
+            <div className="field flex items-center gap-1 rounded-xl border border-white/8 py-1 pr-1 pl-3.5">
               <code className="min-w-0 flex-1 truncate font-mono text-sm">{u.sub_token}</code>
               <CopyButton value={u.sub_token} label="Скопировать токен" />
             </div>
@@ -312,8 +318,10 @@ export function UserPage() {
                 {c.devices.map((d) => {
                   const name = [d.model, d.os].filter(Boolean).join(" · ") || d.user_agent || `Устройство ${d.id}`
                   return (
-                    <li key={d.id} className="flex items-center gap-3 rounded-lg border bg-white/[0.02] p-3">
-                      <Smartphone className="size-4 shrink-0 text-muted-foreground" />
+                    <li key={d.id} className="well flex items-center gap-3 rounded-xl p-3">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground">
+                        <Smartphone className="size-4" />
+                      </span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{name}</div>
                         <div className="truncate text-xs text-muted-foreground">
@@ -364,7 +372,9 @@ export function UserPage() {
               <ol className="flex flex-col gap-3">
                 {history.data.map((e) => (
                   <li key={e.id} className="flex gap-3 text-sm">
-                    <History className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground">
+                      <History className="size-3.5" />
+                    </span>
                     <div>
                       <div>
                         <span className="font-medium">{e.operator || "без имени"}</span> {describeAudit(e.action, e.details)}
