@@ -140,6 +140,9 @@ type Payment struct {
 	Source          string     `json:"source"`
 	ConfirmationURL string     `json:"confirmation_url,omitempty"`
 	PaidAt          *time.Time `json:"paid_at"`
+	PeriodID        *int64     `json:"period_id"`
+	Note            *string    `json:"note"`
+	RefundedAt      *time.Time `json:"refunded_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
 

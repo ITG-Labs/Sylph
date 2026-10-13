@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
@@ -110,4 +113,71 @@ func (s *Service) ClosePeriod(ctx context.Context, periodID int64) error {
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "period_closed", slog.Int64("period_id", periodID))
 	return nil
+}
+
+const (
+	defaultPageSize = 50
+	maxPageSize     = 100
+	maxTokenRunes   = 128
+)
+
+type UserQuery struct {
+	Q            string
+	Status       string
+	Subscription string
+	PlanID       *int64
+	Before       int64
+	Limit        int
+}
+
+func searchTerm(q string) (*int64, string, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return nil, "", nil
+	}
+	if strings.Trim(q, "0123456789") == "" {
+		n, err := strconv.ParseInt(q, 10, 64)
+		if err != nil {
+			return nil, "", fieldErr("q", "number is too large")
+		}
+		return &n, "", nil
+	}
+	if i := strings.IndexAny(q, "?#"); i >= 0 {
+		q = q[:i]
+	}
+	q = strings.TrimRight(q, "/")
+	if i := strings.LastIndex(q, "/"); i >= 0 {
+		q = q[i+1:]
+	}
+	if q == "" || utf8.RuneCountInString(q) > maxTokenRunes {
+		return nil, "", fieldErr("q", "must be a Telegram ID, a user id, a subscription link or its token")
+	}
+	return nil, q, nil
+}
+
+func (s *Service) ListUsers(ctx context.Context, q UserQuery) ([]store.UserRow, error) {
+	number, token, err := searchTerm(q.Q)
+	if err != nil {
+		return nil, err
+	}
+	if q.Status != "" && q.Status != model.UserActive && q.Status != model.UserBanned {
+		return nil, fieldErr("status", "must be active or banned")
+	}
+	if q.Subscription != "" && q.Subscription != "active" && q.Subscription != "none" {
+		return nil, fieldErr("subscription", "must be active or none")
+	}
+	if q.Limit == 0 {
+		q.Limit = defaultPageSize
+	}
+	if q.Limit < 1 || q.Limit > maxPageSize {
+		return nil, fieldErr("limit", "must be 1-100")
+	}
+	return s.store.ListUsers(ctx, store.UserFilter{
+		Number: number, Token: token, Status: q.Status, Subscription: q.Subscription,
+		PlanID: q.PlanID, Before: q.Before, Limit: q.Limit,
+	})
+}
+
+func (s *Service) UserCard(ctx context.Context, userID int64) (*store.UserCard, error) {
+	return s.store.UserCard(ctx, userID)
 }

@@ -153,3 +153,93 @@ func TestManageSubscriptionThroughTheAPI(t *testing.T) {
 	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/periods/999999/close", nil), http.StatusNotFound)
 	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/users/999999/extend", map[string]any{"days": 1}), http.StatusNotFound)
 }
+
+func TestUsersListAndCard(t *testing.T) {
+	e := newAdminEnv(t)
+	a, p := botUserAndPlan(t, e.apiEnv, 8001, 199)
+	b, _ := botUserAndPlan(t, e.apiEnv, 8002, 199)
+	if _, err := e.svc.RecordPayment(context.Background(), "gift-1", a.ID, p.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	type page struct {
+		Users []struct {
+			ID         int64  `json:"id"`
+			TelegramID int64  `json:"telegram_id"`
+			SubToken   string `json:"sub_token"`
+			Plan       *struct {
+				Name string `json:"name"`
+			} `json:"plan"`
+		} `json:"users"`
+		NextBefore *int64 `json:"next_before"`
+	}
+	list := func(query string) page {
+		t.Helper()
+		r := e.call(t, http.MethodGet, "/v1/admin/users"+query, nil)
+		mustStatus(t, r, http.StatusOK)
+		var pg page
+		r.decode(t, &pg)
+		return pg
+	}
+	all := list("")
+	if len(all.Users) != 2 || all.Users[0].ID != b.ID || all.NextBefore != nil {
+		t.Fatalf("all = %+v", all)
+	}
+	if all.Users[1].Plan == nil || all.Users[1].Plan.Name != p.Name || all.Users[0].SubToken != "" {
+		t.Fatalf("rows = %+v", all.Users)
+	}
+	if got := list("?q=8001"); len(got.Users) != 1 || got.Users[0].ID != a.ID {
+		t.Fatalf("by telegram id = %+v", got)
+	}
+	if got := list(fmt.Sprintf("?q=%d", b.ID)); len(got.Users) != 1 || got.Users[0].ID != b.ID {
+		t.Fatalf("by id = %+v", got)
+	}
+	if got := list("?q=https://subs.example.com/" + a.SubToken + "%3Fx%3D1"); len(got.Users) != 1 || got.Users[0].ID != a.ID {
+		t.Fatalf("by link = %+v", got)
+	}
+	if got := list("?q=" + b.SubToken); len(got.Users) != 1 || got.Users[0].ID != b.ID {
+		t.Fatalf("by token = %+v", got)
+	}
+	if got := list("?subscription=none"); len(got.Users) != 1 || got.Users[0].ID != b.ID {
+		t.Fatalf("without a subscription = %+v", got)
+	}
+	first := list("?limit=1")
+	if len(first.Users) != 1 || first.NextBefore == nil || *first.NextBefore != b.ID {
+		t.Fatalf("first page = %+v", first)
+	}
+	if got := list(fmt.Sprintf("?limit=1&before=%d", *first.NextBefore)); len(got.Users) != 1 || got.Users[0].ID != a.ID {
+		t.Fatalf("second page = %+v", got)
+	}
+	for _, bad := range []struct{ query, field string }{
+		{"?limit=0", "limit"}, {"?limit=101", "limit"}, {"?status=gone", "status"}, {"?subscription=maybe", "subscription"},
+		{"?plan_id=x", "plan_id"}, {"?before=-1", "before"}, {"?q=99999999999999999999", "q"}, {"?sort=id", "sort"},
+	} {
+		mustField(t, e.call(t, http.MethodGet, "/v1/admin/users"+bad.query, nil), http.StatusBadRequest, "bad_request", bad.field)
+	}
+
+	r := e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/users/%d", a.ID), nil)
+	mustStatus(t, r, http.StatusOK)
+	var card struct {
+		User struct {
+			SubToken string `json:"sub_token"`
+			Status   string `json:"status"`
+		} `json:"user"`
+		Periods []struct {
+			State     string  `json:"state"`
+			PlanName  string  `json:"plan_name"`
+			PaymentID *string `json:"payment_id"`
+		} `json:"periods"`
+		Payments []struct {
+			PaymentID string `json:"payment_id"`
+		} `json:"payments"`
+		Devices []any `json:"devices"`
+		Access  []any `json:"access"`
+	}
+	r.decode(t, &card)
+	if card.User.SubToken != a.SubToken || len(card.Periods) != 1 || card.Periods[0].State != "current" || card.Periods[0].PaymentID == nil || *card.Periods[0].PaymentID != "gift-1" {
+		t.Fatalf("card = %s", r.body)
+	}
+	if len(card.Payments) != 1 || card.Devices == nil || card.Access == nil {
+		t.Fatalf("card lists = %s", r.body)
+	}
+	mustStatus(t, e.call(t, http.MethodGet, "/v1/admin/users/999999", nil), http.StatusNotFound)
+}

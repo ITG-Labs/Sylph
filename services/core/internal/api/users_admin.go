@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/service"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func (s *Server) registerUserAdminRoutes(mux *http.ServeMux) {
@@ -13,6 +15,41 @@ func (s *Server) registerUserAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/admin/users/{id}/traffic", s.handleUserTraffic, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/users/{id}/plan", s.handleUserPlan, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/periods/{id}/close", s.handlePeriodClose, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/users", s.handleUserList, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/users/{id}", s.handleUserCard, mtls.RolePanel)
+}
+
+func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
+	q, ok := readQuery(w, r, "q", "status", "subscription", "plan_id", "before", "limit")
+	if !ok {
+		return
+	}
+	query := service.UserQuery{
+		Q: q.str("q"), Status: q.str("status"), Subscription: q.str("subscription"),
+		PlanID: q.optID("plan_id"), Before: q.int("before", 0, 1<<62, 0), Limit: int(q.int("limit", 1, 100, 50)),
+	}
+	if !q.ok() {
+		return
+	}
+	rows, err := s.svc.ListUsers(r.Context(), query)
+	if err != nil {
+		s.writeServiceError(w, err, "users")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": rows, "next_before": nextBefore(rows, query.Limit, func(u store.UserRow) int64 { return u.ID })})
+}
+
+func (s *Server) handleUserCard(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	card, err := s.svc.UserCard(r.Context(), id)
+	if err != nil {
+		s.writeServiceError(w, err, "user")
+		return
+	}
+	writeJSON(w, http.StatusOK, card)
 }
 
 func (s *Server) handleUserBan(w http.ResponseWriter, r *http.Request) {
