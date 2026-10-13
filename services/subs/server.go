@@ -35,17 +35,23 @@ type Settings struct {
 	Title       string
 	UpdateHours int
 	SupportURL  string
+	Location    *time.Location
 }
 
 type Server struct {
 	core     Core
 	settings Settings
+	loc      *time.Location
 	log      *slog.Logger
 	newUUID  func() string
 }
 
 func NewServer(core Core, settings Settings, log *slog.Logger) *Server {
-	return &Server{core: core, settings: settings, log: log, newUUID: logging.NewRequestID}
+	loc := settings.Location
+	if loc == nil {
+		loc = time.FixedZone("MSK", 3*60*60)
+	}
+	return &Server{core: core, settings: settings, loc: loc, log: log, newUUID: logging.NewRequestID}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -98,6 +104,9 @@ func (s *Server) serve(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}
 	if !tokenPattern.MatchString(r.PathValue("token")) {
 		return fail(http.StatusNotFound, "bad_token")
+	}
+	if wantsPage(r) {
+		return s.servePage(ctx, w, r, r.PathValue("token"))
 	}
 	if formatErr != nil {
 		return fail(http.StatusBadRequest, "bad_format")

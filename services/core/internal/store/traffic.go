@@ -41,13 +41,18 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	if err != nil {
 		return BatchResult{}, err
 	}
-	totals := map[int64]int64{}
+	totals := map[int64]*userTotal{}
 	for _, d := range deltas {
 		owner, ok := owners[d.KeyUUID]
 		var userID *int64
 		if ok {
 			userID = &owner
-			totals[owner] = satAdd(totals[owner], satAdd(d.BytesUp, d.BytesDown))
+			t := totals[owner]
+			if t == nil {
+				t = &userTotal{}
+				totals[owner] = t
+			}
+			t.up, t.down = satAdd(t.up, d.BytesUp), satAdd(t.down, d.BytesDown)
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO traffic_deltas (node_id, key_uuid, user_id, bytes_up, bytes_down) VALUES ($1, $2, $3, $4, $5)`,
@@ -62,14 +67,19 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	slices.Sort(users)
 	var res BatchResult
 	for _, id := range users {
-		before, used, limit, err := addToActivePeriod(ctx, tx, id, totals[id])
+		t := totals[id]
+		bytes := satAdd(t.up, t.down)
+		periodID, before, used, limit, err := addToActivePeriod(ctx, tx, id, bytes)
 		if errors.Is(err, pgx.ErrNoRows) {
-			before, used, limit, err = addToActivePeriod(ctx, tx, id, totals[id])
+			periodID, before, used, limit, err = addToActivePeriod(ctx, tx, id, bytes)
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			continue
+			periodID, limit, err = 0, nil, nil
 		}
 		if err != nil {
+			return BatchResult{}, err
+		}
+		if err := s.addDaily(ctx, tx, id, nodeID, periodID, t.up, t.down); err != nil {
 			return BatchResult{}, err
 		}
 		if limit != nil && before < *limit && used >= *limit {
@@ -84,7 +94,11 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	return res, tx.Commit(ctx)
 }
 
-func addToActivePeriod(ctx context.Context, tx pgx.Tx, userID, bytes int64) (before, used int64, limit *int64, err error) {
+type userTotal struct {
+	up, down int64
+}
+
+func addToActivePeriod(ctx context.Context, tx pgx.Tx, userID, bytes int64) (periodID, before, used int64, limit *int64, err error) {
 	err = tx.QueryRow(ctx,
 		`WITH cur AS (
 		     SELECT id, traffic_used_bytes AS before FROM subscriptions
@@ -94,9 +108,9 @@ func addToActivePeriod(ctx context.Context, tx pgx.Tx, userID, bytes int64) (bef
 		 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
 		 FROM cur, plans p
 		 WHERE s.id = cur.id AND p.id = s.plan_id
-		 RETURNING cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
-		userID, bytes).Scan(&before, &used, &limit)
-	return before, used, limit, err
+		 RETURNING s.id, cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
+		userID, bytes).Scan(&periodID, &before, &used, &limit)
+	return periodID, before, used, limit, err
 }
 
 func keyOwners(ctx context.Context, tx pgx.Tx, deltas []model.TrafficDelta) (map[string]int64, error) {

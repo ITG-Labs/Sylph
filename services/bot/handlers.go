@@ -74,12 +74,19 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 	if m.Chat.Type != models.ChatTypePrivate || m.From == nil {
 		return
 	}
-	if _, err := a.core.Register(ctx, m.From.ID); err != nil {
+	u, err := a.core.Register(ctx, m.From.ID)
+	if err != nil {
 		a.log.LogAttrs(ctx, slog.LevelError, "user_register_failed", slog.Int64("telegram_id", m.From.ID), slog.String("error", err.Error()))
 		a.send(ctx, tg, m.Chat.ID, textFailed, nil)
 		return
 	}
-	a.send(ctx, tg, m.Chat.ID, a.menuText(), a.menuKeyboard())
+	if code, ok := startCode(m.Text); ok {
+		text, kb := a.onInvite(ctx, m.From.ID, u.ID, code)
+		a.send(ctx, tg, m.Chat.ID, text, kb)
+		return
+	}
+	text, kb := a.menu(ctx, m.From.ID)
+	a.send(ctx, tg, m.Chat.ID, text, kb)
 }
 
 func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQuery) {
@@ -98,7 +105,14 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 	var alert string
 	switch {
 	case data == cbMenu:
-		a.show(ctx, tg, to, a.menuText(), a.menuKeyboard())
+		text, kb := a.menu(ctx, tgID)
+		a.show(ctx, tg, to, text, kb)
+	case data == cbTrialAsk:
+		alert = a.onTrialAsk(ctx, tg, to, tgID)
+	case data == cbTrialOK:
+		alert = a.onTrial(ctx, tg, to, tgID)
+	case strings.HasPrefix(data, cbStatsPref):
+		alert = a.onStats(ctx, tg, to, tgID, strings.TrimPrefix(data, cbStatsPref))
 	case data == cbStatus:
 		alert = a.onStatus(ctx, tg, to, tgID)
 	case data == cbBuy:
@@ -169,7 +183,7 @@ func (a *App) onPlans(ctx context.Context, tg Telegram, to reply, tgID int64) st
 	if err != nil {
 		return a.fail(ctx, "plans", tgID, err)
 	}
-	plans, err := a.core.Plans(ctx)
+	plans, err := a.core.Plans(ctx, st.User.ID)
 	if err != nil {
 		return a.fail(ctx, "plans", tgID, err)
 	}
@@ -187,7 +201,7 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 	if err != nil {
 		return a.fail(ctx, "buy", tgID, err)
 	}
-	plans, err := a.core.Plans(ctx)
+	plans, err := a.core.Plans(ctx, st.User.ID)
 	if err != nil {
 		return a.fail(ctx, "buy", tgID, err)
 	}

@@ -23,6 +23,9 @@ const (
 	cbLinkOK     = "link:ok"
 	cbPlanPrefix = "buy:"
 	cbChkPrefix  = "chk:"
+	cbTrialAsk   = "trial:ask"
+	cbTrialOK    = "trial:ok"
+	cbStatsPref  = "stats:"
 )
 
 const (
@@ -74,6 +77,12 @@ var (
 	icGear     = icon{"⚙️", "6032742198179532882"}
 	icClient   = icon{"🧩", "5837069325034331827"}
 	icRecent   = icon{"🕓", "5775896410780079073"}
+	icGift     = icon{"🎁", "6032644646587338669"}
+	icChart    = icon{"📈", "5938539885907415367"}
+	icLock     = icon{"🔒", "6037249452824072506"}
+	icUnlock   = icon{"🔓", "6037496202990194718"}
+	icGlobe    = icon{"🌐", "5776233299424843260"}
+	icID       = icon{"🆔", "6032693626394382504"}
 )
 
 func (a *App) UseCustomEmoji(on bool) {
@@ -117,12 +126,17 @@ func (a *App) header(i icon, title string) string {
 	return a.ic(i) + " <b>" + title + "</b>\n" + rule + "\n\n"
 }
 
-func (a *App) menuKeyboard() *models.InlineKeyboardMarkup {
-	return keyboard(
+func (a *App) menuKeyboard(trial bool) *models.InlineKeyboardMarkup {
+	var rows [][]models.InlineKeyboardButton
+	if trial {
+		rows = append(rows, row(styled(a.btn(icGift, "Попробовать бесплатно", cbTrialAsk), styleSuccess)))
+	}
+	return keyboard(append(rows,
 		row(styled(a.btn(icShield, "Моя подписка", cbStatus), stylePrimary)),
 		row(styled(a.btn(icDiamond, "Купить / продлить", cbBuy), styleSuccess)),
+		row(a.btn(icChart, "Статистика", cbStatsPref)),
 		row(a.btn(icDevice, "Устройства", cbDevices), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
-	)
+	)...)
 }
 
 func (a *App) buyRow() []models.InlineKeyboardButton {
@@ -141,13 +155,18 @@ func (a *App) confirmKeyboard(i icon, yes, data string) *models.InlineKeyboardMa
 	return keyboard(row(styled(a.btn(i, yes, data), styleDanger)), row(a.btn(icBack, "Отмена", cbMenu)))
 }
 
-func (a *App) menuText() string {
-	return a.header(icWave, "Привет!") +
+func (a *App) menuText(trial bool) string {
+	text := a.header(icWave, "Привет!") +
 		"Здесь всё для твоей подписки:\n\n" +
 		a.ic(icShield) + "  статус, трафик и «оплачено до»\n" +
 		a.ic(icDiamond) + "  покупка и продление тарифа\n" +
+		a.ic(icChart) + "  трафик по серверам\n" +
 		a.ic(icLink) + "  ссылка для клиента\n" +
 		a.ic(icDevice) + "  привязанные устройства"
+	if trial {
+		text += "\n\n" + a.ic(icGift) + " <b>Можно попробовать бесплатно</b>"
+	}
+	return text
 }
 
 func (a *App) statusKeyboard(token string) *models.InlineKeyboardMarkup {
@@ -316,7 +335,15 @@ func (a *App) statusText(st *Status) string {
 		fmt.Fprintf(&b, "%s <b>Оплачено до</b>\n%s\n\n", a.ic(icCalendar), a.when(*sub.PaidUntil))
 	}
 	b.WriteString(a.linkBlock("Ссылка подписки", st.User.SubToken))
+	b.WriteString(a.idBlock(st.User.TelegramID))
 	return b.String()
+}
+
+func (a *App) idBlock(tgID int64) string {
+	if tgID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n\n%s <b>Твой Telegram ID</b>\n<code>%d</code>", a.ic(icID), tgID)
 }
 
 func trafficBar(used, limit int64) string {
@@ -340,11 +367,15 @@ func (a *App) planBlock(p Plan) string {
 	if p.DeviceLimit != nil {
 		devices = devicesUpTo(*p.DeviceLimit)
 	}
-	return fmt.Sprintf("%s <b>%s</b>\n%s %d ₽ за %s\n%s %s\n%s %s",
+	block := fmt.Sprintf("%s <b>%s</b>\n%s %d ₽ за %s\n%s %s\n%s %s",
 		a.ic(icPlan), html.EscapeString(p.Name),
 		a.ic(icTag), p.PriceRub, days(p.PeriodDays),
 		a.ic(icTraffic), traffic,
 		a.ic(icDevice), devices)
+	if p.Visibility == "private" {
+		block += "\n" + a.ic(icLock) + " <i>закрытый тариф</i>"
+	}
+	return block
 }
 
 func planButton(p Plan) string {

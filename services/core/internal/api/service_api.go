@@ -24,6 +24,8 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "GET /v1/users/{user_id}/devices", s.handleDevicesList, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/users/{user_id}/devices/{device_id}", s.handleDeviceRemove, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "POST /v1/users/{user_id}/trial", s.handleTrial, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "GET /v1/users/{user_id}/stats", s.handleUserStats, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/subscription", s.handleSubscription, mtls.RoleSubs, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/expire", s.handleMaintenanceExpire, mtls.RoleCron, mtls.RolePanel)
 	s.route(mux, "POST /v1/maintenance/cleanup", s.handleMaintenanceCleanup, mtls.RoleCron, mtls.RolePanel)
@@ -284,7 +286,8 @@ func (s *Server) handleMaintenanceExpire(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleMaintenanceCleanup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		OlderThanDays *int `json:"older_than_days"`
+		OlderThanDays      *int `json:"older_than_days"`
+		StatsOlderThanDays *int `json:"stats_older_than_days"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -293,10 +296,44 @@ func (s *Server) handleMaintenanceCleanup(w http.ResponseWriter, r *http.Request
 		writeFieldError(w, http.StatusBadRequest, "bad_request", "older_than_days", "is required")
 		return
 	}
-	res, err := s.svc.CleanupHistory(r.Context(), *body.OlderThanDays, time.Now().UTC())
+	res, err := s.svc.CleanupHistory(r.Context(), *body.OlderThanDays, body.StatsOlderThanDays, time.Now().UTC())
 	if err != nil {
 		s.writeServiceError(w, err, "cleanup")
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(r.PathValue("user_id"), 10, 64)
+	if err != nil || userID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid user_id")
+		return
+	}
+	res, err := s.svc.GrantTrial(r.Context(), userID)
+	switch {
+	case errors.Is(err, store.ErrTrialUnavailable):
+		writeError(w, http.StatusConflict, "trial_unavailable", "trial is not available for this user")
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "user not found")
+	case err != nil:
+		s.log.Error("trial_failed", "error", err.Error())
+		writeError(w, http.StatusInternalServerError, "internal", "trial failed")
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"paid_until": res.ExpiresAt})
+	}
+}
+
+func (s *Server) handleUserStats(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(r.PathValue("user_id"), 10, 64)
+	if err != nil || userID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid user_id")
+		return
+	}
+	st, err := s.svc.UserStats(r.Context(), userID)
+	if err != nil {
+		s.writeServiceError(w, err, "user")
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }

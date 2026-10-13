@@ -17,6 +17,8 @@ type Config struct {
 	CleanupEvery  time.Duration
 	PaymentsEvery time.Duration
 	RetentionDays int
+
+	StatsRetentionDays int
 }
 
 func LoadConfig() (*Config, error) {
@@ -30,6 +32,8 @@ func LoadConfig() (*Config, error) {
 		CleanupEvery:  time.Hour,
 		PaymentsEvery: time.Minute,
 		RetentionDays: 30,
+
+		StatsRetentionDays: 365,
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -47,14 +51,25 @@ func LoadConfig() (*Config, error) {
 	if cfg.PaymentsEvery, err = interval("SYLPH_CRON_PAYMENTS_EVERY", cfg.PaymentsEvery); err != nil {
 		return nil, err
 	}
-	if v := os.Getenv("SYLPH_CRON_RETENTION_DAYS"); v != "" {
-		days, err := strconv.Atoi(v)
-		if err != nil || days < 1 || days > 3650 {
-			return nil, errors.New("SYLPH_CRON_RETENTION_DAYS must be 1-3650")
-		}
-		cfg.RetentionDays = days
+	if cfg.RetentionDays, err = days("SYLPH_CRON_RETENTION_DAYS", cfg.RetentionDays); err != nil {
+		return nil, err
+	}
+	if cfg.StatsRetentionDays, err = days("SYLPH_CRON_STATS_RETENTION_DAYS", cfg.StatsRetentionDays); err != nil {
+		return nil, err
 	}
 	return cfg, nil
+}
+
+func days(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 3650 {
+		return 0, errors.New(key + " must be 1-3650")
+	}
+	return n, nil
 }
 
 func interval(key string, fallback time.Duration) (time.Duration, error) {

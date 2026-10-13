@@ -9,6 +9,7 @@ type CleanupResult struct {
 	Deltas  int64 `json:"deltas"`
 	Batches int64 `json:"batches"`
 	Keys    int64 `json:"keys"`
+	Daily   int64 `json:"daily"`
 }
 
 type chunkedDelete struct {

@@ -23,6 +23,7 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 	"github.com/ITG-Labs/sylph/services/core/internal/yookassa"
+	_ "time/tzdata"
 )
 
 func main() {
@@ -57,6 +58,14 @@ func run(logger *slog.Logger) error {
 	logger.Info("db_ready")
 
 	st := store.NewStore(pool)
+	tz, err := statsTimezone()
+	if err != nil {
+		return err
+	}
+	if err := st.SetStatsTimezone(ctx, tz); err != nil {
+		return fmt.Errorf("SYLPH_STATS_TZ: database does not know %q: %w", tz, err)
+	}
+	logger.Info("stats_timezone", slog.String("tz", tz))
 	svc := service.NewService(st, logger)
 	payCfg, err := paymentsConfig()
 	if err != nil {
@@ -176,6 +185,14 @@ func loadRevokedList(path string) *mtls.RevocationList {
 		panic(fmt.Sprintf("parse revoked list: %v", err))
 	}
 	return mtls.NewRevocationList(list.Serials)
+}
+
+func statsTimezone() (string, error) {
+	tz := envOr("SYLPH_STATS_TZ", store.DefaultStatsTimezone)
+	if _, err := time.LoadLocation(tz); err != nil {
+		return "", fmt.Errorf("SYLPH_STATS_TZ: %w", err)
+	}
+	return tz, nil
 }
 
 func envOr(key string, fallback string) string {

@@ -83,8 +83,8 @@ func TestCoreStatusWithoutSubscription(t *testing.T) {
 func TestCorePlansPaymentsAndActions(t *testing.T) {
 	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/plans":
-			io.WriteString(w, `[{"id":2,"name":"Месяц","price_rub":199,"period_days":30,"traffic_limit_bytes":null,"device_limit":null,"on_sale":true}]`)
+		case "/v1/users/7/plans":
+			io.WriteString(w, `[{"id":2,"name":"Месяц","price_rub":199,"period_days":30,"traffic_limit_bytes":null,"device_limit":null,"on_sale":true,"visibility":"private"}]`)
 		case "/v1/payments/create":
 			io.WriteString(w, `{"payment_id":"2d85d5ad-000f-5000-9000-1c4c6dd1d9e6","confirmation_url":"https://yoomoney.ru/checkout","amount_rub":199}`)
 		case "/v1/payments/2d85d5ad-000f-5000-9000-1c4c6dd1d9e6/check":
@@ -100,8 +100,8 @@ func TestCorePlansPaymentsAndActions(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	plans, err := c.Plans(ctx)
-	if err != nil || len(plans) != 1 || plans[0].ID != 2 || plans[0].TrafficLimitBytes != nil || plans[0].PeriodDays != 30 {
+	plans, err := c.Plans(ctx, 7)
+	if err != nil || len(plans) != 1 || plans[0].ID != 2 || plans[0].TrafficLimitBytes != nil || plans[0].PeriodDays != 30 || plans[0].Visibility != "private" {
 		t.Fatalf("plans = %+v, %v", plans, err)
 	}
 	p, err := c.CreatePayment(ctx, 7, 2)
@@ -184,5 +184,53 @@ func TestCoreErrorsMapToKinds(t *testing.T) {
 	err := c.ResetDevices(context.Background(), 1)
 	if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 		t.Fatalf("500 err = %v", err)
+	}
+}
+
+func TestCoreTrialStatsAndInvites(t *testing.T) {
+	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/users/1001":
+			io.WriteString(w, `{"user":{"id":7,"telegram_id":1001,"sub_token":"tok"},"subscription":null,"plan":null,"devices":0,
+			 "trial":{"id":9,"name":"Пробный","price_rub":0,"period_days":3,"traffic_limit_bytes":5368709120,"device_limit":1,"hwid_required":true,"trial":true}}`)
+		case "/v1/users/7/trial":
+			io.WriteString(w, `{"paid_until":"2026-10-16T10:00:00Z"}`)
+		case "/v1/users/8/trial":
+			w.WriteHeader(http.StatusConflict)
+			io.WriteString(w, `{"code":"trial_unavailable","message":"no"}`)
+		case "/v1/users/7/stats":
+			io.WriteString(w, `{"period_id":3,"nodes":[{"node_id":1,"name":"Германия","today":10,"days_7":70,"days_30":300,"period":250}]}`)
+		case "/v1/invites/redeem":
+			io.WriteString(w, `{"plan":{"id":5,"name":"Друзья","price_rub":99,"period_days":30,"visibility":"private"},"already":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	ctx := context.Background()
+	st, err := c.Status(ctx, 1001)
+	if err != nil || st.Trial == nil || st.Trial.ID != 9 || !st.Trial.HWIDRequired || !st.Trial.Trial || st.User.TelegramID != 1001 {
+		t.Fatalf("status = %+v, %v", st, err)
+	}
+	until, err := c.GrantTrial(ctx, 7)
+	if err != nil || !until.Equal(at("2026-10-16T10:00:00Z")) {
+		t.Fatalf("trial = %v, %v", until, err)
+	}
+	if got := (*calls)[1]; got.method != http.MethodPost || got.path != "/v1/users/7/trial" {
+		t.Fatalf("trial call = %+v", got)
+	}
+	if _, err := c.GrantTrial(ctx, 8); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unavailable trial: %v", err)
+	}
+	stats, err := c.Stats(ctx, 7)
+	if err != nil || stats.PeriodID == nil || len(stats.Nodes) != 1 || stats.Nodes[0].Name != "Германия" || stats.Nodes[0].Today != 10 ||
+		stats.Nodes[0].Days7 != 70 || stats.Nodes[0].Days30 != 300 || stats.Nodes[0].Period != 250 {
+		t.Fatalf("stats = %+v, %v", stats, err)
+	}
+	red, err := c.RedeemInvite(ctx, 7, "AAAAAAAAAAAAAAAAAAAAAA")
+	if err != nil || red.Plan.ID != 5 || !red.Already || red.Plan.Visibility != "private" {
+		t.Fatalf("redeem = %+v, %v", red, err)
+	}
+	if got := (*calls)[4]; got.method != http.MethodPost || got.body["user_id"] != float64(7) || got.body["code"] != "AAAAAAAAAAAAAAAAAAAAAA" || len(got.body) != 2 {
+		t.Fatalf("redeem call = %+v", got)
 	}
 }

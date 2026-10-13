@@ -38,19 +38,28 @@ func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID s
 	return res.Duplicate, nil
 }
 
-func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, now time.Time) (store.CleanupResult, error) {
+func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOlderThanDays *int, now time.Time) (store.CleanupResult, error) {
 	if olderThanDays < minRetentionDays || olderThanDays > maxRetentionDays {
 		return store.CleanupResult{}, fieldErr("older_than_days", "must be 1-3650")
+	}
+	if statsOlderThanDays != nil && (*statsOlderThanDays < minRetentionDays || *statsOlderThanDays > maxRetentionDays) {
+		return store.CleanupResult{}, fieldErr("stats_older_than_days", "must be 1-3650")
 	}
 	res, err := s.store.CleanupHistory(ctx, now.AddDate(0, 0, -olderThanDays), cleanupChunk)
 	if err != nil {
 		return res, err
 	}
+	if statsOlderThanDays != nil {
+		if res.Daily, err = s.store.CleanupDailyStats(ctx, *statsOlderThanDays); err != nil {
+			return res, err
+		}
+	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "maintenance_cleanup",
 		slog.Int("older_than_days", olderThanDays),
 		slog.Int64("deltas", res.Deltas),
 		slog.Int64("batches", res.Batches),
-		slog.Int64("keys", res.Keys))
+		slog.Int64("keys", res.Keys),
+		slog.Int64("daily", res.Daily))
 	return res, nil
 }
 

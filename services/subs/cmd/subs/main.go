@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/ITG-Labs/sylph/internal/version"
 	"github.com/ITG-Labs/sylph/pkg/apiclient"

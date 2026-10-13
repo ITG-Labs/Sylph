@@ -64,13 +64,17 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 	if plan.PriceRub <= 0 {
 		return nil, &ConflictError{Field: "plan_id", Message: "plan is free"}
 	}
-	if !plan.OnSale {
+	available, err := s.planAvailable(ctx, plan, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !available {
 		sub, err := s.store.GetActiveSubscription(ctx, userID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
 		if sub == nil || sub.PlanID != plan.ID {
-			return nil, &ConflictError{Field: "plan_id", Message: "plan is not on sale"}
+			return nil, &ConflictError{Field: "plan_id", Message: "plan is not available"}
 		}
 	}
 	lock := &s.createLocks[uint64(userID)%uint64(len(s.createLocks))]

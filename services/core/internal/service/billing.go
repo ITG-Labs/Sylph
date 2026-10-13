@@ -82,6 +82,7 @@ type UserStatus struct {
 	Subscription *model.Subscription `json:"subscription"`
 	Plan         *model.Plan         `json:"plan"`
 	Devices      int                 `json:"devices"`
+	Trial        *model.Plan         `json:"trial"`
 }
 
 func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserStatus, error) {
@@ -103,6 +104,9 @@ func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserSta
 		st.Subscription, st.Plan = sub, plan
 	}
 	if st.Devices, err = s.store.CountDevices(ctx, u.ID); err != nil {
+		return nil, err
+	}
+	if st.Trial, err = s.store.TrialPlanFor(ctx, u.ID); err != nil {
 		return nil, err
 	}
 	return st, nil

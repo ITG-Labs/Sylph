@@ -61,6 +61,9 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 		TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
 		LocationGroupID   *int64 `json:"location_group_id"`
 		DeviceLimit       *int   `json:"device_limit"`
+		HWIDRequired      *bool  `json:"hwid_required"`
+		Trial             bool   `json:"trial"`
+		Visibility        string `json:"visibility"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -68,6 +71,13 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	p := &model.Plan{
 		Name: body.Name, PriceRub: body.PriceRub, PeriodDays: body.PeriodDays,
 		TrafficLimitBytes: body.TrafficLimitBytes, LocationGroupID: body.LocationGroupID, DeviceLimit: body.DeviceLimit,
+		HWIDRequired: body.DeviceLimit != nil, Trial: body.Trial, Visibility: body.Visibility,
+	}
+	if body.HWIDRequired != nil {
+		p.HWIDRequired = *body.HWIDRequired
+	}
+	if p.Visibility == "" {
+		p.Visibility = model.VisibilityPublic
 	}
 	if err := s.svc.CreatePlanChecked(r.Context(), p); err != nil {
 		s.writeServiceError(w, err, "plan")

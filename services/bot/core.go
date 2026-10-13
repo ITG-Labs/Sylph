@@ -19,8 +19,9 @@ var (
 )
 
 type User struct {
-	ID       int64  `json:"id"`
-	SubToken string `json:"sub_token"`
+	ID         int64  `json:"id"`
+	TelegramID int64  `json:"telegram_id"`
+	SubToken   string `json:"sub_token"`
 }
 
 type Plan struct {
@@ -31,6 +32,9 @@ type Plan struct {
 	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
 	DeviceLimit       *int   `json:"device_limit"`
 	OnSale            bool   `json:"on_sale"`
+	HWIDRequired      bool   `json:"hwid_required"`
+	Trial             bool   `json:"trial"`
+	Visibility        string `json:"visibility"`
 }
 
 type Period struct {
@@ -46,6 +50,26 @@ type Status struct {
 	Subscription *Period `json:"subscription"`
 	Plan         *Plan   `json:"plan"`
 	Devices      int     `json:"devices"`
+	Trial        *Plan   `json:"trial"`
+}
+
+type NodeStats struct {
+	NodeID int64  `json:"node_id"`
+	Name   string `json:"name"`
+	Today  int64  `json:"today"`
+	Days7  int64  `json:"days_7"`
+	Days30 int64  `json:"days_30"`
+	Period int64  `json:"period"`
+}
+
+type Stats struct {
+	PeriodID *int64      `json:"period_id"`
+	Nodes    []NodeStats `json:"nodes"`
+}
+
+type Redeem struct {
+	Plan    Plan `json:"plan"`
+	Already bool `json:"already"`
 }
 
 type Payment struct {
@@ -73,13 +97,16 @@ type Device struct {
 type Core interface {
 	Register(ctx context.Context, telegramID int64) (*User, error)
 	Status(ctx context.Context, telegramID int64) (*Status, error)
-	Plans(ctx context.Context) ([]Plan, error)
+	Plans(ctx context.Context, userID int64) ([]Plan, error)
 	CreatePayment(ctx context.Context, userID, planID int64) (*Payment, error)
 	CheckPayment(ctx context.Context, paymentID string) (*Check, error)
 	Rotate(ctx context.Context, userID int64) (string, error)
 	ResetDevices(ctx context.Context, userID int64) error
 	Devices(ctx context.Context, userID int64) ([]Device, error)
 	RemoveDevice(ctx context.Context, userID, deviceID int64) error
+	GrantTrial(ctx context.Context, userID int64) (time.Time, error)
+	Stats(ctx context.Context, userID int64) (*Stats, error)
+	RedeemInvite(ctx context.Context, userID int64, code string) (*Redeem, error)
 }
 
 type CoreClient struct {
@@ -100,9 +127,27 @@ func (c *CoreClient) Status(ctx context.Context, telegramID int64) (*Status, err
 	return &st, c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/users/%d", telegramID), nil, &st)
 }
 
-func (c *CoreClient) Plans(ctx context.Context) ([]Plan, error) {
+func (c *CoreClient) Plans(ctx context.Context, userID int64) ([]Plan, error) {
 	var plans []Plan
-	return plans, c.do(ctx, http.MethodGet, "/v1/plans", nil, &plans)
+	return plans, c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/users/%d/plans", userID), nil, &plans)
+}
+
+func (c *CoreClient) GrantTrial(ctx context.Context, userID int64) (time.Time, error) {
+	var out struct {
+		PaidUntil time.Time `json:"paid_until"`
+	}
+	err := c.do(ctx, http.MethodPost, fmt.Sprintf("/v1/users/%d/trial", userID), nil, &out)
+	return out.PaidUntil, err
+}
+
+func (c *CoreClient) Stats(ctx context.Context, userID int64) (*Stats, error) {
+	var st Stats
+	return &st, c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/users/%d/stats", userID), nil, &st)
+}
+
+func (c *CoreClient) RedeemInvite(ctx context.Context, userID int64, code string) (*Redeem, error) {
+	var r Redeem
+	return &r, c.do(ctx, http.MethodPost, "/v1/invites/redeem", map[string]any{"user_id": userID, "code": code}, &r)
 }
 
 func (c *CoreClient) CreatePayment(ctx context.Context, userID, planID int64) (*Payment, error) {

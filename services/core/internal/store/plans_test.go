@@ -32,7 +32,7 @@ func TestPlans(t *testing.T) {
 	ctx := context.Background()
 	limit := int64(100 * 1024 * 1024 * 1024)
 	devices := 3
-	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, TrafficLimitBytes: &limit, DeviceLimit: &devices}
+	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, TrafficLimitBytes: &limit, DeviceLimit: &devices, HWIDRequired: true}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -169,5 +169,60 @@ func TestFreePlansAreNotOnSale(t *testing.T) {
 	list, err := s.ListPlansOnSale(ctx)
 	if err != nil || len(list) != 1 || list[0].ID != paid.ID {
 		t.Fatalf("on sale = %+v, %v", list, err)
+	}
+}
+
+func TestPlanAccessAxesRoundTrip(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	devices := 2
+	p := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, DeviceLimit: &devices, HWIDRequired: true, Trial: true, Visibility: "private"}
+	if err := s.CreatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPlan(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.HWIDRequired || !got.Trial || got.Visibility != "private" || !got.OnSale {
+		t.Fatalf("got %+v", got)
+	}
+	got.DeviceLimit, got.HWIDRequired, got.Trial, got.Visibility = nil, false, false, "public"
+	if err := s.UpdatePlan(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.GetPlan(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.HWIDRequired || again.Trial || again.Visibility != "public" {
+		t.Fatalf("after update %+v", again)
+	}
+	plain := &model.Plan{Name: "plain", PriceRub: 100, PeriodDays: 30}
+	if err := s.CreatePlan(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	if plain.Visibility != "public" {
+		t.Fatalf("default visibility %q", plain.Visibility)
+	}
+}
+
+func TestSecondTrialOnSaleIsConflict(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	if err := s.CreatePlan(ctx, &model.Plan{Name: "t1", PeriodDays: 3, Trial: true}); err != nil {
+		t.Fatal(err)
+	}
+	err := s.CreatePlan(ctx, &model.Plan{Name: "t2", PeriodDays: 3, Trial: true})
+	if !errors.Is(err, ErrTrialOnSale) {
+		t.Fatalf("second trial: %v", err)
+	}
+	other := &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3}
+	if err := s.CreatePlan(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	err = s.CreatePlan(ctx, &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3})
+	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrTrialOnSale) {
+		t.Fatalf("duplicate name: %v", err)
 	}
 }

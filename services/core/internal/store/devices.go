@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
@@ -16,18 +18,51 @@ type DeviceInfo struct {
 	Model     string
 }
 
+type DeviceVerdict int
+
+const (
+	DeviceAllowed DeviceVerdict = iota
+	DeviceOverLimit
+	DeviceTrialTaken
+)
+
 func (s *Store) RegisterDevice(ctx context.Context, userID int64, d DeviceInfo, limit *int) (bool, error) {
+	v, err := s.registerDevice(ctx, userID, d, limit, false)
+	return v == DeviceAllowed, err
+}
+
+func (s *Store) RegisterTrialDevice(ctx context.Context, userID int64, d DeviceInfo, limit *int) (DeviceVerdict, error) {
+	return s.registerDevice(ctx, userID, d, limit, true)
+}
+
+func hwidHash(hwid string) string {
+	sum := sha256.Sum256([]byte(hwid))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) registerDevice(ctx context.Context, userID int64, d DeviceInfo, limit *int, trial bool) (DeviceVerdict, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
 	var id int64
-	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE`, userID).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, ErrNotFound
+			return 0, ErrNotFound
 		}
-		return false, err
+		return 0, err
+	}
+	hash := hwidHash(d.HWID)
+	if trial {
+		var owner int64
+		err := tx.QueryRow(ctx, `SELECT user_id FROM trial_devices WHERE hwid_hash = $1`, hash).Scan(&owner)
+		if err == nil && owner != userID {
+			return DeviceTrialTaken, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return 0, err
+		}
 	}
 	if limit != nil {
 		var known bool
@@ -36,10 +71,22 @@ func (s *Store) RegisterDevice(ctx context.Context, userID int64, d DeviceInfo, 
 			`SELECT EXISTS (SELECT 1 FROM devices WHERE user_id = $1 AND fingerprint = $2),
 			        (SELECT count(*) FROM devices WHERE user_id = $1)`,
 			userID, d.HWID).Scan(&known, &count); err != nil {
-			return false, err
+			return 0, err
 		}
 		if !known && count >= *limit {
-			return false, nil
+			return DeviceOverLimit, nil
+		}
+	}
+	if trial {
+		if _, err := tx.Exec(ctx, `INSERT INTO trial_devices (hwid_hash, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, hash, userID); err != nil {
+			return 0, err
+		}
+		var owner int64
+		if err := tx.QueryRow(ctx, `SELECT user_id FROM trial_devices WHERE hwid_hash = $1`, hash).Scan(&owner); err != nil {
+			return 0, err
+		}
+		if owner != userID {
+			return DeviceTrialTaken, nil
 		}
 	}
 	if _, err := tx.Exec(ctx,
@@ -47,9 +94,9 @@ func (s *Store) RegisterDevice(ctx context.Context, userID int64, d DeviceInfo, 
 		 ON CONFLICT (user_id, fingerprint) DO UPDATE SET last_seen = now(), user_agent = EXCLUDED.user_agent,
 		 device_os = EXCLUDED.device_os, device_model = EXCLUDED.device_model`,
 		userID, d.HWID, d.UserAgent, d.OS, d.Model); err != nil {
-		return false, err
+		return 0, err
 	}
-	return true, tx.Commit(ctx)
+	return DeviceAllowed, tx.Commit(ctx)
 }
 
 func (s *Store) CountDevices(ctx context.Context, userID int64) (int, error) {

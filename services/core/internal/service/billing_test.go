@@ -178,7 +178,7 @@ func TestUserStatusWithSubscriptionAndDevices(t *testing.T) {
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 320)
 	limit := 2
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit, HWIDRequired: true}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

@@ -24,6 +24,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 		ServerName: "core.sylph.internal", Listen: ":8080",
 		Settings: Settings{Title: "Sylph", UpdateHours: 12},
 	}
+	if cfg.Settings.Location == nil || cfg.Settings.Location.String() != "Europe/Moscow" {
+		t.Fatalf("location = %v", cfg.Settings.Location)
+	}
+	cfg.Settings.Location = nil
 	if *cfg != want {
 		t.Fatalf("cfg = %+v", *cfg)
 	}
@@ -40,6 +44,7 @@ func TestLoadConfigOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Settings.Location = nil
 	if cfg.ServerName != "core.example" || cfg.Listen != "127.0.0.1:9090" || cfg.Settings != (Settings{Title: "Мой VPN", UpdateHours: 6, SupportURL: "https://t.me/support"}) {
 		t.Fatalf("cfg = %+v", *cfg)
 	}
@@ -57,6 +62,7 @@ func TestLoadConfigRejects(t *testing.T) {
 		"support not url":    {"SYLPH_SUBS_SUPPORT_URL", "t.me/support"},
 		"support bad scheme": {"SYLPH_SUBS_SUPPORT_URL", "javascript:alert(1)"},
 		"support ftp":        {"SYLPH_SUBS_SUPPORT_URL", "ftp://files.example.com/help"},
+		"unknown timezone":   {"SYLPH_SUBS_TZ", "Mars/Olympus"},
 	}
 	for name, kv := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -66,5 +72,14 @@ func TestLoadConfigRejects(t *testing.T) {
 				t.Fatalf("err = %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadConfigTimezone(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("SYLPH_SUBS_TZ", "Asia/Tokyo")
+	cfg, err := LoadConfig()
+	if err != nil || cfg.Settings.Location.String() != "Asia/Tokyo" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 }

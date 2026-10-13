@@ -52,6 +52,11 @@ type NodeInbound struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
 type Plan struct {
 	ID                int64     `json:"id"`
 	Name              string    `json:"name"`
@@ -61,7 +66,31 @@ type Plan struct {
 	LocationGroupID   *int64    `json:"location_group_id"`
 	DeviceLimit       *int      `json:"device_limit"`
 	OnSale            bool      `json:"on_sale"`
+	HWIDRequired      bool      `json:"hwid_required"`
+	Trial             bool      `json:"trial"`
+	Visibility        string    `json:"visibility"`
 	CreatedAt         time.Time `json:"created_at"`
+}
+
+type Invite struct {
+	ID        int64      `json:"id"`
+	Code      string     `json:"code"`
+	PlanID    int64      `json:"plan_id"`
+	MaxUses   *int       `json:"max_uses"`
+	Uses      int        `json:"uses"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	RevokedAt *time.Time `json:"revoked_at"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type PlanAccess struct {
+	PlanID     int64      `json:"plan_id"`
+	UserID     int64      `json:"user_id"`
+	TelegramID *int64     `json:"telegram_id"`
+	Source     string     `json:"source"`
+	InviteID   *int64     `json:"invite_id"`
+	GrantedAt  time.Time  `json:"granted_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
 }
 
 type User struct {
