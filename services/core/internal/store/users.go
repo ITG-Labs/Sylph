@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Store) CreateUser(ctx context.Context, u *model.User) error {
+	if u.Status == "" {
+		u.Status = model.UserActive
+	}
 	return s.pool.QueryRow(ctx,
 		`INSERT INTO users (telegram_id, email, sub_token, status)
 		 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
@@ -17,9 +20,11 @@ func (s *Store) CreateUser(ctx context.Context, u *model.User) error {
 	).Scan(&u.ID, &u.CreatedAt)
 }
 
+const userColumns = `id, telegram_id, email, sub_token, status, banned_at, ban_reason, created_at`
+
 func (s *Store) scanUser(row pgxRow) (*model.User, error) {
 	u := &model.User{}
-	err := row.Scan(&u.ID, &u.TelegramID, &u.Email, &u.SubToken, &u.Status, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.TelegramID, &u.Email, &u.SubToken, &u.Status, &u.BannedAt, &u.BanReason, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -31,12 +36,12 @@ func (s *Store) scanUser(row pgxRow) (*model.User, error) {
 
 func (s *Store) GetUserByTelegramID(ctx context.Context, telegramID int64) (*model.User, error) {
 	return s.scanUser(s.pool.QueryRow(ctx,
-		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE telegram_id = $1`, telegramID))
+		`SELECT `+userColumns+` FROM users WHERE telegram_id = $1`, telegramID))
 }
 
 func (s *Store) GetUserBySubToken(ctx context.Context, token string) (*model.User, error) {
 	return s.scanUser(s.pool.QueryRow(ctx,
-		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE sub_token = $1`, token))
+		`SELECT `+userColumns+` FROM users WHERE sub_token = $1`, token))
 }
 
 func (s *Store) AddUserKey(ctx context.Context, userID int64, uuid string) error {
@@ -102,10 +107,10 @@ func (s *Store) RegisterTelegramUser(ctx context.Context, telegramID int64, subT
 	u, err := s.scanUser(tx.QueryRow(ctx,
 		`INSERT INTO users (telegram_id, email, sub_token, status) VALUES ($1, '', $2, 'active')
 		 ON CONFLICT (telegram_id) DO NOTHING
-		 RETURNING id, telegram_id, email, sub_token, status, created_at`, telegramID, subToken))
+		 RETURNING `+userColumns, telegramID, subToken))
 	if errors.Is(err, ErrNotFound) {
 		existing, err := s.scanUser(tx.QueryRow(ctx,
-			`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE telegram_id = $1`, telegramID))
+			`SELECT `+userColumns+` FROM users WHERE telegram_id = $1`, telegramID))
 		return existing, false, err
 	}
 	if err != nil {
@@ -119,10 +124,5 @@ func (s *Store) RegisterTelegramUser(ctx context.Context, telegramID int64, subT
 
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
 	return s.scanUser(s.pool.QueryRow(ctx,
-		`SELECT id, telegram_id, email, sub_token, status, created_at FROM users WHERE id = $1`, id))
-}
-
-func (s *Store) SetUserStatus(ctx context.Context, userID int64, status string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE users SET status = $2 WHERE id = $1`, userID, status)
-	return err
+		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 }

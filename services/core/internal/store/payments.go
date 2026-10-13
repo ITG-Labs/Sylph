@@ -64,6 +64,9 @@ func (s *Store) RecordManualPayment(ctx context.Context, p *model.Payment, now t
 		return SettleResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockActiveUser(ctx, tx, p.UserID); err != nil {
+		return SettleResult{}, err
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source)
 		 VALUES ($1, $2, $3, $4, 'pending', 'manual') ON CONFLICT (payment_id) DO NOTHING`,

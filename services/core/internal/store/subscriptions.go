@@ -18,14 +18,18 @@ func (s *Store) CreateSubscription(ctx context.Context, sub *model.Subscription)
 	).Scan(&sub.ID, &sub.CreatedAt)
 }
 
+const effectiveLimit = `CASE WHEN p.traffic_limit_bytes IS NOT NULL THEN LEAST(p.traffic_limit_bytes::numeric + s.traffic_bonus_bytes, 9223372036854775807)::bigint END`
+
 func (s *Store) GetActiveSubscription(ctx context.Context, userID int64) (*model.Subscription, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, plan_id, starts_at, expires_at, canceled, traffic_used_bytes, created_at,
+		`SELECT s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, `+effectiveLimit+`, s.created_at,
 		        (SELECT max(q.expires_at) FROM subscriptions q WHERE q.user_id = s.user_id AND NOT q.canceled AND q.expires_at > now())
-		 FROM subscriptions s WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
-		 ORDER BY starts_at DESC, id DESC LIMIT 1`, userID)
+		 FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+		 WHERE s.user_id = $1 AND NOT s.canceled AND s.starts_at <= now() AND s.expires_at > now()
+		 ORDER BY s.starts_at DESC, s.id DESC LIMIT 1`, userID)
 	sub := &model.Subscription{}
-	err := row.Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Canceled, &sub.TrafficUsedBytes, &sub.CreatedAt, &sub.PaidUntil)
+	err := row.Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Canceled, &sub.TrafficUsedBytes,
+		&sub.TrafficBonusBytes, &sub.TrafficLimitBytes, &sub.CreatedAt, &sub.PaidUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -110,7 +114,7 @@ func applyPaymentTx(ctx context.Context, tx pgx.Tx, userID int64, planID int64, 
 
 func lockTimeline(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) ([]period, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT s.id, s.plan_id, s.starts_at, s.expires_at, s.traffic_used_bytes, p.traffic_limit_bytes
+		`SELECT s.id, s.plan_id, s.starts_at, s.expires_at, s.traffic_used_bytes, `+effectiveLimit+`
 		 FROM subscriptions s JOIN plans p ON p.id = s.plan_id
 		 WHERE s.user_id = $1 AND NOT s.canceled AND s.expires_at > $2
 		 ORDER BY s.starts_at, s.id FOR UPDATE OF s`, userID, now)

@@ -69,13 +69,16 @@ func (s *Service) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
 }
 
 func (s *Service) ListUserDevices(ctx context.Context, userID int64) ([]model.Device, error) {
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, err
 	}
 	return s.store.ListDevices(ctx, userID)
 }
 
 func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) error {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return err
+	}
 	if err := s.store.RemoveDevice(ctx, userID, deviceID); err != nil {
 		return err
 	}
@@ -84,5 +87,8 @@ func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) 
 }
 
 func (s *Service) ResetUserDevices(ctx context.Context, userID int64) error {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return err
+	}
 	return s.store.ResetDevices(ctx, userID)
 }

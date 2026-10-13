@@ -57,6 +57,13 @@ func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*S
 	if err != nil {
 		return nil, err
 	}
+	if u.Status == model.UserBanned {
+		s.log.LogAttrs(ctx, slog.LevelInfo, "subscription_view",
+			slog.Int64("user_id", u.ID),
+			slog.String("status", model.UserBanned),
+			slog.String("client", clientFamily(req.UserAgent)))
+		return nil, store.ErrNotFound
+	}
 	view, err := s.subscriptionView(ctx, u, req)
 	if err != nil {
 		return nil, err
@@ -85,8 +92,8 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 	}
 	view.ExpiresAt = sub.PaidUntil
 	view.TrafficUsedBytes = sub.TrafficUsedBytes
-	view.TrafficLimitBytes = plan.TrafficLimitBytes
-	if plan.TrafficLimitBytes != nil && sub.TrafficUsedBytes >= *plan.TrafficLimitBytes {
+	view.TrafficLimitBytes = sub.TrafficLimitBytes
+	if sub.TrafficLimitBytes != nil && sub.TrafficUsedBytes >= *sub.TrafficLimitBytes {
 		view.Status = StatusTrafficExceeded
 		return view, nil
 	}

@@ -58,7 +58,7 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, err
 	}
 	if plan.PriceRub <= 0 {
@@ -152,6 +152,9 @@ func (s *Service) checkResult(ctx context.Context, userID int64, status string, 
 	u, err := s.store.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, err
+	}
+	if u.Status == model.UserBanned {
+		return nil, store.ErrUserBanned
 	}
 	res.TelegramID = u.TelegramID
 	sub, err := s.store.GetActiveSubscription(ctx, userID)

@@ -41,6 +41,10 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
+func writeBanned(w http.ResponseWriter) {
+	writeError(w, http.StatusForbidden, "banned", "user is banned")
+}
+
 func writeFieldError(w http.ResponseWriter, status int, code, field, message string) {
 	writeJSON(w, status, map[string]string{"code": code, "field": field, "message": message})
 }
@@ -53,6 +57,8 @@ func (s *Server) writeServiceError(w http.ResponseWriter, err error, what string
 		writeFieldError(w, http.StatusBadRequest, "bad_request", fe.Field, fe.Message)
 	case errors.As(err, &ce):
 		writeFieldError(w, http.StatusConflict, "conflict", ce.Field, ce.Message)
+	case errors.Is(err, store.ErrUserBanned):
+		writeBanned(w)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", what+" not found")
 	default:

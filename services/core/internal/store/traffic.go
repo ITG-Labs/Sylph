@@ -108,7 +108,7 @@ func addToActivePeriod(ctx context.Context, tx pgx.Tx, userID, bytes int64) (per
 		 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
 		 FROM cur, plans p
 		 WHERE s.id = cur.id AND p.id = s.plan_id
-		 RETURNING s.id, cur.before, s.traffic_used_bytes, p.traffic_limit_bytes`,
+		 RETURNING s.id, cur.before, s.traffic_used_bytes, `+effectiveLimit,
 		userID, bytes).Scan(&periodID, &before, &used, &limit)
 	return periodID, before, used, limit, err
 }

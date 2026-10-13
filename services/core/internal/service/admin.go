@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
@@ -46,11 +48,23 @@ func referenceOr(err error, field, message string) error {
 	return err
 }
 
-func validName(field, name string) error {
-	if name == "" || utf8.RuneCountInString(name) > 64 {
-		return fieldErr(field, "must be 1-64 characters")
+func validText(field, v string, max int) error {
+	if utf8.RuneCountInString(v) > max {
+		return fieldErr(field, fmt.Sprintf("must be at most %d characters", max))
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return fieldErr(field, "must not contain control characters")
+		}
 	}
 	return nil
+}
+
+func validName(field, name string) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 64 {
+		return fieldErr(field, "must be 1-64 characters, not only spaces")
+	}
+	return validText(field, name, 64)
 }
 
 func (s *Service) CreateGroup(ctx context.Context, name string) (*model.LocationGroup, error) {

@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 16 {
-		t.Fatalf("tables = %d, want 16", count)
+	if count != 17 {
+		t.Fatalf("tables = %d, want 17", count)
 	}
 }
 
@@ -440,5 +440,139 @@ func TestMigration007DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 007 again: %v", err)
+	}
+}
+
+func nodesVersion(t *testing.T, pool *pgxpool.Pool) int64 {
+	t.Helper()
+	var v int64
+	if err := pool.QueryRow(context.Background(), `SELECT users_version FROM nodes WHERE cert_cn = 'n1'`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestMigration008DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(7); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes) VALUES ('p', 1, 30, 100)`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 't1')`,
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES (1, 1, now(), now() + interval '30 days')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status) VALUES ('pay-1', 1, 1, 1, 'succeeded')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status) VALUES ('pay-2', 1, 1, 1, 'mismatch')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 008: %v", err)
+	}
+	for _, c := range [][2]string{{"users", "banned_at"}, {"users", "ban_reason"}, {"subscriptions", "traffic_bonus_bytes"},
+		{"payments", "period_id"}, {"payments", "note"}, {"payments", "refunded_at"}} {
+		if !columnExists(t, pool, c[0], c[1]) {
+			t.Fatalf("up 008 did not add %s.%s", c[0], c[1])
+		}
+	}
+	if !tableExists(t, pool, "admin_audit") {
+		t.Fatal("up 008 did not create admin_audit")
+	}
+	for _, q := range []string{
+		`UPDATE users SET status = 'weird' WHERE id = 1`,
+		`UPDATE subscriptions SET traffic_bonus_bytes = -1 WHERE id = 1`,
+		`UPDATE payments SET status = 'lost' WHERE payment_id = 'pay-1'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	for _, q := range []string{
+		`UPDATE users SET status = 'banned', banned_at = now() WHERE id = 1`,
+		`UPDATE payments SET status = 'refunded', refunded_at = now(), period_id = 1 WHERE payment_id = 'pay-1'`,
+		`UPDATE payments SET status = 'rejected', note = 'bad amount' WHERE payment_id = 'pay-2'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	before := nodesVersion(t, pool)
+	if _, err := pool.Exec(ctx, `UPDATE plans SET name = 'renamed', on_sale = FALSE, visibility = 'private' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if v := nodesVersion(t, pool); v != before {
+		t.Fatalf("renaming a plan bumped nodes: %d -> %d", before, v)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE plans SET traffic_limit_bytes = traffic_limit_bytes WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if v := nodesVersion(t, pool); v != before {
+		t.Fatalf("unchanged limit bumped nodes: %d -> %d", before, v)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 200 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	afterLimit := nodesVersion(t, pool)
+	if afterLimit == before {
+		t.Fatal("changing traffic limit did not bump nodes")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO location_groups (name) VALUES ('g')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE plans SET location_group_id = 1 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	afterGroup := nodesVersion(t, pool)
+	if afterGroup == afterLimit {
+		t.Fatal("changing plan group did not bump nodes")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE subscriptions SET traffic_bonus_bytes = 50 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if nodesVersion(t, pool) == afterGroup {
+		t.Fatal("traffic bonus did not bump nodes")
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 008: %v", err)
+	}
+	var status1, status2, userStatus string
+	if err := pool.QueryRow(ctx,
+		`SELECT (SELECT status FROM payments WHERE payment_id = 'pay-1'), (SELECT status FROM payments WHERE payment_id = 'pay-2'),
+		        (SELECT status FROM users WHERE id = 1)`).Scan(&status1, &status2, &userStatus); err != nil {
+		t.Fatal(err)
+	}
+	if status1 != "canceled" || status2 != "canceled" || userStatus != "banned" {
+		t.Fatalf("after down 008: payments %q %q, user %q", status1, status2, userStatus)
+	}
+	for _, c := range [][2]string{{"users", "banned_at"}, {"users", "ban_reason"}, {"subscriptions", "traffic_bonus_bytes"},
+		{"payments", "period_id"}, {"payments", "note"}, {"payments", "refunded_at"}} {
+		if columnExists(t, pool, c[0], c[1]) {
+			t.Fatalf("down 008 left %s.%s", c[0], c[1])
+		}
+	}
+	if tableExists(t, pool, "admin_audit") {
+		t.Fatal("down 008 left admin_audit")
+	}
+	before = nodesVersion(t, pool)
+	if _, err := pool.Exec(ctx, `UPDATE plans SET name = 'again' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if nodesVersion(t, pool) == before {
+		t.Fatal("down 008 did not restore the plans trigger")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 008 again: %v", err)
 	}
 }

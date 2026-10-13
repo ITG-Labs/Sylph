@@ -13,7 +13,7 @@ import (
 const maxInviteUses = 100000
 
 func (s *Service) UserPlans(ctx context.Context, userID int64) ([]model.Plan, error) {
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, err
 	}
 	return s.store.VisiblePlans(ctx, userID)
@@ -33,7 +33,7 @@ func (s *Service) RedeemInvite(ctx context.Context, userID int64, code string) (
 	if !model.ValidInviteCode(code) {
 		return nil, false, fieldErr("code", "invalid invite code")
 	}
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, false, err
 	}
 	res, err := s.store.RedeemInvite(ctx, code, userID, time.Now().UTC())
@@ -118,6 +118,9 @@ func (s *Service) GrantPlanAccess(ctx context.Context, planID, telegramID int64)
 	if err != nil {
 		return err
 	}
+	if u.Status == model.UserBanned {
+		return &ConflictError{Field: "telegram_id", Message: "user is banned"}
+	}
 	if err := s.store.GrantPlanAccess(ctx, planID, u.ID, store.AccessAdmin, nil); err != nil {
 		return err
 	}
@@ -138,7 +141,7 @@ func (s *Service) RevokePlanAccess(ctx context.Context, planID, telegramID int64
 }
 
 func (s *Service) UserStats(ctx context.Context, userID int64) (store.UserStats, error) {
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return store.UserStats{}, err
 	}
 	return s.store.UserStats(ctx, userID)
