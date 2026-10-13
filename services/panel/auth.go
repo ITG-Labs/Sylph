@@ -4,28 +4,34 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/netip"
 	"sync"
 	"time"
 )
 
 const (
-	loginMaxFailures = 10
-	loginWindow      = 15 * time.Minute
-	maxLimiterKeys   = 10000
+	loginMaxFailures       = 10
+	accountMaxCodeFailures = 5
+	loginWindow            = 15 * time.Minute
+	maxLimiterKeys         = 10000
+	maxConcurrentHashes    = 4
 )
 
 var (
 	errBadCredentials  = errors.New("bad credentials")
 	errTooManyAttempts = errors.New("too many attempts")
+	errAccountLocked   = fmt.Errorf("account locked after wrong codes: %w", errTooManyAttempts)
 )
 
 type Auth struct {
-	admins   map[string]*admin
-	dummy    *passwordHash
-	sessions *sessions
-	limiter  *loginLimiter
-	now      func() time.Time
+	admins    map[string]*admin
+	dummy     *passwordHash
+	sessions  *sessions
+	limiter   *loginLimiter
+	accounts  *loginLimiter
+	hashSlots chan struct{}
+	now       func() time.Time
 
 	mu       sync.Mutex
 	lastStep map[string]int64
@@ -37,32 +43,46 @@ func NewAuth(admins map[string]*admin, sessionTTL time.Duration) *Auth {
 		iter = max(iter, a.password.iter)
 	}
 	return &Auth{
-		admins:   admins,
-		dummy:    &passwordHash{iter: iter, salt: make([]byte, 16), key: make([]byte, passwordKeyLen)},
-		sessions: &sessions{ttl: sessionTTL, m: map[string]session{}, now: time.Now},
-		limiter:  &loginLimiter{m: map[string]*attempts{}, now: time.Now},
-		now:      time.Now,
-		lastStep: map[string]int64{},
+		admins:    admins,
+		dummy:     &passwordHash{iter: iter, salt: make([]byte, 16), key: make([]byte, passwordKeyLen)},
+		sessions:  &sessions{ttl: sessionTTL, m: map[string]session{}, now: time.Now},
+		limiter:   &loginLimiter{max: loginMaxFailures, m: map[string]*attempts{}, now: time.Now},
+		accounts:  &loginLimiter{max: accountMaxCodeFailures, m: map[string]*attempts{}, now: time.Now},
+		hashSlots: make(chan struct{}, maxConcurrentHashes),
+		now:       time.Now,
+		lastStep:  map[string]int64{},
 	}
 }
 
 func (a *Auth) Login(name, password, code, ip string) (string, error) {
 	key := limiterKey(ip)
-	if a.limiter.blocked(key) {
+	if !a.limiter.attempt(key) {
 		return "", errTooManyAttempts
 	}
 	adm := a.admins[name]
-	if adm == nil {
-		a.dummy.verify(password)
-		a.limiter.fail(key)
+	if adm != nil && a.accounts.blocked(adm.name) {
+		return "", errAccountLocked
+	}
+	if !a.checkPassword(adm, password) {
 		return "", errBadCredentials
 	}
-	if !adm.password.verify(password) || !a.consumeCode(adm, code) {
-		a.limiter.fail(key)
+	if !a.consumeCode(adm, code) {
+		a.accounts.fail(adm.name)
 		return "", errBadCredentials
 	}
 	a.limiter.reset(key)
+	a.accounts.reset(adm.name)
 	return a.sessions.create(adm.name)
+}
+
+func (a *Auth) checkPassword(adm *admin, password string) bool {
+	a.hashSlots <- struct{}{}
+	defer func() { <-a.hashSlots }()
+	if adm == nil {
+		a.dummy.verify(password)
+		return false
+	}
+	return adm.password.verify(password)
 }
 
 func (a *Auth) consumeCode(adm *admin, code string) bool {
@@ -147,34 +167,66 @@ type attempts struct {
 
 type loginLimiter struct {
 	mu  sync.Mutex
+	max int
 	m   map[string]*attempts
 	now func() time.Time
+}
+
+func (l *loginLimiter) attempt(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	at := l.m[key]
+	if at != nil && now.Sub(at.first) <= loginWindow {
+		if at.n >= l.max {
+			return false
+		}
+		at.n++
+		return true
+	}
+	l.makeRoom(now)
+	l.m[key] = &attempts{first: now, n: 1}
+	return true
 }
 
 func (l *loginLimiter) blocked(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	at := l.m[key]
-	return at != nil && l.now().Sub(at.first) <= loginWindow && at.n >= loginMaxFailures
+	return at != nil && l.now().Sub(at.first) <= loginWindow && at.n >= l.max
 }
 
 func (l *loginLimiter) fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	if len(l.m) >= maxLimiterKeys {
-		for k, v := range l.m {
-			if now.Sub(v.first) > loginWindow {
-				delete(l.m, k)
-			}
-		}
-	}
 	at := l.m[key]
-	if at == nil || now.Sub(at.first) > loginWindow {
-		l.m[key] = &attempts{first: now, n: 1}
+	if at != nil && now.Sub(at.first) <= loginWindow {
+		at.n++
 		return
 	}
-	at.n++
+	l.makeRoom(now)
+	l.m[key] = &attempts{first: now, n: 1}
+}
+
+func (l *loginLimiter) makeRoom(now time.Time) {
+	if len(l.m) < maxLimiterKeys {
+		return
+	}
+	for k, v := range l.m {
+		if now.Sub(v.first) > loginWindow {
+			delete(l.m, k)
+		}
+	}
+	for len(l.m) >= maxLimiterKeys {
+		oldest := ""
+		for k, v := range l.m {
+			if oldest == "" || v.first.Before(l.m[oldest].first) {
+				oldest = k
+			}
+		}
+		delete(l.m, oldest)
+	}
 }
 
 func (l *loginLimiter) reset(key string) {

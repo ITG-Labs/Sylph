@@ -122,6 +122,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	id, err := s.auth.Login(body.Name, body.Password, body.Code, ip)
 	logName := truncateRunes(body.Name, maxLoggedRunes)
 	switch {
+	case errors.Is(err, errAccountLocked):
+		s.log.Error("panel_login", "name", logName, "ip", ip, "result", "account_locked")
+		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try later")
+		return
 	case errors.Is(err, errTooManyAttempts):
 		s.log.Warn("panel_login", "name", logName, "ip", ip, "result", "blocked")
 		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try later")
