@@ -1,0 +1,83 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "sonner/dist/styles.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.155 0.012 275);
+  --foreground: oklch(0.96 0.005 275);
+  --card: oklch(0.19 0.014 275);
+  --card-foreground: oklch(0.96 0.005 275);
+  --popover: oklch(0.205 0.016 275);
+  --popover-foreground: oklch(0.96 0.005 275);
+  --primary: oklch(0.72 0.15 285);
+  --primary-foreground: oklch(0.16 0.03 285);
+  --secondary: oklch(0.25 0.016 275);
+  --secondary-foreground: oklch(0.94 0.005 275);
+  --muted: oklch(0.23 0.014 275);
+  --muted-foreground: oklch(0.68 0.02 275);
+  --accent: oklch(0.27 0.02 280);
+  --accent-foreground: oklch(0.97 0.005 275);
+  --destructive: oklch(0.64 0.21 22);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.15 285 / 60%);
+  --success: oklch(0.76 0.15 165);
+  --warning: oklch(0.8 0.15 75);
+  --info: oklch(0.78 0.12 220);
+  --sidebar: oklch(0.135 0.012 275);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-sidebar: var(--sidebar);
+  --font-sans: "Inter", "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "tnum";
+  }
+}
+
+.bg-glow {
+  background:
+    radial-gradient(60rem 30rem at 85% -10%, oklch(0.72 0.15 285 / 9%), transparent 60%),
+    radial-gradient(40rem 24rem at -10% 110%, oklch(0.78 0.12 220 / 6%), transparent 60%);
+}
