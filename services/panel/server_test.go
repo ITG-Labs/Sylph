@@ -412,6 +412,9 @@ func TestSecurityHeaders(t *testing.T) {
 		if !strings.Contains(csp, "default-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") || strings.Contains(csp, "unsafe-eval") {
 			t.Errorf("%s csp %q", p, csp)
 		}
+		if !strings.Contains(csp, "script-src 'self';") || !strings.Contains(csp, "style-src 'self';") || !strings.Contains(csp, "style-src-elem 'self' 'unsafe-inline';") || strings.Count(csp, "unsafe-inline") != 1 {
+			t.Errorf("%s csp must keep scripts and style attributes strict, inline only for style elements: %q", p, csp)
+		}
 		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("X-Frame-Options") != "DENY" || h.Get("Referrer-Policy") != "no-referrer" {
 			t.Errorf("%s headers %v", p, h)
 		}

@@ -19,7 +19,7 @@ const (
 	sessionCookie  = "sylph_session"
 	csrfHeader     = "X-Sylph-Panel"
 	maxLoginBytes  = 4 << 10
-	contentPolicy  = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+	contentPolicy  = "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	assetsCache    = "public, max-age=31536000, immutable"
 	unbuiltUIPage  = "Интерфейс панели не собран: npm run build в services/panel/web\n"
 	maxLoggedRunes = 64
