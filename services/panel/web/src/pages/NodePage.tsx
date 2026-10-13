@@ -81,7 +81,7 @@ export function NodePage() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section title="Состояние" className="xl:col-span-1">
           <KV label="Группа">{group}</KV>
           <KV label="Юзеров сейчас">{n.active_users ?? "—"}</KV>

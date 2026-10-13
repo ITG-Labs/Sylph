@@ -87,7 +87,7 @@ export function PlanPage() {
       </div>
 
       {isPrivate ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Section
             title="Приглашения"
             description="ссылка на бота: юзер жмёт /start и получает доступ"

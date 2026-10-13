@@ -48,9 +48,9 @@ export function NodesPage() {
       ) : q.data.length === 0 ? (
         <Empty>Нод пока нет — заведи первую</Empty>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {q.data.map((n) => (
-            <Link key={n.id} to={`/nodes/${n.id}`} className="group flex flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-white/15">
+            <Link key={n.id} to={`/nodes/${n.id}`} className="group flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-white/15">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-lg font-semibold">{n.name}</div>

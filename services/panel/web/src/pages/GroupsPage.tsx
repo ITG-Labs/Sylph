@@ -46,7 +46,7 @@ export function GroupsPage() {
       ) : groups.isError ? (
         <LoadError error={groups.error} onRetry={() => groups.refetch()} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((g) => {
             const gn = nodes.data?.filter((n) => n.group_id === g.id) ?? []
             const gp = plans.data?.filter((p) => p.location_group_id === g.id) ?? []
