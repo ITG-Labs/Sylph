@@ -16,7 +16,7 @@ describe("describeError", () => {
     expect(describeError(new ApiError(429, "too_many_attempts", "", ""))).toBe("Слишком много попыток — подожди 15 минут")
   })
   it("falls back to the core message with the field", () => {
-    expect(describeError(new ApiError(400, "bad_request", "reality.dest", "dest must not point to localhost"))).toBe("reality.dest: dest must not point to localhost")
+    expect(describeError(new ApiError(400, "bad_request", "reality.dest", "dest must not point to localhost"))).toBe("dest: dest must not point to localhost")
     expect(describeError(new Error("boom"))).toBe("boom")
   })
 })

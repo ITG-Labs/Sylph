@@ -41,12 +41,37 @@ const byCode: Record<string, string> = {
   internal: "Ошибка ядра — смотри логи",
 }
 
+const fieldLabels: Record<string, string> = {
+  "reality.dest": "dest",
+  "reality.server_names": "SNI",
+  "reality.short_ids": "shortId",
+  "reality.fingerprint": "Отпечаток",
+  "reality.private_key": "Приватный ключ",
+  tag: "Тег",
+  label: "Подпись",
+  port: "Порт",
+  address: "Адрес",
+  cert_cn: "CN серта",
+  name: "Имя",
+  price_rub: "Цена",
+  period_days: "Срок",
+  traffic_limit_bytes: "Лимит трафика",
+  device_limit: "Лимит устройств",
+  hwid_required: "HWID",
+  max_uses: "Сколько раз",
+  expires_at: "Срок действия",
+  reason: "Причина",
+  days: "Дни",
+  bytes: "Трафик",
+  telegram_id: "Telegram ID",
+}
+
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 409 && err.field === "status" && err.message.includes("still waiting")) return "Платёж моложе суток — юзер ещё может оплатить, отклонять рано"
     if (err.status === 409 && byField[err.field]) return byField[err.field]
     if (byCode[err.code]) return byCode[err.code]
-    if (err.field) return `${err.field}: ${err.message}`
+    if (err.field) return `${fieldLabels[err.field] ?? err.field}: ${err.message}`
     return err.message || `Ошибка ${err.status}`
   }
   if (err instanceof Error) return err.message

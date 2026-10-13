@@ -127,7 +127,7 @@ export function OverviewPage() {
             {o.nodes.nodes.map((n) => (
               <Link
                 key={n.id}
-                to={`/nodes?id=${n.id}`}
+                to={`/nodes/${n.id}`}
                 className="-mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg px-2 py-3 transition-colors hover:bg-white/[0.03]"
               >
                 <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">

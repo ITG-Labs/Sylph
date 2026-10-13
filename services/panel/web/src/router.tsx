@@ -2,6 +2,8 @@ import { createBrowserRouter } from "react-router"
 import { AppShell } from "./components/layout/AppShell"
 import { ErrorPage } from "./pages/ErrorPage"
 import { LoginPage } from "./pages/LoginPage"
+import { NodePage } from "./pages/NodePage"
+import { NodesPage } from "./pages/NodesPage"
 import { OverviewPage } from "./pages/OverviewPage"
 import { PaymentPage } from "./pages/PaymentPage"
 import { PaymentsPage } from "./pages/PaymentsPage"
@@ -23,7 +25,8 @@ export const router = createBrowserRouter([
       { path: "users/:id", element: <UserPage /> },
       { path: "payments", element: <PaymentsPage /> },
       { path: "payments/:paymentId", element: <PaymentPage /> },
-      { path: "nodes", element: <PlaceholderPage title="Ноды" /> },
+      { path: "nodes", element: <NodesPage /> },
+      { path: "nodes/:id", element: <NodePage /> },
       { path: "plans", element: <PlaceholderPage title="Тарифы" /> },
       { path: "groups", element: <PlaceholderPage title="Группы" /> },
       { path: "audit", element: <PlaceholderPage title="Аудит" /> },
