@@ -333,3 +333,37 @@ func TestBannedUserCannotBeManaged(t *testing.T) {
 		t.Fatal("refused manual payment left a row")
 	}
 }
+
+func TestBanAndTrafficDoNotDeadlock(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s)
+	p := mkLimitedPlan(t, s, 30, 1000)
+	res := pay(t, s, u.ID, p.ID, time.Now().UTC())
+	deltaNode(t, s)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM subscriptions WHERE id = $1 FOR UPDATE`, res.PeriodID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	var banErr error
+	go func() {
+		defer close(done)
+		_, banErr = s.BanUser(ctx, u.ID, "", time.Now().UTC())
+	}()
+	waitForLockWaiter(t, s, done)
+	if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version)`); err != nil {
+		t.Fatalf("traffic side: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if banErr != nil {
+		t.Fatalf("ban: %v", banErr)
+	}
+}

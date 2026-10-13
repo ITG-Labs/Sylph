@@ -60,7 +60,7 @@ func (s *Server) handleUserBan(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Reason string `json:"reason"`
 	}
-	if !decodeBody(w, r, &body) {
+	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
 	already, err := s.svc.BanUser(r.Context(), id, body.Reason)
@@ -102,7 +102,7 @@ func (s *Server) handleUserExtend(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err, "user")
 		return
 	}
-	s.logChange(r, "subscription", "extend", sub.ID)
+	s.logChange(r, "user", "extend", id)
 	writeJSON(w, http.StatusOK, sub)
 }
 
@@ -122,7 +122,7 @@ func (s *Server) handleUserTraffic(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err, "user")
 		return
 	}
-	s.logChange(r, "subscription", "traffic", sub.ID)
+	s.logChange(r, "user", "traffic", id)
 	writeJSON(w, http.StatusOK, sub)
 }
 
@@ -142,7 +142,7 @@ func (s *Server) handleUserPlan(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err, "user or plan")
 		return
 	}
-	s.logChange(r, "subscription", "plan", id)
+	s.logChange(r, "user", "plan", id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "changed": changed})
 }
 

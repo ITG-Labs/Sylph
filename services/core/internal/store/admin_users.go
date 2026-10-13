@@ -203,12 +203,12 @@ func (s *Store) BanUser(ctx context.Context, userID int64, reason string, now ti
 			already = true
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `UPDATE users SET status = 'banned', banned_at = $2, ban_reason = nullif($3, '') WHERE id = $1`, userID, now, reason); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE subscriptions SET canceled = TRUE, expires_at = CASE WHEN starts_at <= $2 THEN $2 ELSE expires_at END
 			 WHERE user_id = $1 AND NOT canceled AND expires_at > $2`, userID, now); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE users SET status = 'banned', banned_at = $2, ban_reason = nullif($3, '') WHERE id = $1`, userID, now, reason); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `UPDATE plan_access SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL`, userID, now)

@@ -23,12 +23,23 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return decodeJSON(w, r, v, maxBodyBytes, true)
 }
 
+func decodeOptionalBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeJSONOr(w, r, v, maxBodyBytes, true, true)
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any, limit int64, strict bool) bool {
+	return decodeJSONOr(w, r, v, limit, strict, false)
+}
+
+func decodeJSONOr(w http.ResponseWriter, r *http.Request, v any, limit int64, strict, emptyOK bool) bool {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("request body is larger than %d KiB", limit>>10))
 		return false
+	}
+	if err == nil && emptyOK && len(bytes.TrimSpace(raw)) == 0 {
+		return true
 	}
 	if err == nil {
 		err = rejectNUL(raw)

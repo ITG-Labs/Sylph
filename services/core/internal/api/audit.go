@@ -25,7 +25,16 @@ const (
 	operatorKey
 )
 
-var redactedKeys = map[string]bool{"private_key": true, "sub_token": true, "hwid": true}
+var redactedKeys = []string{"private_key", "sub_token", "hwid"}
+
+func redactedKey(k string) bool {
+	for _, r := range redactedKeys {
+		if strings.EqualFold(k, r) {
+			return true
+		}
+	}
+	return false
+}
 
 type auditNote struct {
 	entity, action, id string
@@ -71,7 +80,7 @@ func operatorFrom(r *http.Request) (string, bool) {
 		return "", false
 	}
 	for _, c := range op {
-		if unicode.IsControl(c) {
+		if unicode.IsControl(c) || c == '\u2028' || c == '\u2029' {
 			return "", false
 		}
 	}
@@ -158,7 +167,9 @@ func redact(raw []byte) json.RawMessage {
 		return nil
 	}
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
 		return nil
 	}
 	out, err := json.Marshal(redactValue(v))
@@ -172,7 +183,7 @@ func redactValue(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, val := range x {
-			if redactedKeys[k] {
+			if redactedKey(k) {
 				x[k] = "***"
 			} else {
 				x[k] = redactValue(val)

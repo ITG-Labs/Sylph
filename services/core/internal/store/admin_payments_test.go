@@ -147,3 +147,19 @@ func TestRefundOfAnOldPaymentOnlyMarksIt(t *testing.T) {
 		t.Fatalf("refund of a canceled payment: %v", err)
 	}
 }
+
+func TestRejectedPaymentCanStillBeApplied(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s)
+	pp := mkProviderPayment(t, s, u.ID, mkPlan(t, s).ID)
+	if err := s.RejectPayment(ctx, pp.PaymentID, "stuck", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := s.ApplyMismatchPayment(ctx, pp.PaymentID, "paid after all", time.Now().UTC()); err != nil || !res.Applied {
+		t.Fatalf("apply of a rejected payment: %+v, %v", res, err)
+	}
+	if got := paymentRow(t, s, pp.PaymentID); got.Status != "succeeded" || got.PeriodID == nil {
+		t.Fatalf("after apply: %+v", got)
+	}
+}

@@ -70,3 +70,17 @@ func TestCoreMapsBannedToItsOwnError(t *testing.T) {
 		t.Fatal("a forbidden role was read as a ban")
 	}
 }
+
+func TestBanBetweenTwoCallsStaysQuiet(t *testing.T) {
+	core := &fakeCore{status: activeStatus(), statusErr: fmt.Errorf("%w: api 403 banned", ErrBanned)}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("menu:sub"))
+	for _, a := range tg.only(t, "answerCallbackQuery") {
+		if a.text != "" {
+			t.Fatalf("banned user got an alert: %+v", a)
+		}
+	}
+	if len(tg.only(t, "sendMessage"))+len(tg.only(t, "editMessageText")) != 0 {
+		t.Fatalf("banned user got a screen: %+v", tg.calls)
+	}
+}

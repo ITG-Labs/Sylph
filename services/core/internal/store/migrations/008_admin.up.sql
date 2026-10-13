@@ -17,7 +17,7 @@ ALTER TABLE payments
 ALTER TABLE payments DROP CONSTRAINT payments_status_check;
 ALTER TABLE payments ADD CONSTRAINT payments_status_check
     CHECK (status IN ('pending', 'succeeded', 'canceled', 'mismatch', 'rejected', 'refunded'));
-CREATE INDEX idx_payments_created ON payments (created_at DESC, id DESC);
+CREATE INDEX idx_payments_period ON payments (period_id) WHERE period_id IS NOT NULL;
 CREATE INDEX idx_payments_paid ON payments (paid_at) WHERE paid_at IS NOT NULL;
 
 DROP TRIGGER trg_plans_bump ON plans;

@@ -39,7 +39,7 @@ func lockPayment(ctx context.Context, tx pgx.Tx, paymentID string, allowed ...st
 func (s *Store) ApplyMismatchPayment(ctx context.Context, paymentID, note string, now time.Time) (SettleResult, error) {
 	var res SettleResult
 	err := s.withTx(ctx, func(tx pgx.Tx) error {
-		p, err := lockPayment(ctx, tx, paymentID, "mismatch")
+		p, err := lockPayment(ctx, tx, paymentID, "mismatch", "rejected")
 		if err != nil {
 			return err
 		}

@@ -544,8 +544,15 @@ func TestMigration008DownAndUpAgain(t *testing.T) {
 	if nodesVersion(t, pool) == afterGroup {
 		t.Fatal("traffic bonus did not bump nodes")
 	}
+	if !tableExists(t, pool, "idx_payments_period") {
+		t.Fatal("up 008 did not index payments.period_id")
+	}
+	beforeDown := nodesVersion(t, pool)
 	if err := m.Steps(-1); err != nil {
 		t.Fatalf("down 008: %v", err)
+	}
+	if nodesVersion(t, pool) == beforeDown {
+		t.Fatal("down 008 did not bump the nodes after dropping the bonuses")
 	}
 	var status1, status2, userStatus string
 	if err := pool.QueryRow(ctx,

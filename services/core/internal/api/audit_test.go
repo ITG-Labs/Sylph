@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 type auditRow struct {
@@ -136,4 +138,40 @@ func TestTwoOperatorHeadersAreRejected(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
+}
+
+func TestAuditRedactsSecretsInAnyLetterCase(t *testing.T) {
+	e := newAdminEnv(t)
+	nodeID := e.createNode(t, "node-a", nil)
+	body := `{"tag":"main","port":443,"reality":{"dest":"www.microsoft.com:443","server_names":["www.microsoft.com"],"Private_Key":"4Ij2vUEnBb1ABGs-JR2yMyD7pYvF6Bm1CntlHdUfu1g"}}`
+	mustStatus(t, operatorCall(t, e.panel, http.MethodPost, fmt.Sprintf("%s/v1/admin/nodes/%d/inbounds", e.ts.URL, nodeID), "", body), http.StatusOK)
+	r := e.call(t, http.MethodGet, "/v1/admin/audit?entity=inbound", nil)
+	if strings.Contains(string(r.body), "4Ij2vUEnBb1ABGs") {
+		t.Fatalf("private key in the audit: %s", r.body)
+	}
+	mustStatus(t, operatorCall(t, e.panel, http.MethodPost, e.ts.URL+"/v1/admin/groups", "line break", `{"name":"g"}`), http.StatusBadRequest)
+}
+
+func TestManualSubscriptionIsAuditedOnTheUser(t *testing.T) {
+	e := newAdminEnv(t)
+	u, p := botUserAndPlan(t, e.apiEnv, 9500, 199)
+	if _, err := e.svc.RecordPayment(context.Background(), "gift-1", u.ID, p.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	other := &model.Plan{Name: "other", PriceRub: 1, PeriodDays: 30}
+	if err := e.svc.CreatePlan(context.Background(), other); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/v1/admin/users/%d", u.ID)
+	mustStatus(t, e.call(t, http.MethodPost, path+"/extend", map[string]any{"days": 1}), http.StatusOK)
+	mustStatus(t, e.call(t, http.MethodPost, path+"/plan", map[string]any{"plan_id": other.ID}), http.StatusOK)
+	mustStatus(t, e.call(t, http.MethodPost, path+"/ban", nil), http.StatusOK)
+	got := auditList(t, e, fmt.Sprintf("?entity=user&entity_id=%d", u.ID))
+	if len(got) != 3 || got[0].Action != "ban" || got[1].Action != "plan" || got[2].Action != "extend" {
+		t.Fatalf("user history = %+v", got)
+	}
+	for _, q := range []string{"?q=%00", "?q=%ff", "?status=%00"} {
+		mustStatus(t, e.call(t, http.MethodGet, "/v1/admin/users"+q, nil), http.StatusBadRequest)
+	}
+	mustStatus(t, e.call(t, http.MethodGet, "/v1/admin/audit?entity=%00", nil), http.StatusBadRequest)
 }

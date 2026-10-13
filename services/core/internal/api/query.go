@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 type queryReader struct {
@@ -25,6 +27,10 @@ func readQuery(w http.ResponseWriter, r *http.Request, allowed ...string) (*quer
 		}
 		if len(v) > 1 {
 			writeFieldError(w, http.StatusBadRequest, "bad_request", key, "must be given once")
+			return nil, false
+		}
+		if strings.ContainsRune(v[0], 0) || !utf8.ValidString(v[0]) {
+			writeFieldError(w, http.StatusBadRequest, "bad_request", key, "must be valid UTF-8 without NUL characters")
 			return nil, false
 		}
 	}

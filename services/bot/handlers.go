@@ -164,6 +164,8 @@ func (a *App) status(ctx context.Context, tgID int64) (*Status, error) {
 
 func (a *App) fail(ctx context.Context, what string, tgID int64, err error) string {
 	switch {
+	case errors.Is(err, ErrBanned):
+		return ""
 	case errors.Is(err, ErrConflict):
 		return textPlanGone
 	case errors.Is(err, ErrPaymentsDisabled):
