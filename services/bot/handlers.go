@@ -75,6 +75,9 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 		return
 	}
 	u, err := a.core.Register(ctx, m.From.ID)
+	if errors.Is(err, ErrBanned) {
+		return
+	}
 	if err != nil {
 		a.log.LogAttrs(ctx, slog.LevelError, "user_register_failed", slog.Int64("telegram_id", m.From.ID), slog.String("error", err.Error()))
 		a.send(ctx, tg, m.Chat.ID, textFailed, nil)
@@ -101,6 +104,9 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 		return
 	}
 	tgID := q.From.ID
+	if _, err := a.core.Register(ctx, tgID); errors.Is(err, ErrBanned) {
+		return
+	}
 	data := q.Data
 	var alert string
 	switch {

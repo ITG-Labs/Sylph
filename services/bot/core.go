@@ -16,6 +16,7 @@ var (
 	ErrConflict            = errors.New("conflict")
 	ErrPaymentsDisabled    = errors.New("payments disabled")
 	ErrProviderUnavailable = errors.New("payment provider unavailable")
+	ErrBanned              = errors.New("user is banned")
 )
 
 type User struct {
@@ -38,11 +39,12 @@ type Plan struct {
 }
 
 type Period struct {
-	PlanID           int64      `json:"plan_id"`
-	StartsAt         time.Time  `json:"starts_at"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	TrafficUsedBytes int64      `json:"traffic_used_bytes"`
-	PaidUntil        *time.Time `json:"paid_until"`
+	PlanID            int64      `json:"plan_id"`
+	StartsAt          time.Time  `json:"starts_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	TrafficUsedBytes  int64      `json:"traffic_used_bytes"`
+	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	PaidUntil         *time.Time `json:"paid_until"`
 }
 
 type Status struct {
@@ -190,6 +192,8 @@ func (c *CoreClient) do(ctx context.Context, method, path string, in, out any) e
 		return err
 	}
 	switch {
+	case apiErr.StatusCode == http.StatusForbidden && apiErr.Code == "banned":
+		return fmt.Errorf("%w: %v", ErrBanned, err)
 	case apiErr.StatusCode == http.StatusNotFound:
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case apiErr.StatusCode == http.StatusConflict:

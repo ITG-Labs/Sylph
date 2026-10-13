@@ -103,11 +103,25 @@ type fakeCore struct {
 	removed   [][2]int64
 	removeErr error
 
+	registerErr error
+
 	trialUntil time.Time
 	trialErr   error
 	stats      *Stats
 	redeem     *Redeem
 	redeemErr  error
+}
+
+func (c *fakeCore) work() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, call := range c.calls {
+		if call != "register" {
+			out = append(out, call)
+		}
+	}
+	return out
 }
 
 func (c *fakeCore) note(s string) {
@@ -118,6 +132,9 @@ func (c *fakeCore) note(s string) {
 
 func (c *fakeCore) Register(_ context.Context, tg int64) (*User, error) {
 	c.note("register")
+	if c.registerErr != nil {
+		return nil, c.registerErr
+	}
 	if c.status == nil {
 		c.status = &Status{User: User{ID: 7, SubToken: "tok"}}
 	}
@@ -649,7 +666,7 @@ func TestUnknownCallbackIsJustAnswered(t *testing.T) {
 	core := &fakeCore{status: activeStatus()}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("whatever"))
-	if len(tg.only(t, "answerCallbackQuery")) != 1 || len(core.calls) != 0 {
+	if len(tg.only(t, "answerCallbackQuery")) != 1 || len(core.work()) != 0 {
 		t.Fatalf("calls = %+v / %v", tg.calls, core.calls)
 	}
 }
@@ -723,7 +740,7 @@ func TestCheckRefusesForgedPaymentIDs(t *testing.T) {
 	for _, id := range []string{"..", "../users/7/rotate", "", "a b"} {
 		app.Handle(context.Background(), tg, callback("chk:"+id))
 	}
-	if len(core.calls) != 0 {
+	if len(core.work()) != 0 {
 		t.Fatalf("forged ids reached the core: %v", core.calls)
 	}
 	for _, a := range tg.only(t, "answerCallbackQuery") {
