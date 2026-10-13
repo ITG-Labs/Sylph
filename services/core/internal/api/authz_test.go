@@ -69,6 +69,12 @@ var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/admin/periods/1/close", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/users", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/users/1", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/payments", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/payments/p-1", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/recheck", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/apply", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/reject", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/refund", []string{mtls.RolePanel}},
 }
 
 type caller struct {

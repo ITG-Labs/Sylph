@@ -203,7 +203,10 @@ func validPaymentID(id string) bool {
 
 func (s *Server) writePaymentError(w http.ResponseWriter, err error, what string) {
 	var ce *service.ConflictError
+	var fe *service.FieldError
 	switch {
+	case errors.As(err, &fe):
+		writeFieldError(w, http.StatusBadRequest, "bad_request", fe.Field, fe.Message)
 	case errors.Is(err, service.ErrPaymentsDisabled):
 		writeError(w, http.StatusServiceUnavailable, "payments_disabled", "payments are not configured")
 	case errors.Is(err, service.ErrProviderUnavailable):
