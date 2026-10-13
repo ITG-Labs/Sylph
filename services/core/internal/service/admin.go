@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
@@ -46,11 +48,23 @@ func referenceOr(err error, field, message string) error {
 	return err
 }
 
-func validName(field, name string) error {
-	if name == "" || utf8.RuneCountInString(name) > 64 {
-		return fieldErr(field, "must be 1-64 characters")
+func validText(field, v string, max int) error {
+	if utf8.RuneCountInString(v) > max {
+		return fieldErr(field, fmt.Sprintf("must be at most %d characters", max))
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return fieldErr(field, "must not contain control characters")
+		}
 	}
 	return nil
+}
+
+func validName(field, name string) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 64 {
+		return fieldErr(field, "must be 1-64 characters, not only spaces")
+	}
+	return validText(field, name, 64)
 }
 
 func (s *Service) CreateGroup(ctx context.Context, name string) (*model.LocationGroup, error) {
@@ -101,10 +115,14 @@ func planWriteErr(err error) error {
 }
 
 func (s *Service) CreatePlanChecked(ctx context.Context, p *model.Plan) error {
+	return s.CreatePlanOnSale(ctx, p, true)
+}
+
+func (s *Service) CreatePlanOnSale(ctx context.Context, p *model.Plan, onSale bool) error {
 	if err := validatePlan(p); err != nil {
 		return err
 	}
-	return planWriteErr(s.store.CreatePlan(ctx, p))
+	return planWriteErr(s.store.CreatePlanWith(ctx, p, onSale))
 }
 
 type PlanPatch struct {
@@ -178,8 +196,46 @@ func validateNode(n *model.Node) error {
 	return nil
 }
 
+func (s *Service) nodeHosts(ctx context.Context) ([]string, error) {
+	addrs, err := s.store.NodeAddresses(ctx)
+	for i := range addrs {
+		addrs[i] = inbound.CanonicalHost(addrs[i])
+	}
+	return addrs, err
+}
+
+func (s *Service) addressFreeOfDests(ctx context.Context, address string) error {
+	dests, err := s.store.RealityDests(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range dests {
+		if inbound.DestHost(d) == inbound.CanonicalHost(address) {
+			return fieldErr("address", "is used as reality.dest of an inbound: REALITY would loop into the node")
+		}
+	}
+	return nil
+}
+
+func (s *Service) destNotANode(ctx context.Context, spec *inbound.Spec) error {
+	if spec.Reality == nil {
+		return nil
+	}
+	addrs, err := s.nodeHosts(ctx)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
+		return fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
+	}
+	return nil
+}
+
 func (s *Service) CreateNode(ctx context.Context, n *model.Node) error {
 	if err := validateNode(n); err != nil {
+		return err
+	}
+	if err := s.addressFreeOfDests(ctx, n.Address); err != nil {
 		return err
 	}
 	err := s.store.CreateNode(ctx, n)
@@ -208,6 +264,9 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		if !inbound.IsAddress(*patch.Address) {
 			return nil, fieldErr("address", "must be a hostname or an IP")
 		}
+		if err := s.addressFreeOfDests(ctx, *patch.Address); err != nil {
+			return nil, err
+		}
 		n.Address = *patch.Address
 	}
 	if patch.GroupID.Set {
@@ -219,15 +278,27 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if err := s.store.UpdateNode(ctx, n); err != nil {
 		return nil, referenceOr(err, "group_id", "group not found")
 	}
-	return s.store.GetNode(ctx, id)
+	return s.GetNode(ctx, id)
 }
 
 func (s *Service) ListNodes(ctx context.Context) ([]model.Node, error) {
-	return s.store.ListNodes(ctx)
+	list, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return list, s.markNodes(ctx, list)
 }
 
 func (s *Service) GetNode(ctx context.Context, id int64) (*model.Node, error) {
-	return s.store.GetNode(ctx, id)
+	n, err := s.store.GetNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	nodes := []model.Node{*n}
+	if err := s.markNodes(ctx, nodes); err != nil {
+		return nil, err
+	}
+	return &nodes[0], nil
 }
 
 type InboundView struct {
@@ -329,6 +400,9 @@ func (s *Service) CreateInbound(ctx context.Context, nodeID int64, spec inbound.
 	if err := inbound.Normalize(&spec); err != nil {
 		return nil, err
 	}
+	if err := s.destNotANode(ctx, &spec); err != nil {
+		return nil, err
+	}
 	in, err := modelOf(nodeID, &spec)
 	if err != nil {
 		return nil, err
@@ -393,6 +467,10 @@ func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
 }
 
 func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatch) (*InboundView, error) {
+	addrs, err := s.nodeHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	updated, err := s.store.ModifyInbound(ctx, id, func(current *model.NodeInbound, others []model.NodeInbound) (*model.NodeInbound, error) {
 		spec, err := SpecOf(current)
 		if err != nil {
@@ -403,6 +481,9 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 		}
 		if err := inbound.Normalize(&spec); err != nil {
 			return nil, err
+		}
+		if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
+			return nil, fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
 		}
 		if err := sniGuard(inbound.ServerNames(&spec))(others); err != nil {
 			return nil, err

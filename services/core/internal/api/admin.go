@@ -22,10 +22,17 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/admin/nodes/{id}/inbounds", s.handleInboundCreate, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/inbounds/{id}", s.handleInboundUpdate, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/inbounds/{id}", s.handleInboundDelete, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/overview", s.handleOverview, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/audit", s.handleAuditList, mtls.RolePanel)
 }
 
-func (s *Server) logChange(r *http.Request, entity, action string, id int64) {
-	s.log.Info("admin_change", "entity", entity, "action", action, "id", id, "peer", clientCN(r))
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	ov, err := s.svc.Overview(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err, "overview")
+		return
+	}
+	writeJSON(w, http.StatusOK, ov)
 }
 
 func (s *Server) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +71,7 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 		HWIDRequired      *bool  `json:"hwid_required"`
 		Trial             bool   `json:"trial"`
 		Visibility        string `json:"visibility"`
+		OnSale            *bool  `json:"on_sale"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -79,7 +87,8 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	if p.Visibility == "" {
 		p.Visibility = model.VisibilityPublic
 	}
-	if err := s.svc.CreatePlanChecked(r.Context(), p); err != nil {
+	onSale := body.OnSale == nil || *body.OnSale
+	if err := s.svc.CreatePlanOnSale(r.Context(), p, onSale); err != nil {
 		s.writeServiceError(w, err, "plan")
 		return
 	}

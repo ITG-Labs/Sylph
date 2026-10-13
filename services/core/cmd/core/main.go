@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -67,6 +69,16 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("stats_timezone", slog.String("tz", tz))
 	svc := service.NewService(st, logger)
+	offline, stale, err := nodeThresholds()
+	if err != nil {
+		return err
+	}
+	svc.SetNodeThresholds(offline, stale)
+	bot, err := botUsername()
+	if err != nil {
+		return err
+	}
+	svc.SetBotUsername(bot)
 	payCfg, err := paymentsConfig()
 	if err != nil {
 		return err
@@ -193,6 +205,43 @@ func statsTimezone() (string, error) {
 		return "", fmt.Errorf("SYLPH_STATS_TZ: %w", err)
 	}
 	return tz, nil
+}
+
+var botUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{5,32}$`)
+
+func botUsername() (string, error) {
+	name := strings.TrimPrefix(os.Getenv("SYLPH_BOT_USERNAME"), "@")
+	if name == "" {
+		return "", nil
+	}
+	if !botUsernamePattern.MatchString(name) {
+		return "", errors.New("SYLPH_BOT_USERNAME must be the bot username: 5-32 characters of A-Z, a-z, 0-9 and _")
+	}
+	return name, nil
+}
+
+func nodeThresholds() (time.Duration, time.Duration, error) {
+	offline, err := positiveDuration("SYLPH_NODE_OFFLINE_AFTER", service.DefaultNodeOffline)
+	if err != nil {
+		return 0, 0, err
+	}
+	stale, err := positiveDuration("SYLPH_NODE_SYNC_STALE_AFTER", service.DefaultNodeSyncStale)
+	if err != nil {
+		return 0, 0, err
+	}
+	return offline, stale, nil
+}
+
+func positiveDuration(key string, fallback time.Duration) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration like 90s or 3m", key)
+	}
+	return d, nil
 }
 
 func envOr(key string, fallback string) string {

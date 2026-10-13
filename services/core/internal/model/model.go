@@ -27,6 +27,7 @@ type Node struct {
 	AgentUptimeSec *int64     `json:"agent_uptime_sec"`
 	XrayUptimeSec  *int64     `json:"xray_uptime_sec"`
 	LastSyncAt     *time.Time `json:"last_sync_at"`
+	Status         string     `json:"status,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
@@ -81,6 +82,7 @@ type Invite struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 	RevokedAt *time.Time `json:"revoked_at"`
 	CreatedAt time.Time  `json:"created_at"`
+	Link      *string    `json:"link"`
 }
 
 type PlanAccess struct {
@@ -93,13 +95,20 @@ type PlanAccess struct {
 	RevokedAt  *time.Time `json:"revoked_at"`
 }
 
+const (
+	UserActive = "active"
+	UserBanned = "banned"
+)
+
 type User struct {
-	ID         int64     `json:"id"`
-	TelegramID *int64    `json:"telegram_id"`
-	Email      string    `json:"email"`
-	SubToken   string    `json:"sub_token"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         int64      `json:"id"`
+	TelegramID *int64     `json:"telegram_id"`
+	Email      string     `json:"email"`
+	SubToken   string     `json:"sub_token"`
+	Status     string     `json:"status"`
+	BannedAt   *time.Time `json:"banned_at"`
+	BanReason  *string    `json:"ban_reason"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type UserKey struct {
@@ -110,15 +119,17 @@ type UserKey struct {
 }
 
 type Subscription struct {
-	ID               int64      `json:"id"`
-	UserID           int64      `json:"user_id"`
-	PlanID           int64      `json:"plan_id"`
-	StartsAt         time.Time  `json:"starts_at"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	Canceled         bool       `json:"canceled"`
-	TrafficUsedBytes int64      `json:"traffic_used_bytes"`
-	PaidUntil        *time.Time `json:"paid_until,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID                int64      `json:"id"`
+	UserID            int64      `json:"user_id"`
+	PlanID            int64      `json:"plan_id"`
+	StartsAt          time.Time  `json:"starts_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	Canceled          bool       `json:"canceled"`
+	TrafficUsedBytes  int64      `json:"traffic_used_bytes"`
+	TrafficBonusBytes int64      `json:"traffic_bonus_bytes"`
+	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	PaidUntil         *time.Time `json:"paid_until,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type Payment struct {
@@ -131,6 +142,9 @@ type Payment struct {
 	Source          string     `json:"source"`
 	ConfirmationURL string     `json:"confirmation_url,omitempty"`
 	PaidAt          *time.Time `json:"paid_at"`
+	PeriodID        *int64     `json:"period_id"`
+	Note            *string    `json:"note"`
+	RefundedAt      *time.Time `json:"refunded_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
 

@@ -43,7 +43,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		DeviceModel: clip(body.DeviceModel, 64),
 	})
 	if err != nil {
-		s.writeServiceError(w, err, "subscription")
+		s.writeServiceErrorAs(w, err, "subscription", "subscription_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, view)

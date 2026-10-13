@@ -209,3 +209,19 @@ func (s *Store) ListVisibleEndpoints(ctx context.Context, groupID *int64) ([]End
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) NodeAddresses(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT lower(address) FROM nodes WHERE address <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func (s *Store) RealityDests(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT coalesce(settings->>'dest', '') FROM node_inbounds`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}

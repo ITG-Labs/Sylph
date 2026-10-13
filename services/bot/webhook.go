@@ -71,6 +71,11 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chk, err := h.core.CheckPayment(ctx, id)
+	if errors.Is(err, ErrBanned) {
+		h.log.LogAttrs(ctx, slog.LevelInfo, "webhook_banned_user", slog.String("payment_id", id))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if errors.Is(err, ErrNotFound) {
 		h.log.LogAttrs(ctx, slog.LevelWarn, "webhook_unknown_payment", slog.String("payment_id", id))
 		w.WriteHeader(http.StatusOK)

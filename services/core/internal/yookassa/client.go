@@ -109,6 +109,7 @@ type Payment struct {
 	Metadata            map[string]string    `json:"metadata"`
 	Test                bool                 `json:"test"`
 	CancellationDetails *CancellationDetails `json:"cancellation_details"`
+	RefundedAmount      *Amount              `json:"refunded_amount"`
 }
 
 type APIError struct {

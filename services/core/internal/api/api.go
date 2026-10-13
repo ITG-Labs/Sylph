@@ -31,6 +31,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerServiceRoutes(mux)
 	s.registerAdminRoutes(mux)
 	s.registerPrivateRoutes(mux)
+	s.registerUserAdminRoutes(mux)
+	s.registerPaymentAdminRoutes(mux)
 	return s.middleware(mux)
 }
 

@@ -60,8 +60,7 @@ func (s *Server) handleSyncUsers(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		KnownVersion int64 `json:"known_version"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
 	}
 	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion)
@@ -91,8 +90,7 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 			BytesDown int64  `json:"bytes_down"`
 		} `json:"deltas"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if !decodeJSON(w, r, &body, maxDeltasBytes, false) {
 		return
 	}
 	if body.BatchID == "" || len(body.BatchID) > 64 {
@@ -134,8 +132,7 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ActiveUsers    *int    `json:"active_users"`
 		ConfigError    *string `json:"config_error"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
 	}
 	if body.AgentUptimeSec < 0 ||

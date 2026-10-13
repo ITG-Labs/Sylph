@@ -36,6 +36,10 @@ func (s *Server) requireRole(roles []string, next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "forbidden", "role not allowed")
 			return
 		}
+		if role == mtls.RolePanel {
+			s.servePanel(w, r, next)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

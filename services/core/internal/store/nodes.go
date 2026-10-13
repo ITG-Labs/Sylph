@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -106,7 +107,7 @@ func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, e
 		 JOIN plans p ON p.id = sub.plan_id
 		 JOIN nodes n ON n.id = $1
 		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
-		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes < p.traffic_limit_bytes)
+		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes)
 		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)`,
 		nodeID)
 	if err != nil {
@@ -122,4 +123,10 @@ func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, e
 		keys = append(keys, k)
 	}
 	return keys, rows.Err()
+}
+
+func (s *Store) DBNow(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	err := s.pool.QueryRow(ctx, `SELECT now()`).Scan(&now)
+	return now, err
 }

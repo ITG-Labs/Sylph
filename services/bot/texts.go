@@ -295,8 +295,19 @@ func (a *App) linkBlock(title, token string) string {
 	return a.ic(icLink) + " <b>" + title + "</b>\nТапни, чтобы скопировать:\n\n<code>" + html.EscapeString(a.link(token)) + "</code>"
 }
 
+func trafficLimit(st *Status) *int64 {
+	if st.Plan == nil || st.Plan.TrafficLimitBytes == nil {
+		return nil
+	}
+	if st.Subscription != nil && st.Subscription.TrafficLimitBytes != nil {
+		return st.Subscription.TrafficLimitBytes
+	}
+	return st.Plan.TrafficLimitBytes
+}
+
 func exhausted(st *Status) bool {
-	return st.Subscription != nil && st.Plan != nil && st.Plan.TrafficLimitBytes != nil && st.Subscription.TrafficUsedBytes >= *st.Plan.TrafficLimitBytes
+	limit := trafficLimit(st)
+	return st.Subscription != nil && limit != nil && st.Subscription.TrafficUsedBytes >= *limit
 }
 
 func (a *App) statusText(st *Status) string {
@@ -319,8 +330,8 @@ func (a *App) statusText(st *Status) string {
 	}
 	fmt.Fprintf(&b, "%s Тариф «%s»\n\n", a.ic(icPlan), html.EscapeString(plan.Name))
 	fmt.Fprintf(&b, "%s <b>Трафик</b>\n", a.ic(icTraffic))
-	if plan.TrafficLimitBytes != nil {
-		fmt.Fprintf(&b, "%s\n%s из %s\n\n", trafficBar(sub.TrafficUsedBytes, *plan.TrafficLimitBytes), formatBytes(sub.TrafficUsedBytes), formatBytes(*plan.TrafficLimitBytes))
+	if limit := trafficLimit(st); limit != nil {
+		fmt.Fprintf(&b, "%s\n%s из %s\n\n", trafficBar(sub.TrafficUsedBytes, *limit), formatBytes(sub.TrafficUsedBytes), formatBytes(*limit))
 	} else {
 		fmt.Fprintf(&b, "%s · без лимита\n\n", formatBytes(sub.TrafficUsedBytes))
 	}

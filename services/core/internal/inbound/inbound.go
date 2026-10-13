@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -95,6 +97,14 @@ func Normalize(s *Spec) error {
 	if utf8.RuneCountInString(s.Label) > 32 {
 		return fieldErr("label", "must be at most 32 characters")
 	}
+	if s.Label != "" && strings.TrimSpace(s.Label) == "" {
+		return fieldErr("label", "must not be only spaces")
+	}
+	for _, r := range s.Label {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return fieldErr("label", "must not contain control characters")
+		}
+	}
 	if s.Reality == nil {
 		return fieldErr("reality", "is required for security reality")
 	}
@@ -106,12 +116,18 @@ func normalizeReality(r *Reality) error {
 	if err != nil {
 		return fieldErr("reality.dest", "must be host:port")
 	}
-	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 {
 		return fieldErr("reality.dest", "port must be 1-65535")
 	}
+	port = strconv.Itoa(p)
 	host = strings.ToLower(host)
-	if net.ParseIP(host) == nil && !isHostname(host) {
-		return fieldErr("reality.dest", "host must be a hostname or an IP")
+	if net.ParseIP(host) == nil && (!isHostname(host) || !letterTLD(host)) {
+		return fieldErr("reality.dest", "host must be a hostname or an IP in its usual notation")
+	}
+	host = CanonicalHost(host)
+	if internalHost(host) {
+		return fieldErr("reality.dest", "must not point to localhost, a private, link-local or special address")
 	}
 	r.Dest = net.JoinHostPort(host, port)
 	if len(r.ServerNames) == 0 {
@@ -132,14 +148,21 @@ func normalizeReality(r *Reality) error {
 	if len(r.ShortIDs) == 0 {
 		r.ShortIDs = []string{NewShortID()}
 	}
+	ids := make([]string, 0, len(r.ShortIDs))
 	for _, id := range r.ShortIDs {
+		id = strings.ToLower(id)
 		if len(id) < 2 || len(id) > 16 || len(id)%2 != 0 {
 			return fieldErr("reality.short_ids", "each must be 2-16 hex characters, even length")
 		}
 		if _, err := hex.DecodeString(id); err != nil {
 			return fieldErr("reality.short_ids", "each must be hex")
 		}
+		if slices.Contains(ids, id) {
+			return fieldErr("reality.short_ids", "%q is listed twice", id)
+		}
+		ids = append(ids, id)
 	}
+	r.ShortIDs = ids
 	if r.Fingerprint == "" {
 		r.Fingerprint = "chrome"
 	}
@@ -157,6 +180,60 @@ func normalizeReality(r *Reality) error {
 		return fieldErr("reality.private_key", "must be 32 bytes in unpadded base64url (xray x25519 format)")
 	}
 	return nil
+}
+
+var (
+	cgnat         = netip.MustParsePrefix("100.64.0.0/10")
+	v4Compatible  = netip.MustParsePrefix("::/96")
+	v4Translated  = netip.MustParsePrefix("::ffff:0:0:0/96")
+	nat64         = netip.MustParsePrefix("64:ff9b::/96")
+	loopbackNames = []string{"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
+)
+
+func letterTLD(host string) bool {
+	tld := host[strings.LastIndex(host, ".")+1:]
+	return tld != "" && tld[0] >= 'a' && tld[0] <= 'z'
+}
+
+func internalHost(host string) bool {
+	if slices.Contains(loopbackNames, host) || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if addr.Is6() && (v4Compatible.Contains(addr) || v4Translated.Contains(addr) || nat64.Contains(addr)) {
+		b := addr.As16()
+		embedded := netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+		if !addr.IsUnspecified() && !addr.IsLoopback() && internalIP(embedded) {
+			return true
+		}
+	}
+	return internalIP(addr)
+}
+
+func internalIP(addr netip.Addr) bool {
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr.IsInterfaceLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() || cgnat.Contains(addr) ||
+		addr == netip.AddrFrom4([4]byte{255, 255, 255, 255})
+}
+
+func CanonicalHost(host string) string {
+	host = strings.ToLower(host)
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Zone() == "" {
+		return addr.Unmap().String()
+	}
+	return host
+}
+
+func DestHost(dest string) string {
+	host, _, err := net.SplitHostPort(dest)
+	if err != nil {
+		return ""
+	}
+	return CanonicalHost(host)
 }
 
 func isHostname(h string) bool {

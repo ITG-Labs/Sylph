@@ -58,7 +58,7 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, err
 	}
 	if plan.PriceRub <= 0 {
@@ -153,6 +153,9 @@ func (s *Service) checkResult(ctx context.Context, userID int64, status string, 
 	if err != nil {
 		return nil, err
 	}
+	if u.Status == model.UserBanned {
+		return nil, store.ErrUserBanned
+	}
 	res.TelegramID = u.TelegramID
 	sub, err := s.store.GetActiveSubscription(ctx, userID)
 	switch {
@@ -198,20 +201,32 @@ func (s *Service) PollPayments(ctx context.Context) (PollResult, error) {
 	return res, nil
 }
 
-func (s *Service) reconcile(ctx context.Context, local *model.Payment, deadline time.Time) (string, bool, error) {
+func (s *Service) fetchRemote(ctx context.Context, paymentID string, deadline time.Time) (*yookassa.Payment, error) {
 	if deadline.IsZero() {
 		deadline = time.Now().Add(providerTimeout)
 	}
 	pctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	remote, err := s.pay.GetPayment(pctx, local.PaymentID)
+	remote, err := s.pay.GetPayment(pctx, paymentID)
 	if err != nil {
 		s.log.LogAttrs(ctx, slog.LevelError, "yookassa_request_failed",
 			slog.String("op", "get"),
-			slog.String("payment_id", local.PaymentID),
+			slog.String("payment_id", paymentID),
 			slog.String("error", err.Error()))
-		return "", false, fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrProviderUnavailable, err)
 	}
+	return remote, nil
+}
+
+func (s *Service) reconcile(ctx context.Context, local *model.Payment, deadline time.Time) (string, bool, error) {
+	remote, err := s.fetchRemote(ctx, local.PaymentID, deadline)
+	if err != nil {
+		return "", false, err
+	}
+	return s.settleRemote(ctx, local, remote)
+}
+
+func (s *Service) settleRemote(ctx context.Context, local *model.Payment, remote *yookassa.Payment) (string, bool, error) {
 	switch remote.Status {
 	case "succeeded":
 		if problem := mismatch(local, remote); problem != "" {

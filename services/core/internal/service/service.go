@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -17,10 +18,27 @@ type Service struct {
 	returnURL   string
 	createLocks [64]sync.Mutex
 	pollBudget  time.Duration
+	nodeOffline time.Duration
+	nodeStale   time.Duration
+	botUsername string
+}
+
+func (s *Service) SetBotUsername(name string) {
+	s.botUsername = name
+}
+
+func (s *Service) withLinks(invites ...*model.Invite) {
+	if s.botUsername == "" {
+		return
+	}
+	for _, inv := range invites {
+		link := "https://t.me/" + s.botUsername + "?start=" + inv.Code
+		inv.Link = &link
+	}
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log, pollBudget: 20 * time.Second}
+	return &Service{store: st, log: log, pollBudget: 20 * time.Second, nodeOffline: DefaultNodeOffline, nodeStale: DefaultNodeSyncStale}
 }
 
 func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {
@@ -54,6 +72,9 @@ func (s *Service) GetUserFullByToken(ctx context.Context, token string) (*model.
 		return nil, nil, nil, nil, err
 	}
 	sub, err := s.store.GetActiveSubscription(ctx, u.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return u, keys, nil, nil, nil
+	}
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -69,13 +90,16 @@ func (s *Service) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {
 }
 
 func (s *Service) ListUserDevices(ctx context.Context, userID int64) ([]model.Device, error) {
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
+	if _, err := s.activeUser(ctx, userID); err != nil {
 		return nil, err
 	}
 	return s.store.ListDevices(ctx, userID)
 }
 
 func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) error {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return err
+	}
 	if err := s.store.RemoveDevice(ctx, userID, deviceID); err != nil {
 		return err
 	}
@@ -84,5 +108,8 @@ func (s *Service) RemoveUserDevice(ctx context.Context, userID, deviceID int64) 
 }
 
 func (s *Service) ResetUserDevices(ctx context.Context, userID int64) error {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return err
+	}
 	return s.store.ResetDevices(ctx, userID)
 }

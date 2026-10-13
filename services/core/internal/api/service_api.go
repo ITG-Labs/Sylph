@@ -1,13 +1,13 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
@@ -49,6 +49,10 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "create failed")
 		return
 	}
+	if u.Status == model.UserBanned {
+		writeBanned(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "sub_token": u.SubToken})
 }
 
@@ -60,6 +64,10 @@ func (s *Server) handleUserGet(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.svc.GetUserStatus(r.Context(), tg)
 	if err != nil {
+		if errors.Is(err, store.ErrUserBanned) {
+			writeBanned(w)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
 			return
@@ -75,8 +83,7 @@ func (s *Server) handleUserByToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SubToken string `json:"sub_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if !decodeBody(w, r, &body) {
 		return
 	}
 	if body.SubToken == "" {
@@ -194,13 +201,18 @@ func validPaymentID(id string) bool {
 
 func (s *Server) writePaymentError(w http.ResponseWriter, err error, what string) {
 	var ce *service.ConflictError
+	var fe *service.FieldError
 	switch {
+	case errors.As(err, &fe):
+		writeFieldError(w, http.StatusBadRequest, "bad_request", fe.Field, fe.Message)
 	case errors.Is(err, service.ErrPaymentsDisabled):
 		writeError(w, http.StatusServiceUnavailable, "payments_disabled", "payments are not configured")
 	case errors.Is(err, service.ErrProviderUnavailable):
 		writeError(w, http.StatusBadGateway, "provider_unavailable", "payment provider unavailable")
 	case errors.As(err, &ce):
 		writeFieldError(w, http.StatusConflict, "conflict", ce.Field, ce.Message)
+	case errors.Is(err, store.ErrUserBanned):
+		writeBanned(w)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "user, plan or payment not found")
 	default:
@@ -217,6 +229,10 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := s.svc.RotateUser(r.Context(), userID)
 	if err != nil {
+		if errors.Is(err, store.ErrUserBanned) {
+			writeBanned(w)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
 			return
@@ -235,6 +251,10 @@ func (s *Server) handleDevicesReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.svc.ResetUserDevices(r.Context(), userID); err != nil {
+		if errors.Is(err, store.ErrUserBanned) {
+			writeBanned(w)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
 			return
@@ -314,6 +334,8 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrTrialUnavailable):
 		writeError(w, http.StatusConflict, "trial_unavailable", "trial is not available for this user")
+	case errors.Is(err, store.ErrUserBanned):
+		writeBanned(w)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "user not found")
 	case err != nil:

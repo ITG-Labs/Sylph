@@ -61,6 +61,22 @@ var routeMatrix = []routeCase{
 	{http.MethodPost, "/v1/admin/nodes/1/inbounds", []string{mtls.RolePanel}},
 	{http.MethodPatch, "/v1/admin/inbounds/1", []string{mtls.RolePanel}},
 	{http.MethodDelete, "/v1/admin/inbounds/1", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/users/1/ban", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/users/1/unban", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/users/1/extend", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/users/1/traffic", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/users/1/plan", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/periods/1/close", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/users", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/users/1", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/payments", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/payments/p-1", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/recheck", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/apply", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/reject", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/payments/p-1/refund", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/overview", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/audit", []string{mtls.RolePanel}},
 }
 
 type caller struct {

@@ -42,6 +42,9 @@ func (s *Service) RecordPayment(ctx context.Context, paymentID string, userID in
 	if errors.Is(err, store.ErrConflict) {
 		return store.SettleResult{}, &ConflictError{Field: "payment_id", Message: "payment_id already belongs to another payment"}
 	}
+	if errors.Is(err, store.ErrUserBanned) {
+		return store.SettleResult{}, adminErr(err)
+	}
 	if err != nil {
 		return store.SettleResult{}, err
 	}
@@ -69,6 +72,9 @@ func (s *Service) logApplied(ctx context.Context, res store.SettleResult) {
 }
 
 func (s *Service) RotateUser(ctx context.Context, userID int64) (string, error) {
+	if _, err := s.activeUser(ctx, userID); err != nil {
+		return "", err
+	}
 	token := model.NewToken()
 	if _, err := s.store.RotateUserCredentials(ctx, userID, token); err != nil {
 		return "", err
@@ -89,6 +95,9 @@ func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserSta
 	u, err := s.store.GetUserByTelegramID(ctx, telegramID)
 	if err != nil {
 		return nil, err
+	}
+	if u.Status == model.UserBanned {
+		return nil, store.ErrUserBanned
 	}
 	st := &UserStatus{User: u}
 	sub, err := s.store.GetActiveSubscription(ctx, u.ID)

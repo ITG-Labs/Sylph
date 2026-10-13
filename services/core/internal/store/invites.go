@@ -143,6 +143,9 @@ func (s *Store) RedeemInvite(ctx context.Context, code string, userID int64, now
 		return RedeemResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockActiveUser(ctx, tx, userID); err != nil {
+		return RedeemResult{}, err
+	}
 	inv, err := scanInvite(tx.QueryRow(ctx, `SELECT `+inviteColumns+` FROM plan_invites WHERE code = $1 FOR UPDATE`, code))
 	if err != nil {
 		return RedeemResult{}, err

@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
@@ -42,6 +44,7 @@ type apiEnv struct {
 	ca   *mtls.CA
 	svc  *service.Service
 	logs *lockedBuffer
+	pool *pgxpool.Pool
 }
 
 func mustKeyPEM(t *testing.T, leaf *mtls.Leaf) []byte {
@@ -128,7 +131,7 @@ func newAPIEnvWith(t *testing.T, ca *mtls.CA, revoked *mtls.RevocationList) *api
 	ts.TLS = cfg
 	ts.StartTLS()
 	t.Cleanup(ts.Close)
-	return &apiEnv{ts: ts, ca: ca, svc: svc, logs: logs}
+	return &apiEnv{ts: ts, ca: ca, svc: svc, logs: logs, pool: pool}
 }
 
 func (e *apiEnv) client(t *testing.T, cn string, role string) *http.Client {

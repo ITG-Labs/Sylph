@@ -16,11 +16,15 @@ type SettleResult struct {
 	Period  PaymentResult
 }
 
-const paymentColumns = `id, payment_id, user_id, plan_id, amount_rub, status, source, coalesce(confirmation_url, ''), paid_at, created_at`
+const paymentColumns = `id, payment_id, user_id, plan_id, amount_rub, status, source, coalesce(confirmation_url, ''), paid_at, period_id, note, refunded_at, created_at`
+
+func paymentDest(p *model.Payment) []any {
+	return []any{&p.ID, &p.PaymentID, &p.UserID, &p.PlanID, &p.AmountRub, &p.Status, &p.Source, &p.ConfirmationURL, &p.PaidAt, &p.PeriodID, &p.Note, &p.RefundedAt, &p.CreatedAt}
+}
 
 func scanPayment(row pgxRow) (*model.Payment, error) {
 	p := &model.Payment{}
-	err := row.Scan(&p.ID, &p.PaymentID, &p.UserID, &p.PlanID, &p.AmountRub, &p.Status, &p.Source, &p.ConfirmationURL, &p.PaidAt, &p.CreatedAt)
+	err := row.Scan(paymentDest(p)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -64,6 +68,9 @@ func (s *Store) RecordManualPayment(ctx context.Context, p *model.Payment, now t
 		return SettleResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockActiveUser(ctx, tx, p.UserID); err != nil {
+		return SettleResult{}, err
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source)
 		 VALUES ($1, $2, $3, $4, 'pending', 'manual') ON CONFLICT (payment_id) DO NOTHING`,
@@ -98,8 +105,8 @@ func settleTx(ctx context.Context, tx pgx.Tx, paymentID string, now time.Time) (
 		return SettleResult{}, err
 	}
 	if err := tx.QueryRow(ctx,
-		`UPDATE payments SET status = 'succeeded', paid_at = $2 WHERE id = $1 RETURNING status, paid_at`,
-		p.ID, now).Scan(&p.Status, &p.PaidAt); err != nil {
+		`UPDATE payments SET status = 'succeeded', paid_at = $2, period_id = $3 WHERE id = $1 RETURNING status, paid_at, period_id`,
+		p.ID, now, period.PeriodID).Scan(&p.Status, &p.PaidAt, &p.PeriodID); err != nil {
 		return SettleResult{}, err
 	}
 	return SettleResult{Applied: true, Payment: *p, Period: period}, nil
