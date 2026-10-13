@@ -31,7 +31,7 @@ export interface UserRow {
   status: "active" | "banned"
   banned_at: string | null
   created_at: string
-  plan: string | null
+  plan: { id: number; name: string } | null
   paid_until: string | null
   traffic_used_bytes: number
   traffic_limit_bytes: number | null

@@ -7,7 +7,7 @@ export function PageHeader({ title, description, actions }: { title: ReactNode; 
         <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <div className="mt-1 text-sm text-muted-foreground">{description}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 max-sm:w-full">{actions}</div>}
     </div>
   )
 }
