@@ -196,13 +196,21 @@ func validateNode(n *model.Node) error {
 	return nil
 }
 
+func (s *Service) nodeHosts(ctx context.Context) ([]string, error) {
+	addrs, err := s.store.NodeAddresses(ctx)
+	for i := range addrs {
+		addrs[i] = inbound.CanonicalHost(addrs[i])
+	}
+	return addrs, err
+}
+
 func (s *Service) addressFreeOfDests(ctx context.Context, address string) error {
 	dests, err := s.store.RealityDests(ctx)
 	if err != nil {
 		return err
 	}
 	for _, d := range dests {
-		if inbound.DestHost(d) == strings.ToLower(address) {
+		if inbound.DestHost(d) == inbound.CanonicalHost(address) {
 			return fieldErr("address", "is used as reality.dest of an inbound: REALITY would loop into the node")
 		}
 	}
@@ -213,12 +221,11 @@ func (s *Service) destNotANode(ctx context.Context, spec *inbound.Spec) error {
 	if spec.Reality == nil {
 		return nil
 	}
-	host := inbound.DestHost(spec.Reality.Dest)
-	addrs, err := s.store.NodeAddresses(ctx)
+	addrs, err := s.nodeHosts(ctx)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(addrs, host) {
+	if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
 		return fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
 	}
 	return nil
@@ -460,7 +467,7 @@ func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
 }
 
 func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatch) (*InboundView, error) {
-	addrs, err := s.store.NodeAddresses(ctx)
+	addrs, err := s.nodeHosts(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -251,3 +251,49 @@ func TestDestHost(t *testing.T) {
 		}
 	}
 }
+
+func TestDestRejectsNumericShorthandsThatResolversTurnIntoIPs(t *testing.T) {
+	for _, dest := range []string{
+		"127.1:443", "2130706433:443", "0x7f000001:443", "0x7f.0.0.1:443", "0177.0.0.1:443", "127.0.0.01:443",
+		"10.1:443", "192.168.1:443", "1.1:443",
+		"localhost.localdomain:443", "ip6-localhost:443", "ip6-loopback:443",
+		"[::127.0.0.1]:443", "[::ffff:0:127.0.0.1]:443", "[64:ff9b::7f00:1]:443", "[64:ff9b::a00:1]:443",
+	} {
+		s := validSpec()
+		s.Reality.Dest = dest
+		if err := Normalize(&s); err == nil || fieldOf(t, err) != "reality.dest" {
+			t.Errorf("dest %s accepted: %v", dest, err)
+		}
+	}
+	for _, dest := range []string{"decoy:443", "mask.test:443", "xn--80ak6aa92e.com:443", "[64:ff9b::808:808]:443"} {
+		s := validSpec()
+		s.Reality.Dest = dest
+		if err := Normalize(&s); err != nil {
+			t.Errorf("dest %s rejected: %v", dest, err)
+		}
+	}
+}
+
+func TestCanonicalHostMatchesEveryWayToWriteAnIP(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"2001:DB8:0::1", "2001:db8::1"}, {"::ffff:203.0.113.7", "203.0.113.7"}, {"WWW.Example.COM", "www.example.com"},
+	} {
+		if CanonicalHost(pair[0]) != CanonicalHost(pair[1]) {
+			t.Errorf("%s and %s differ: %q vs %q", pair[0], pair[1], CanonicalHost(pair[0]), CanonicalHost(pair[1]))
+		}
+	}
+	if DestHost("[2001:DB8:0::1]:443") != CanonicalHost("2001:db8::1") {
+		t.Fatalf("DestHost is not canonical: %q", DestHost("[2001:DB8:0::1]:443"))
+	}
+}
+
+func TestDestPortIsStoredInItsUsualForm(t *testing.T) {
+	s := validSpec()
+	s.Reality.Dest = "www.example.com:+0443"
+	if err := Normalize(&s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Reality.Dest != "www.example.com:443" {
+		t.Fatalf("dest = %q", s.Reality.Dest)
+	}
+}

@@ -161,3 +161,24 @@ func TestConcurrentInboundsWithTheSameSNI(t *testing.T) {
 		t.Fatalf("%d inbounds with the same SNI were created", ok)
 	}
 }
+
+func TestDestCannotReachANodeThroughAnotherSpelling(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n := &model.Node{CertCN: "node-v6", Name: "v6", Address: "2001:DB8:0::7", Enabled: true}
+	if err := svc.CreateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	var fe *FieldError
+	_, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "[2001:db8::7]:443", ServerNames: []string{"www.example.com"}}})
+	if !errors.As(err, &fe) || fe.Field != "reality.dest" {
+		t.Fatalf("dest at the node in another notation: %v", err)
+	}
+	in, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "[2001:db8::99]:443", ServerNames: []string{"www.example.com"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CreateNode(ctx, &model.Node{CertCN: "node-x", Name: "x", Address: "2001:0db8:0000::99"}); !errors.As(err, &fe) || fe.Field != "address" {
+		t.Fatalf("node at an inbound dest in another notation: %v (inbound %d)", err, in.ID)
+	}
+}
