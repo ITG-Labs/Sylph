@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	sessionCookie  = "sylph_session"
+	sessionCookie  = "__Host-sylph_session"
 	csrfHeader     = "X-Sylph-Panel"
 	maxLoginBytes  = 4 << 10
 	contentPolicy  = "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
@@ -119,9 +119,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := s.trust.clientIP(r)
-	id, err := s.auth.Login(body.Name, body.Password, body.Code, ip)
-	logName := truncateRunes(body.Name, maxLoggedRunes)
+	id, err := s.auth.Login(r.Context(), body.Name, body.Password, body.Code, ip)
+	logName := ""
+	if s.auth.Known(body.Name) {
+		logName = truncateRunes(body.Name, maxLoggedRunes)
+	}
 	switch {
+	case errors.Is(err, errBusy):
+		s.log.Warn("panel_login", "name", logName, "ip", ip, "result", "busy")
+		writeError(w, http.StatusServiceUnavailable, "busy", "too many logins in progress, try again")
+		return
 	case errors.Is(err, errAccountLocked):
 		s.log.Error("panel_login", "name", logName, "ip", ip, "result", "account_locked")
 		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try later")
@@ -200,7 +207,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	if s.ui == nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		io.WriteString(w, unbuiltUIPage)
+		_, _ = io.WriteString(w, unbuiltUIPage)
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/")
@@ -214,7 +221,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, s.ui, name)
 			return
 		}
-		if path.Ext(name) != "" {
+		if path.Ext(name) != "" && (strings.HasPrefix(name, "assets/") || !strings.Contains(name, "/")) {
 			http.NotFound(w, r)
 			return
 		}
@@ -226,7 +233,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Write(index)
+	_, _ = w.Write(index)
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +243,7 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

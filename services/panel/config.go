@@ -33,7 +33,7 @@ func LoadConfig() (*Config, error) {
 		SessionTTL: 12 * time.Hour,
 	}
 	u, err := url.Parse(cfg.CoreURL)
-	if cfg.CoreURL == "" || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
+	if cfg.CoreURL == "" || err != nil || u.Scheme != "https" || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
 		return nil, errors.New("SYLPH_CORE_URL must be https://host[:port]")
 	}
 	if cfg.TLSCert == "" || cfg.TLSKey == "" || cfg.CACert == "" {

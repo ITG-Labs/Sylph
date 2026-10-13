@@ -184,7 +184,7 @@ export function InboundFormDialog({
         <Textarea id="sni" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="www.microsoft.com" rows={2} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="sids" label="shortId" hint="hex, 2–16 знаков; пусто — ядро сгенерирует">
+        <Field id="sids" label="shortId" hint={inbound ? "hex, 2–16 знаков; пусто — оставить как есть" : "hex, 2–16 знаков; пусто — ядро сгенерирует"}>
           <Textarea id="sids" value={sids} onChange={(e) => setSids(e.target.value)} rows={2} className="font-mono" />
         </Field>
         <Field label="Отпечаток браузера" hint="везде работает только chrome">

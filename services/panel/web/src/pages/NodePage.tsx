@@ -216,7 +216,12 @@ export function NodePage() {
         onOpenChange={close}
         title="Удалить вход"
         description={dialog?.kind === "delete" ? `${dialog.inbound.tag} · ${dialog.inbound.reality.server_names.join(", ")}` : undefined}
-        consequences={<p>Вход пропадёт из конфига ноды и из подписок. Если он последний — к ноде станет нечем подключиться.</p>}
+        consequences={
+          <>
+            <p>Вход пропадёт из конфига ноды и из подписок. Если он последний — к ноде станет нечем подключиться.</p>
+            <p>Агент перезапустит xray — все открытые соединения ноды оборвутся.</p>
+          </>
+        }
         destructive
         confirmLabel="Удалить"
         success="Вход удалён"

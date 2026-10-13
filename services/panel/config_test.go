@@ -45,6 +45,7 @@ func TestLoadConfigRejects(t *testing.T) {
 	for name, kv := range map[string][2]string{
 		"no core":       {"SYLPH_CORE_URL", ""},
 		"ftp core":      {"SYLPH_CORE_URL", "ftp://core"},
+		"plain http":    {"SYLPH_CORE_URL", "http://core:8443"},
 		"core path":     {"SYLPH_CORE_URL", "https://core/x?y=1"},
 		"no cert":       {"SYLPH_TLS_CERT", ""},
 		"no key":        {"SYLPH_TLS_KEY", ""},

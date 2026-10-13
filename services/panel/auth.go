@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -16,12 +17,14 @@ const (
 	loginWindow            = 15 * time.Minute
 	maxLimiterKeys         = 50000
 	maxConcurrentHashes    = 4
+	hashWaitTimeout        = 5 * time.Second
 )
 
 var (
 	errBadCredentials  = errors.New("bad credentials")
 	errTooManyAttempts = errors.New("too many attempts")
 	errAccountLocked   = fmt.Errorf("account locked after wrong codes: %w", errTooManyAttempts)
+	errBusy            = errors.New("too many logins in progress")
 
 	errCodeAttemptsExhausted = fmt.Errorf("account code attempts exhausted: %w", errBadCredentials)
 )
@@ -33,6 +36,7 @@ type Auth struct {
 	limiter   *loginLimiter
 	accounts  *loginLimiter
 	hashSlots chan struct{}
+	hashWait  time.Duration
 	now       func() time.Time
 
 	mu       sync.Mutex
@@ -51,12 +55,13 @@ func NewAuth(admins map[string]*admin, sessionTTL time.Duration) *Auth {
 		limiter:   &loginLimiter{max: loginMaxFailures, m: map[string]*attempts{}, now: time.Now},
 		accounts:  &loginLimiter{max: accountMaxCodeFailures, m: map[string]*attempts{}, now: time.Now},
 		hashSlots: make(chan struct{}, maxConcurrentHashes),
+		hashWait:  hashWaitTimeout,
 		now:       time.Now,
 		lastStep:  map[string]int64{},
 	}
 }
 
-func (a *Auth) Login(name, password, code, ip string) (string, error) {
+func (a *Auth) Login(ctx context.Context, name, password, code, ip string) (string, error) {
 	key := limiterKey(ip)
 	if !a.limiter.attempt(key) {
 		return "", errTooManyAttempts
@@ -65,7 +70,11 @@ func (a *Auth) Login(name, password, code, ip string) (string, error) {
 	if adm != nil && a.accounts.blocked(adm.name) {
 		return "", errAccountLocked
 	}
-	if !a.checkPassword(adm, password) {
+	ok, err := a.checkPassword(ctx, adm, password)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
 		return "", errBadCredentials
 	}
 	if !a.accounts.attempt(adm.name) {
@@ -79,14 +88,26 @@ func (a *Auth) Login(name, password, code, ip string) (string, error) {
 	return a.sessions.create(adm.name)
 }
 
-func (a *Auth) checkPassword(adm *admin, password string) bool {
-	a.hashSlots <- struct{}{}
+func (a *Auth) checkPassword(ctx context.Context, adm *admin, password string) (bool, error) {
+	wait := time.NewTimer(a.hashWait)
+	defer wait.Stop()
+	select {
+	case a.hashSlots <- struct{}{}:
+	case <-ctx.Done():
+		return false, errBusy
+	case <-wait.C:
+		return false, errBusy
+	}
 	defer func() { <-a.hashSlots }()
 	if adm == nil {
 		a.dummy.verify(password)
-		return false
+		return false, nil
 	}
-	return adm.password.verify(password)
+	return adm.password.verify(password), nil
+}
+
+func (a *Auth) Known(name string) bool {
+	return a.admins[name] != nil
 }
 
 func (a *Auth) consumeCode(adm *admin, code string) bool {

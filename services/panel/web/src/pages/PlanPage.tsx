@@ -164,6 +164,8 @@ export function PlanPage() {
                     </div>
                     {a.revoked_at ? (
                       <Badge variant="outline">отозван {fmtDate(a.revoked_at)}</Badge>
+                    ) : a.telegram_id === null ? (
+                      <span className="text-xs text-muted-foreground">нет Telegram ID — отозвать нельзя</span>
                     ) : (
                       <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => open({ kind: "revokeAccess", access: a })}>
                         Отозвать

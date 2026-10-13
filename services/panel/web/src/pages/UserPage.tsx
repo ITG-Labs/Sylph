@@ -353,13 +353,13 @@ export function UserPage() {
             </div>
           </Section>
 
-          <Section title="История действий" description="из аудита панели">
+          <Section title="История действий" description="бан, продление, трафик, тариф, ссылка и устройства; платежи и периоды — в общем аудите">
             {history.isPending ? (
               <LoadingBlock rows={2} />
             ) : history.isError ? (
               <LoadError error={history.error} />
             ) : history.data.length === 0 ? (
-              <Empty>Из панели с юзером ничего не делали</Empty>
+              <Empty>Таких действий с юзером из панели не было</Empty>
             ) : (
               <ol className="flex flex-col gap-3">
                 {history.data.map((e) => (

@@ -10,6 +10,10 @@ import type { Group, Plan } from "@/lib/types"
 
 const GiB = 1024 ** 3
 
+function gbText(bytes: number | null | undefined) {
+  return bytes ? String(Math.round((bytes / GiB) * 100) / 100) : ""
+}
+
 function Toggle({ title, hint, checked, onChange, disabled }: { title: string; hint: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -51,7 +55,7 @@ export function PlanFormDialog({
     setName(plan?.name ?? "")
     setPrice(plan ? String(plan.price_rub) : "")
     setDays(plan ? String(plan.period_days) : "30")
-    setGb(plan?.traffic_limit_bytes ? String(Math.round((plan.traffic_limit_bytes / GiB) * 100) / 100) : "")
+    setGb(gbText(plan?.traffic_limit_bytes))
     setDevices(plan?.device_limit ? String(plan.device_limit) : "")
     setHwid(plan?.hwid_required ?? false)
     setGroup(plan?.location_group_id ? String(plan.location_group_id) : "none")
@@ -83,7 +87,34 @@ export function PlanFormDialog({
     if (priceN !== 0) setTrial(false)
   }, [priceN])
 
-  const changesLive = !!plan && (plan.location_group_id !== (group === "none" ? null : Number(group)) || plan.traffic_limit_bytes !== bytes)
+  const groupID = group === "none" ? null : Number(group)
+  const full: Record<string, unknown> = {
+    name: name.trim(),
+    price_rub: priceN,
+    period_days: daysN,
+    traffic_limit_bytes: bytes,
+    device_limit: devN,
+    hwid_required: hwid,
+    location_group_id: groupID,
+    trial,
+    visibility: priv ? "private" : "public",
+    on_sale: onSale,
+  }
+  const changed: Record<string, unknown> = {}
+  if (plan) {
+    if (full.name !== plan.name) changed.name = full.name
+    if (priceN !== plan.price_rub) changed.price_rub = priceN
+    if (daysN !== plan.period_days) changed.period_days = daysN
+    if (gb.trim() !== gbText(plan.traffic_limit_bytes)) changed.traffic_limit_bytes = bytes
+    if (devN !== plan.device_limit) changed.device_limit = devN
+    if (hwid !== plan.hwid_required) changed.hwid_required = hwid
+    if (groupID !== plan.location_group_id) changed.location_group_id = groupID
+    if (trial !== plan.trial) changed.trial = trial
+    if (full.visibility !== plan.visibility) changed.visibility = full.visibility
+    if (onSale !== plan.on_sale) changed.on_sale = onSale
+  }
+  const nothingChanged = !!plan && Object.keys(changed).length === 0
+  const changesLive = !!plan && ("traffic_limit_bytes" in changed || "location_group_id" in changed)
 
   return (
     <ActionDialog
@@ -92,22 +123,10 @@ export function PlanFormDialog({
       title={plan ? `Тариф «${plan.name}»` : "Новый тариф"}
       consequences={changesLive ? <p>Новые лимит трафика и группа нод действуют и на текущие периоды этого тарифа — ноды пересинкуются.</p> : undefined}
       confirmLabel={plan ? "Сохранить" : "Создать"}
-      canConfirm={valid}
+      canConfirm={valid && !nothingChanged}
       success={plan ? "Тариф сохранён" : "Тариф создан"}
       onConfirm={async () => {
-        const body = {
-          name: name.trim(),
-          price_rub: priceN,
-          period_days: daysN,
-          traffic_limit_bytes: bytes,
-          device_limit: devN,
-          hwid_required: hwid,
-          location_group_id: group === "none" ? null : Number(group),
-          trial,
-          visibility: priv ? "private" : "public",
-          on_sale: onSale,
-        }
-        const p = plan ? await core.patch<Plan>(`/v1/admin/plans/${plan.id}`, body) : await core.post<Plan>("/v1/admin/plans", body)
+        const p = plan ? await core.patch<Plan>(`/v1/admin/plans/${plan.id}`, changed) : await core.post<Plan>("/v1/admin/plans", full)
         onDone(p)
       }}
     >

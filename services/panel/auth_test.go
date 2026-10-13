@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -8,6 +9,8 @@ import (
 	"testing"
 	"time"
 )
+
+var bg = context.Background()
 
 type fakeClock struct {
 	mu sync.Mutex
@@ -56,7 +59,7 @@ func codeAt(clock *fakeClock) string {
 
 func TestLoginCreatesSession(t *testing.T) {
 	a, clock := newTestAuth(t)
-	id, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1")
+	id, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +89,7 @@ func TestLoginRejectsBadCredentials(t *testing.T) {
 		{"Пётр", "secret-1", codeAt(clock)},
 		{"", "", ""},
 	} {
-		if id, err := a.Login(tc.name, tc.pw, tc.code, "198.51.100.1"); !errors.Is(err, errBadCredentials) || id != "" {
+		if id, err := a.Login(bg, tc.name, tc.pw, tc.code, "198.51.100.1"); !errors.Is(err, errBadCredentials) || id != "" {
 			t.Errorf("%+v: id=%q err=%v", tc, id, err)
 		}
 	}
@@ -95,17 +98,17 @@ func TestLoginRejectsBadCredentials(t *testing.T) {
 func TestLoginCodeIsSingleUse(t *testing.T) {
 	a, clock := newTestAuth(t)
 	code := codeAt(clock)
-	if _, err := a.Login("Иван", "secret-1", code, "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", code, "198.51.100.1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Login("Иван", "secret-1", code, "198.51.100.1"); !errors.Is(err, errBadCredentials) {
+	if _, err := a.Login(bg, "Иван", "secret-1", code, "198.51.100.1"); !errors.Is(err, errBadCredentials) {
 		t.Fatalf("replayed code: %v", err)
 	}
-	if _, err := a.Login("Олег", "secret-2", code, "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Олег", "secret-2", code, "198.51.100.1"); err != nil {
 		t.Fatalf("other admin's own step rejected: %v", err)
 	}
 	clock.add(totpPeriod * time.Second)
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); err != nil {
 		t.Fatalf("next step rejected: %v", err)
 	}
 }
@@ -113,10 +116,10 @@ func TestLoginCodeIsSingleUse(t *testing.T) {
 func TestWrongPasswordDoesNotBurnCode(t *testing.T) {
 	a, clock := newTestAuth(t)
 	code := codeAt(clock)
-	if _, err := a.Login("Иван", "nope", code, "198.51.100.1"); !errors.Is(err, errBadCredentials) {
+	if _, err := a.Login(bg, "Иван", "nope", code, "198.51.100.1"); !errors.Is(err, errBadCredentials) {
 		t.Fatal(err)
 	}
-	if _, err := a.Login("Иван", "secret-1", code, "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", code, "198.51.100.1"); err != nil {
 		t.Fatalf("code burned by wrong password: %v", err)
 	}
 }
@@ -130,7 +133,7 @@ func TestConcurrentReplayLetsOneIn(t *testing.T) {
 	for range 8 {
 		wg.Go(func() {
 			<-start
-			if _, err := a.Login("Иван", "secret-1", code, "198.51.100.1"); err == nil {
+			if _, err := a.Login(bg, "Иван", "secret-1", code, "198.51.100.1"); err == nil {
 				ok.Add(1)
 			}
 		})
@@ -145,18 +148,18 @@ func TestConcurrentReplayLetsOneIn(t *testing.T) {
 func TestLoginLimiterBlocksIP(t *testing.T) {
 	a, clock := newTestAuth(t)
 	for i := range loginMaxFailures {
-		if _, err := a.Login("Иван", "nope", "000000", "198.51.100.1"); !errors.Is(err, errBadCredentials) {
+		if _, err := a.Login(bg, "Иван", "nope", "000000", "198.51.100.1"); !errors.Is(err, errBadCredentials) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1"); !errors.Is(err, errTooManyAttempts) {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); !errors.Is(err, errTooManyAttempts) {
 		t.Fatalf("blocked ip got %v", err)
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.2"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.2"); err != nil {
 		t.Fatalf("other ip: %v", err)
 	}
 	clock.add(loginWindow + time.Second)
-	if _, err := a.Login("Олег", "secret-2", codeAt(clock), "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Олег", "secret-2", codeAt(clock), "198.51.100.1"); err != nil {
 		t.Fatalf("after window: %v", err)
 	}
 }
@@ -165,21 +168,21 @@ func TestLoginLimiterGroupsIPv6Prefix(t *testing.T) {
 	a, clock := newTestAuth(t)
 	for i := range loginMaxFailures {
 		ip := fmt.Sprintf("2001:db8:1:2::%x", i+1)
-		if _, err := a.Login("Иван", "nope", "000000", ip); !errors.Is(err, errBadCredentials) {
+		if _, err := a.Login(bg, "Иван", "nope", "000000", ip); !errors.Is(err, errBadCredentials) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "2001:db8:1:2:ffff::1"); !errors.Is(err, errTooManyAttempts) {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "2001:db8:1:2:ffff::1"); !errors.Is(err, errTooManyAttempts) {
 		t.Fatalf("same /64: %v", err)
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "2001:db8:1:3::1"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "2001:db8:1:3::1"); err != nil {
 		t.Fatalf("other /64: %v", err)
 	}
 }
 
 func TestSessionExpiresAndLogout(t *testing.T) {
 	a, clock := newTestAuth(t)
-	id, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1")
+	id, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +195,7 @@ func TestSessionExpiresAndLogout(t *testing.T) {
 		t.Fatal("session outlived its ttl")
 	}
 	clock.add(totpPeriod * time.Second)
-	id, err = a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1")
+	id, err = a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,11 +207,11 @@ func TestSessionExpiresAndLogout(t *testing.T) {
 
 func TestExpiredSessionsAreSwept(t *testing.T) {
 	a, clock := newTestAuth(t)
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); err != nil {
 		t.Fatal(err)
 	}
 	clock.add(13 * time.Hour)
-	if _, err := a.Login("Олег", "secret-2", codeAt(clock), "198.51.100.1"); err != nil {
+	if _, err := a.Login(bg, "Олег", "secret-2", codeAt(clock), "198.51.100.1"); err != nil {
 		t.Fatal(err)
 	}
 	a.sessions.mu.Lock()
@@ -227,7 +230,7 @@ func TestConcurrentAttemptsStayWithinLimit(t *testing.T) {
 	for range 60 {
 		wg.Go(func() {
 			<-start
-			_, err := a.Login("Иван", "nope", "000000", "198.51.100.1")
+			_, err := a.Login(bg, "Иван", "nope", "000000", "198.51.100.1")
 			switch {
 			case errors.Is(err, errBadCredentials):
 				bad.Add(1)
@@ -247,18 +250,18 @@ func TestWrongCodesWithRightPasswordLockAccount(t *testing.T) {
 	a, clock := newTestAuth(t)
 	wrong := totpCode(rfcSecret, clock.now().Unix()/totpPeriod+7, totpDigits)
 	for i := range accountMaxCodeFailures {
-		if _, err := a.Login("Иван", "secret-1", wrong, fmt.Sprintf("198.51.100.%d", i+1)); !errors.Is(err, errBadCredentials) {
+		if _, err := a.Login(bg, "Иван", "secret-1", wrong, fmt.Sprintf("198.51.100.%d", i+1)); !errors.Is(err, errBadCredentials) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "203.0.113.50"); !errors.Is(err, errTooManyAttempts) {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "203.0.113.50"); !errors.Is(err, errTooManyAttempts) {
 		t.Fatalf("locked account from fresh ip: %v", err)
 	}
-	if _, err := a.Login("Олег", "secret-2", codeAt(clock), "203.0.113.51"); err != nil {
+	if _, err := a.Login(bg, "Олег", "secret-2", codeAt(clock), "203.0.113.51"); err != nil {
 		t.Fatalf("other admin: %v", err)
 	}
 	clock.add(loginWindow + time.Second)
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "203.0.113.52"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "203.0.113.52"); err != nil {
 		t.Fatalf("after window: %v", err)
 	}
 }
@@ -266,11 +269,11 @@ func TestWrongCodesWithRightPasswordLockAccount(t *testing.T) {
 func TestWrongPasswordsDoNotLockAccount(t *testing.T) {
 	a, clock := newTestAuth(t)
 	for i := range 3 * loginMaxFailures {
-		if _, err := a.Login("Иван", "nope", codeAt(clock), fmt.Sprintf("198.51.100.%d", i+1)); !errors.Is(err, errBadCredentials) {
+		if _, err := a.Login(bg, "Иван", "nope", codeAt(clock), fmt.Sprintf("198.51.100.%d", i+1)); !errors.Is(err, errBadCredentials) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if _, err := a.Login("Иван", "secret-1", codeAt(clock), "203.0.113.50"); err != nil {
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "203.0.113.50"); err != nil {
 		t.Fatalf("owner locked out by wrong passwords: %v", err)
 	}
 }
@@ -309,7 +312,7 @@ func TestConcurrentCodeGuessesStayWithinAccountLimit(t *testing.T) {
 		wg.Go(func() {
 			<-start
 			code := totpCode(rfcSecret, cur+int64(10+i), totpDigits)
-			_, err := a.Login("Иван", "secret-1", code, fmt.Sprintf("198.51.100.%d", i+1))
+			_, err := a.Login(bg, "Иван", "secret-1", code, fmt.Sprintf("198.51.100.%d", i+1))
 			switch {
 			case errors.Is(err, errCodeAttemptsExhausted) || errors.Is(err, errAccountLocked):
 				refused.Add(1)
@@ -329,10 +332,10 @@ func TestLockedAccountGivesNoPasswordOracle(t *testing.T) {
 	a, clock := newTestAuth(t)
 	wrong := totpCode(rfcSecret, clock.now().Unix()/totpPeriod+7, totpDigits)
 	for i := range accountMaxCodeFailures {
-		a.Login("Иван", "secret-1", wrong, fmt.Sprintf("198.51.100.%d", i+1))
+		a.Login(bg, "Иван", "secret-1", wrong, fmt.Sprintf("198.51.100.%d", i+1))
 	}
-	_, right := a.Login("Иван", "secret-1", wrong, "203.0.113.1")
-	_, bad := a.Login("Иван", "nope", wrong, "203.0.113.2")
+	_, right := a.Login(bg, "Иван", "secret-1", wrong, "203.0.113.1")
+	_, bad := a.Login(bg, "Иван", "nope", wrong, "203.0.113.2")
 	if !errors.Is(right, errTooManyAttempts) || !errors.Is(bad, errTooManyAttempts) {
 		t.Fatalf("locked account answers differ: right=%v wrong=%v", right, bad)
 	}
@@ -351,7 +354,7 @@ func TestPasswordChecksAreBounded(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		a.Login("Иван", "nope", "000000", "198.51.100.1")
+		a.Login(bg, "Иван", "nope", "000000", "198.51.100.1")
 		close(done)
 	}()
 	select {
@@ -361,4 +364,47 @@ func TestPasswordChecksAreBounded(t *testing.T) {
 	}
 	<-a.hashSlots
 	<-done
+}
+
+func TestPasswordCheckGivesUpWhenSlotsStayBusy(t *testing.T) {
+	a, clock := newTestAuth(t)
+	for range maxConcurrentHashes {
+		a.hashSlots <- struct{}{}
+	}
+	ctx, cancel := context.WithTimeout(bg, 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := a.Login(ctx, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); !errors.Is(err, errBusy) {
+		t.Fatalf("busy slots: %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("waited %v for a slot after the client gave up", time.Since(start))
+	}
+	for range maxConcurrentHashes {
+		<-a.hashSlots
+	}
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); err != nil {
+		t.Fatalf("code burned by a request that never ran: %v", err)
+	}
+}
+
+func TestPasswordCheckWaitIsCapped(t *testing.T) {
+	if hashWaitTimeout <= 0 || hashWaitTimeout > 10*time.Second {
+		t.Fatalf("hash wait timeout %v", hashWaitTimeout)
+	}
+	a, clock := newTestAuth(t)
+	a.hashWait = 30 * time.Millisecond
+	for range maxConcurrentHashes {
+		a.hashSlots <- struct{}{}
+	}
+	if _, err := a.Login(bg, "Иван", "secret-1", codeAt(clock), "198.51.100.1"); !errors.Is(err, errBusy) {
+		t.Fatalf("no timeout: %v", err)
+	}
+}
+
+func TestKnownAdmin(t *testing.T) {
+	a, _ := newTestAuth(t)
+	if !a.Known("Иван") || a.Known("hunter2") || a.Known("") {
+		t.Fatal("Known misreports admins")
+	}
 }

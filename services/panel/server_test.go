@@ -156,7 +156,7 @@ func TestLoginSetsStrictCookie(t *testing.T) {
 			c = ck
 		}
 	}
-	if c == nil || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.MaxAge != 12*3600 || c.Domain != "" {
+	if c == nil || !strings.HasPrefix(c.Name, "__Host-") || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.MaxAge != 12*3600 || c.Domain != "" {
 		t.Fatalf("cookie %+v", c)
 	}
 	if w := e.do("GET", "/auth/me", "", map[string]string{"Cookie": sessionCookie + "=" + c.Value}); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"Иван"`) {
@@ -366,8 +366,11 @@ func TestProxyCoreFailures(t *testing.T) {
 		t.Fatalf("core 401 → %d %s", w.Code, w.Body)
 	}
 	e.srv.Close()
-	if w := e.do("GET", "/api/core/v1/admin/overview", "", panelHdr(sid)); w.Code != http.StatusBadGateway || errCode(t, w) != "core_unavailable" {
+	if w := e.do("GET", "/api/core/v1/admin/users?q=SECRETSUBTOKEN0123456789abcdef", "", panelHdr(sid)); w.Code != http.StatusBadGateway || errCode(t, w) != "core_unavailable" {
 		t.Fatalf("core down → %d %s", w.Code, w.Body)
+	}
+	if strings.Contains(e.logs.String(), "SECRETSUBTOKEN") {
+		t.Fatalf("query string leaked into logs: %s", e.logs)
 	}
 }
 
@@ -423,7 +426,7 @@ func TestSecurityHeaders(t *testing.T) {
 
 func TestServesSPA(t *testing.T) {
 	e := newEnv(t)
-	for _, p := range []string{"/", "/users/42", "/payments?status=pending", "/nodes/1/inbounds"} {
+	for _, p := range []string{"/", "/users/42", "/payments?status=pending", "/nodes/1/inbounds", "/payments/manual.2026-10-13.x"} {
 		w := e.do("GET", p, "", nil)
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "<title>Sylph</title>") || w.Header().Get("Cache-Control") != "no-cache" {
 			t.Errorf("%s: %d %q %q", p, w.Code, w.Body, w.Header().Get("Cache-Control"))
@@ -458,5 +461,36 @@ func TestUnbuiltUI(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unbuilt ui %d", w.Code)
+	}
+}
+
+func TestLoginLogsOnlyKnownNames(t *testing.T) {
+	e := newEnv(t)
+	h := map[string]string{"X-Sylph-Panel": "1"}
+	e.do("POST", "/auth/login", `{"name":"PastedPassw0rdByMistake","password":"x","code":"000000"}`, h)
+	e.do("POST", "/auth/login", `{"name":"Иван","password":"nope","code":"000000"}`, h)
+	logs := e.logs.String()
+	if strings.Contains(logs, "PastedPassw0rdByMistake") {
+		t.Fatalf("unknown login name logged: %s", logs)
+	}
+	if !strings.Contains(logs, `"name":"Иван"`) {
+		t.Fatalf("known admin name missing from log: %s", logs)
+	}
+}
+
+func TestLoginBusyIsServiceUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.auth.hashWait = 20 * time.Millisecond
+	for range maxConcurrentHashes {
+		e.auth.hashSlots <- struct{}{}
+	}
+	defer func() {
+		for range maxConcurrentHashes {
+			<-e.auth.hashSlots
+		}
+	}()
+	w := e.do("POST", "/auth/login", `{"name":"Иван","password":"secret-1","code":"000000"}`, map[string]string{"X-Sylph-Panel": "1"})
+	if w.Code != http.StatusServiceUnavailable || errCode(t, w) != "busy" {
+		t.Fatalf("busy login %d %s", w.Code, w.Body)
 	}
 }

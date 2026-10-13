@@ -190,6 +190,10 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 	}()
 	if err != nil {
 		status = http.StatusBadGateway
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
 		p.log.Error("core_unavailable", "route", route.method+" "+route.pattern, "error", err.Error())
 		writeError(w, http.StatusBadGateway, "core_unavailable", "core is unreachable")
 		return
@@ -215,5 +219,5 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(reply)
+	_, _ = w.Write(reply)
 }
