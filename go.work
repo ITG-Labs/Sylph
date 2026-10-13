@@ -7,4 +7,5 @@ use (
 	./services/cron
 	./services/subs
 	./services/bot
+	./services/panel
 )
