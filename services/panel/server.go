@@ -126,6 +126,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("panel_login", "name", logName, "ip", ip, "result", "account_locked")
 		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try later")
 		return
+	case errors.Is(err, errCodeAttemptsExhausted):
+		s.log.Error("panel_login", "name", logName, "ip", ip, "result", "account_locked")
+		writeError(w, http.StatusUnauthorized, "bad_credentials", "wrong name, password or code")
+		return
 	case errors.Is(err, errTooManyAttempts):
 		s.log.Warn("panel_login", "name", logName, "ip", ip, "result", "blocked")
 		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins, try later")

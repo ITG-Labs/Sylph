@@ -275,16 +275,77 @@ func TestWrongPasswordsDoNotLockAccount(t *testing.T) {
 	}
 }
 
-func TestLimiterTableIsBounded(t *testing.T) {
-	a, _ := newTestAuth(t)
-	for i := range maxLimiterKeys + 50 {
-		a.limiter.attempt(fmt.Sprintf("k%d", i))
+func TestFullLimiterRefusesNewKeysInsteadOfEvicting(t *testing.T) {
+	a, clock := newTestAuth(t)
+	for i := range maxLimiterKeys {
+		if !a.limiter.attempt(fmt.Sprintf("k%d", i)) {
+			t.Fatalf("key %d refused before the table was full", i)
+		}
+	}
+	for i := range 50 {
+		if a.limiter.attempt(fmt.Sprintf("new%d", i)) {
+			t.Fatal("new key admitted into a full table")
+		}
+	}
+	for range loginMaxFailures - 1 {
+		if !a.limiter.attempt("k0") {
+			t.Fatal("known key lost its slot")
+		}
+	}
+	if a.limiter.attempt("k0") {
+		t.Fatal("known key not limited after the table filled up")
 	}
 	a.limiter.mu.Lock()
 	n := len(a.limiter.m)
 	a.limiter.mu.Unlock()
 	if n > maxLimiterKeys {
 		t.Fatalf("%d keys kept", n)
+	}
+	clock.add(loginWindow + time.Second)
+	if !a.limiter.attempt("fresh") {
+		t.Fatal("expired entries not swept")
+	}
+}
+
+func TestConcurrentCodeGuessesStayWithinAccountLimit(t *testing.T) {
+	a, clock := newTestAuth(t)
+	cur := clock.now().Unix() / totpPeriod
+	var checked, refused atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range 40 {
+		wg.Go(func() {
+			<-start
+			code := totpCode(rfcSecret, cur+int64(10+i), totpDigits)
+			_, err := a.Login("Иван", "secret-1", code, fmt.Sprintf("198.51.100.%d", i+1))
+			switch {
+			case errors.Is(err, errCodeAttemptsExhausted) || errors.Is(err, errAccountLocked):
+				refused.Add(1)
+			case errors.Is(err, errBadCredentials):
+				checked.Add(1)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if checked.Load() > accountMaxCodeFailures || checked.Load()+refused.Load() != 40 {
+		t.Fatalf("%d codes checked, %d refused", checked.Load(), refused.Load())
+	}
+}
+
+func TestLockedAccountGivesNoPasswordOracle(t *testing.T) {
+	a, clock := newTestAuth(t)
+	wrong := totpCode(rfcSecret, clock.now().Unix()/totpPeriod+7, totpDigits)
+	for i := range accountMaxCodeFailures {
+		a.Login("Иван", "secret-1", wrong, fmt.Sprintf("198.51.100.%d", i+1))
+	}
+	_, right := a.Login("Иван", "secret-1", wrong, "203.0.113.1")
+	_, bad := a.Login("Иван", "nope", wrong, "203.0.113.2")
+	if !errors.Is(right, errTooManyAttempts) || !errors.Is(bad, errTooManyAttempts) {
+		t.Fatalf("locked account answers differ: right=%v wrong=%v", right, bad)
+	}
+	if errors.Is(errCodeAttemptsExhausted, errTooManyAttempts) || !errors.Is(errCodeAttemptsExhausted, errBadCredentials) {
+		t.Fatal("exhausted code slots must look like bad credentials")
 	}
 }
 

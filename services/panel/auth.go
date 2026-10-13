@@ -22,6 +22,8 @@ var (
 	errBadCredentials  = errors.New("bad credentials")
 	errTooManyAttempts = errors.New("too many attempts")
 	errAccountLocked   = fmt.Errorf("account locked after wrong codes: %w", errTooManyAttempts)
+
+	errCodeAttemptsExhausted = fmt.Errorf("account code attempts exhausted: %w", errBadCredentials)
 )
 
 type Auth struct {
@@ -66,8 +68,10 @@ func (a *Auth) Login(name, password, code, ip string) (string, error) {
 	if !a.checkPassword(adm, password) {
 		return "", errBadCredentials
 	}
+	if !a.accounts.attempt(adm.name) {
+		return "", errCodeAttemptsExhausted
+	}
 	if !a.consumeCode(adm, code) {
-		a.accounts.fail(adm.name)
 		return "", errBadCredentials
 	}
 	a.limiter.reset(key)
@@ -184,7 +188,9 @@ func (l *loginLimiter) attempt(key string) bool {
 		at.n++
 		return true
 	}
-	l.makeRoom(now)
+	if at == nil && !l.hasRoom(now) {
+		return false
+	}
 	l.m[key] = &attempts{first: now, n: 1}
 	return true
 }
@@ -196,37 +202,16 @@ func (l *loginLimiter) blocked(key string) bool {
 	return at != nil && l.now().Sub(at.first) <= loginWindow && at.n >= l.max
 }
 
-func (l *loginLimiter) fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	at := l.m[key]
-	if at != nil && now.Sub(at.first) <= loginWindow {
-		at.n++
-		return
-	}
-	l.makeRoom(now)
-	l.m[key] = &attempts{first: now, n: 1}
-}
-
-func (l *loginLimiter) makeRoom(now time.Time) {
+func (l *loginLimiter) hasRoom(now time.Time) bool {
 	if len(l.m) < maxLimiterKeys {
-		return
+		return true
 	}
 	for k, v := range l.m {
 		if now.Sub(v.first) > loginWindow {
 			delete(l.m, k)
 		}
 	}
-	for len(l.m) >= maxLimiterKeys {
-		oldest := ""
-		for k, v := range l.m {
-			if oldest == "" || v.first.Before(l.m[oldest].first) {
-				oldest = k
-			}
-		}
-		delete(l.m, oldest)
-	}
+	return len(l.m) < maxLimiterKeys
 }
 
 func (l *loginLimiter) reset(key string) {
