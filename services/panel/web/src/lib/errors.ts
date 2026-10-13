@@ -43,6 +43,7 @@ const byCode: Record<string, string> = {
 
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.status === 409 && err.field === "status" && err.message.includes("still waiting")) return "Платёж моложе суток — юзер ещё может оплатить, отклонять рано"
     if (err.status === 409 && byField[err.field]) return byField[err.field]
     if (byCode[err.code]) return byCode[err.code]
     if (err.field) return `${err.field}: ${err.message}`

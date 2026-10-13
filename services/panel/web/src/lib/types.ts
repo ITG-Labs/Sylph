@@ -221,8 +221,10 @@ export interface AuditPage {
   next_before: number | null
 }
 
-export interface RecheckResult {
+export interface PaymentActionResult {
   status: PaymentStatus
   applied: boolean
-  provider: { found: boolean; status?: string; amount?: string; refunded?: string }
+  period_id?: number
+  period_closed: boolean
+  provider?: { found: boolean; status?: string; amount?: string; refunded?: string }
 }

@@ -7,6 +7,7 @@ describe("describeError", () => {
     expect(describeError(new ApiError(409, "conflict", "subscription", "x"))).toBe("У юзера нет активного периода")
     expect(describeError(new ApiError(409, "conflict", "bytes", "x"))).toBe("Тариф без лимита — докидывать трафик некуда")
     expect(describeError(new ApiError(409, "conflict", "status", "x"))).toBe("Платёж уже в другом статусе — обнови страницу")
+    expect(describeError(new ApiError(409, "conflict", "status", "payment is still waiting for the customer"))).toBe("Платёж моложе суток — юзер ещё может оплатить, отклонять рано")
   })
   it("explains codes", () => {
     expect(describeError(new ApiError(502, "provider_unavailable", "", ""))).toBe("ЮKassa не ответила — попробуй позже")

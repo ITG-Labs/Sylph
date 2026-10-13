@@ -25,6 +25,10 @@ const payment: Record<PaymentStatus, { label: string; variant: "success" | "warn
   refunded: { label: "возвращён", variant: "outline", icon: Undo2 },
 }
 
+export function paymentStatusLabel(status: string) {
+  return payment[status as PaymentStatus]?.label ?? status
+}
+
 export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
   const s = payment[status] ?? { label: status, variant: "secondary" as const, icon: CircleX }
   return (

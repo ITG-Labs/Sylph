@@ -231,7 +231,17 @@ export function UserPage() {
             )}
           </Section>
 
-          <Section title="Платежи" description="последние 20">
+          <Section
+            title="Платежи"
+            description="последние 20"
+            action={
+              c.payments.length > 0 && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to={`/payments?user_id=${u.id}`}>все платежи</Link>
+                </Button>
+              )
+            }
+          >
             {c.payments.length === 0 ? (
               <Empty>Платежей не было</Empty>
             ) : (
