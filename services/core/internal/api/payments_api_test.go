@@ -166,7 +166,6 @@ func TestPlansForTheBot(t *testing.T) {
 	if len(list) != 1 || list[0].ID != keep.ID || !list[0].OnSale {
 		t.Fatalf("plans = %+v", list)
 	}
-	mustStatus(t, adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/admin/plans", map[string]any{"name": "x", "price_rub": 1, "period_days": 30, "on_sale": false}), http.StatusBadRequest)
 }
 
 func TestPlansForTheBotIsAnEmptyList(t *testing.T) {

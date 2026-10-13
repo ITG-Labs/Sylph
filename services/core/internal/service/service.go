@@ -20,6 +20,21 @@ type Service struct {
 	pollBudget  time.Duration
 	nodeOffline time.Duration
 	nodeStale   time.Duration
+	botUsername string
+}
+
+func (s *Service) SetBotUsername(name string) {
+	s.botUsername = name
+}
+
+func (s *Service) withLinks(invites ...*model.Invite) {
+	if s.botUsername == "" {
+		return
+	}
+	for _, inv := range invites {
+		link := "https://t.me/" + s.botUsername + "?start=" + inv.Code
+		inv.Link = &link
+	}
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {

@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,5 +127,22 @@ func TestNodeThresholdsFromEnv(t *testing.T) {
 	t.Setenv("SYLPH_NODE_SYNC_STALE_AFTER", "0")
 	if _, _, err := nodeThresholds(); err == nil {
 		t.Fatal("zero stale accepted")
+	}
+}
+
+func TestBotUsernameFromEnv(t *testing.T) {
+	t.Setenv("SYLPH_BOT_USERNAME", "")
+	if name, err := botUsername(); err != nil || name != "" {
+		t.Fatalf("empty = %q, %v", name, err)
+	}
+	t.Setenv("SYLPH_BOT_USERNAME", "@the_underground_service_bot")
+	if name, err := botUsername(); err != nil || name != "the_underground_service_bot" {
+		t.Fatalf("with @ = %q, %v", name, err)
+	}
+	for _, bad := range []string{"bot", "has space", "t.me/bot_name", strings.Repeat("a", 33)} {
+		t.Setenv("SYLPH_BOT_USERNAME", bad)
+		if _, err := botUsername(); err == nil {
+			t.Fatalf("%q accepted", bad)
+		}
 	}
 }

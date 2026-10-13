@@ -191,3 +191,63 @@ func TestNewPrivateKeyIsClampedLikeXray(t *testing.T) {
 		}
 	}
 }
+
+func TestShortIDsAreLowercasedAndUnique(t *testing.T) {
+	s := validSpec()
+	s.Reality.ShortIDs = []string{"ABCD", "0f"}
+	if err := Normalize(&s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Reality.ShortIDs[0] != "abcd" || s.Reality.ShortIDs[1] != "0f" {
+		t.Fatalf("short ids = %v", s.Reality.ShortIDs)
+	}
+	s = validSpec()
+	s.Reality.ShortIDs = []string{"ABCD", "abcd"}
+	if f := fieldOf(t, Normalize(&s)); f != "reality.short_ids" {
+		t.Fatalf("duplicate short ids: field %s", f)
+	}
+}
+
+func TestDestRejectsInternalAddresses(t *testing.T) {
+	for _, dest := range []string{
+		"127.0.0.1:443", "10.0.0.1:443", "192.168.1.1:443", "172.16.0.1:443", "169.254.1.1:443", "100.64.0.1:443",
+		"0.0.0.0:443", "224.0.0.1:443", "255.255.255.255:443", "[::1]:443", "[fd00::1]:443", "[fe80::1]:443", "[::]:443",
+		"[::ffff:127.0.0.1]:443", "localhost:443", "foo.localhost:443", "LOCALHOST:443",
+	} {
+		s := validSpec()
+		s.Reality.Dest = dest
+		if err := Normalize(&s); err == nil || fieldOf(t, err) != "reality.dest" {
+			t.Errorf("dest %s accepted: %v", dest, err)
+		}
+	}
+	for _, dest := range []string{"www.microsoft.com:443", "1.1.1.1:443", "[2606:4700::1111]:443"} {
+		s := validSpec()
+		s.Reality.Dest = dest
+		if err := Normalize(&s); err != nil {
+			t.Errorf("dest %s rejected: %v", dest, err)
+		}
+	}
+}
+
+func TestLabelRejectsControlCharacters(t *testing.T) {
+	for _, label := range []string{"a\x07b", "line break", "tab\t"} {
+		s := validSpec()
+		s.Label = label
+		if f := fieldOf(t, Normalize(&s)); f != "label" {
+			t.Fatalf("label %q: field %s", label, f)
+		}
+	}
+	s := validSpec()
+	s.Label = "   "
+	if f := fieldOf(t, Normalize(&s)); f != "label" {
+		t.Fatalf("label of spaces: field %s", f)
+	}
+}
+
+func TestDestHost(t *testing.T) {
+	for in, want := range map[string]string{"WWW.Example.com:443": "www.example.com", "[2606:4700::1111]:443": "2606:4700::1111", "bad": ""} {
+		if got := DestHost(in); got != want {
+			t.Errorf("DestHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -56,13 +56,17 @@ func (s *Store) scanPlan(row pgxRow) (*model.Plan, error) {
 }
 
 func (s *Store) CreatePlan(ctx context.Context, p *model.Plan) error {
+	return s.CreatePlanWith(ctx, p, true)
+}
+
+func (s *Store) CreatePlanWith(ctx context.Context, p *model.Plan, onSale bool) error {
 	if p.Visibility == "" {
 		p.Visibility = model.VisibilityPublic
 	}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, hwid_required, trial, visibility)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, on_sale, created_at`,
-		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.HWIDRequired, p.Trial, p.Visibility,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, hwid_required, trial, visibility, on_sale)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, on_sale, created_at`,
+		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.HWIDRequired, p.Trial, p.Visibility, onSale,
 	).Scan(&p.ID, &p.OnSale, &p.CreatedAt)
 	return mapWriteErr(err)
 }

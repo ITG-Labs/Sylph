@@ -81,6 +81,7 @@ func (s *Service) CreateInvite(ctx context.Context, planID int64, maxUses *int, 
 		return nil, err
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "invite_created", slog.Int64("invite_id", inv.ID), slog.Int64("plan_id", planID))
+	s.withLinks(inv)
 	return inv, nil
 }
 
@@ -88,7 +89,11 @@ func (s *Service) ListInvites(ctx context.Context, planID int64) ([]model.Invite
 	if _, err := s.store.GetPlan(ctx, planID); err != nil {
 		return nil, err
 	}
-	return s.store.ListInvites(ctx, planID)
+	list, err := s.store.ListInvites(ctx, planID)
+	for i := range list {
+		s.withLinks(&list[i])
+	}
+	return list, err
 }
 
 func (s *Service) RevokeInvite(ctx context.Context, id int64) (*model.Invite, error) {
@@ -97,6 +102,7 @@ func (s *Service) RevokeInvite(ctx context.Context, id int64) (*model.Invite, er
 		return nil, err
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "invite_revoked", slog.Int64("invite_id", id), slog.Int64("plan_id", inv.PlanID))
+	s.withLinks(inv)
 	return inv, nil
 }
 

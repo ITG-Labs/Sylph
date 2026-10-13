@@ -71,6 +71,7 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 		HWIDRequired      *bool  `json:"hwid_required"`
 		Trial             bool   `json:"trial"`
 		Visibility        string `json:"visibility"`
+		OnSale            *bool  `json:"on_sale"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -86,7 +87,8 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	if p.Visibility == "" {
 		p.Visibility = model.VisibilityPublic
 	}
-	if err := s.svc.CreatePlanChecked(r.Context(), p); err != nil {
+	onSale := body.OnSale == nil || *body.OnSale
+	if err := s.svc.CreatePlanOnSale(r.Context(), p, onSale); err != nil {
 		s.writeServiceError(w, err, "plan")
 		return
 	}
