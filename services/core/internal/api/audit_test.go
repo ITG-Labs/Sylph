@@ -119,3 +119,21 @@ func TestBadOperatorHeaderIsRejected(t *testing.T) {
 	}
 	mustField(t, e.call(t, http.MethodGet, "/v1/admin/audit?limit=0", nil), http.StatusBadRequest, "bad_request", "limit")
 }
+
+func TestTwoOperatorHeadersAreRejected(t *testing.T) {
+	e := newAdminEnv(t)
+	req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/admin/groups", strings.NewReader(`{"name":"g"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("X-Sylph-Operator", "alice")
+	req.Header.Add("X-Sylph-Operator", "bob")
+	resp, err := e.panel.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}

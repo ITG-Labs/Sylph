@@ -63,6 +63,9 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func operatorFrom(r *http.Request) (string, bool) {
+	if len(r.Header.Values(operatorHeader)) > 1 {
+		return "", false
+	}
 	op := r.Header.Get(operatorHeader)
 	if utf8.RuneCountInString(op) > maxOperatorRunes || !utf8.ValidString(op) {
 		return "", false
@@ -91,7 +94,7 @@ func (s *Server) logChange(r *http.Request, entity, action string, id any) {
 func (s *Server) servePanel(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	op, ok := operatorFrom(r)
 	if !ok {
-		writeFieldError(w, http.StatusBadRequest, "bad_request", operatorHeader, "must be at most 64 characters without control characters")
+		writeFieldError(w, http.StatusBadRequest, "bad_request", operatorHeader, "must be sent once, at most 64 characters, without control characters")
 		return
 	}
 	ctx := context.WithValue(r.Context(), operatorKey, op)
