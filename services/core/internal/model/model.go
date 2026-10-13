@@ -27,6 +27,7 @@ type Node struct {
 	AgentUptimeSec *int64     `json:"agent_uptime_sec"`
 	XrayUptimeSec  *int64     `json:"xray_uptime_sec"`
 	LastSyncAt     *time.Time `json:"last_sync_at"`
+	Status         string     `json:"status,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 

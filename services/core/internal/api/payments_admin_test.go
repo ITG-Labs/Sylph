@@ -82,3 +82,31 @@ func TestManualPaymentsCannotBeRechecked(t *testing.T) {
 	mustField(t, adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/admin/payments/cash-1/recheck", nil), http.StatusConflict, "conflict", "source")
 	mustStatus(t, adminCall(t, panel, http.MethodPost, e.ts.URL+"/v1/admin/payments/cash-1/refund", map[string]any{"reason": "cash returned"}), http.StatusOK)
 }
+
+func TestOverviewAndNodeStatusInTheAPI(t *testing.T) {
+	e := newAdminEnv(t)
+	e.createNode(t, "node-a", nil)
+	r := e.call(t, http.MethodGet, "/v1/admin/overview", nil)
+	mustStatus(t, r, http.StatusOK)
+	var ov struct {
+		Nodes struct {
+			Total    int            `json:"total"`
+			ByStatus map[string]int `json:"by_status"`
+		} `json:"nodes"`
+		Users     map[string]int64 `json:"users"`
+		Revenue   map[string]any   `json:"revenue"`
+		Attention map[string]int64 `json:"attention"`
+	}
+	r.decode(t, &ov)
+	if ov.Nodes.Total != 1 || ov.Nodes.ByStatus["never"] != 1 || ov.Users == nil || ov.Revenue["yookassa"] == nil || ov.Attention == nil {
+		t.Fatalf("overview = %s", r.body)
+	}
+	r = e.call(t, http.MethodGet, "/v1/admin/nodes", nil)
+	var nodes []struct {
+		Status string `json:"status"`
+	}
+	r.decode(t, &nodes)
+	if len(nodes) != 1 || nodes[0].Status != "never" {
+		t.Fatalf("nodes = %s", r.body)
+	}
+}

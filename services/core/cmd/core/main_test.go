@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadRevokedList(t *testing.T) {
@@ -100,5 +101,30 @@ func TestStatsTimezoneFromEnv(t *testing.T) {
 	t.Setenv("SYLPH_STATS_TZ", "Mars/Olympus")
 	if _, err := statsTimezone(); err == nil {
 		t.Fatal("unknown timezone accepted")
+	}
+}
+
+func TestNodeThresholdsFromEnv(t *testing.T) {
+	t.Setenv("SYLPH_NODE_OFFLINE_AFTER", "")
+	t.Setenv("SYLPH_NODE_SYNC_STALE_AFTER", "")
+	offline, stale, err := nodeThresholds()
+	if err != nil || offline != time.Minute || stale != 3*time.Minute {
+		t.Fatalf("defaults = %v %v %v", offline, stale, err)
+	}
+	t.Setenv("SYLPH_NODE_OFFLINE_AFTER", "90s")
+	t.Setenv("SYLPH_NODE_SYNC_STALE_AFTER", "10m")
+	if offline, stale, err := nodeThresholds(); err != nil || offline != 90*time.Second || stale != 10*time.Minute {
+		t.Fatalf("custom = %v %v %v", offline, stale, err)
+	}
+	for _, bad := range []string{"0s", "-1m", "soon"} {
+		t.Setenv("SYLPH_NODE_OFFLINE_AFTER", bad)
+		if _, _, err := nodeThresholds(); err == nil {
+			t.Fatalf("offline %q accepted", bad)
+		}
+	}
+	t.Setenv("SYLPH_NODE_OFFLINE_AFTER", "1m")
+	t.Setenv("SYLPH_NODE_SYNC_STALE_AFTER", "0")
+	if _, _, err := nodeThresholds(); err == nil {
+		t.Fatal("zero stale accepted")
 	}
 }

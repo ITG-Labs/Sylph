@@ -233,15 +233,27 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if err := s.store.UpdateNode(ctx, n); err != nil {
 		return nil, referenceOr(err, "group_id", "group not found")
 	}
-	return s.store.GetNode(ctx, id)
+	return s.GetNode(ctx, id)
 }
 
 func (s *Service) ListNodes(ctx context.Context) ([]model.Node, error) {
-	return s.store.ListNodes(ctx)
+	list, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return list, s.markNodes(ctx, list)
 }
 
 func (s *Service) GetNode(ctx context.Context, id int64) (*model.Node, error) {
-	return s.store.GetNode(ctx, id)
+	n, err := s.store.GetNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	nodes := []model.Node{*n}
+	if err := s.markNodes(ctx, nodes); err != nil {
+		return nil, err
+	}
+	return &nodes[0], nil
 }
 
 type InboundView struct {

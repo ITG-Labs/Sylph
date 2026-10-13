@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -122,4 +123,10 @@ func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, e
 		keys = append(keys, k)
 	}
 	return keys, rows.Err()
+}
+
+func (s *Store) DBNow(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	err := s.pool.QueryRow(ctx, `SELECT now()`).Scan(&now)
+	return now, err
 }

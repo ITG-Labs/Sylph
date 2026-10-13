@@ -22,6 +22,16 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/admin/nodes/{id}/inbounds", s.handleInboundCreate, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/inbounds/{id}", s.handleInboundUpdate, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/inbounds/{id}", s.handleInboundDelete, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/overview", s.handleOverview, mtls.RolePanel)
+}
+
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	ov, err := s.svc.Overview(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err, "overview")
+		return
+	}
+	writeJSON(w, http.StatusOK, ov)
 }
 
 func (s *Server) logChange(r *http.Request, entity, action string, id int64) {

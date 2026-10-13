@@ -17,10 +17,12 @@ type Service struct {
 	returnURL   string
 	createLocks [64]sync.Mutex
 	pollBudget  time.Duration
+	nodeOffline time.Duration
+	nodeStale   time.Duration
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log, pollBudget: 20 * time.Second}
+	return &Service{store: st, log: log, pollBudget: 20 * time.Second, nodeOffline: DefaultNodeOffline, nodeStale: DefaultNodeSyncStale}
 }
 
 func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {
