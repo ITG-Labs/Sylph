@@ -69,7 +69,7 @@ func TestLoadAdminsRejectsBadFiles(t *testing.T) {
 		"empty name":     "[" + rec("", good, secret) + "]",
 		"spaces":         "[" + rec(" Иван", good, secret) + "]",
 		"control":        "[" + rec("Ив\u0007ан", good, secret) + "]",
-		"line separator": "[" + rec("Ив ан", good, secret) + "]",
+		"line separator": "[" + rec("Ив\u2028ан", good, secret) + "]",
 		"too long":       "[" + rec(strings.Repeat("я", 65), good, secret) + "]",
 		"bad hash":       "[" + rec("Иван", "plain", secret) + "]",
 		"weak hash":      "[" + rec("Иван", weak, secret) + "]",

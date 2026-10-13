@@ -86,7 +86,7 @@ func validAdminName(name string) error {
 		return fmt.Errorf("name must be valid UTF-8, at most %d characters", maxAdminNameRunes)
 	}
 	for _, c := range name {
-		if unicode.IsControl(c) || c == ' ' || c == ' ' {
+		if unicode.IsControl(c) || c == '\u2028' || c == '\u2029' {
 			return errors.New("name must not contain control characters")
 		}
 	}
