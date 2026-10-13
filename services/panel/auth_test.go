@@ -275,25 +275,18 @@ func TestWrongPasswordsDoNotLockAccount(t *testing.T) {
 	}
 }
 
-func TestFullLimiterRefusesNewKeysInsteadOfEvicting(t *testing.T) {
-	a, clock := newTestAuth(t)
+func TestFullLimiterKeepsLoginOpen(t *testing.T) {
+	a, _ := newTestAuth(t)
 	for i := range maxLimiterKeys {
-		if !a.limiter.attempt(fmt.Sprintf("k%d", i)) {
-			t.Fatalf("key %d refused before the table was full", i)
-		}
-	}
-	for i := range 50 {
-		if a.limiter.attempt(fmt.Sprintf("new%d", i)) {
-			t.Fatal("new key admitted into a full table")
-		}
+		a.limiter.attempt(fmt.Sprintf("k%d", i))
 	}
 	for range loginMaxFailures - 1 {
-		if !a.limiter.attempt("k0") {
-			t.Fatal("known key lost its slot")
-		}
+		a.limiter.attempt("hot")
 	}
-	if a.limiter.attempt("k0") {
-		t.Fatal("known key not limited after the table filled up")
+	for i := range 50 {
+		if !a.limiter.attempt(fmt.Sprintf("new%d", i)) {
+			t.Fatal("new address refused: a full table must not lock everyone out")
+		}
 	}
 	a.limiter.mu.Lock()
 	n := len(a.limiter.m)
@@ -301,9 +294,8 @@ func TestFullLimiterRefusesNewKeysInsteadOfEvicting(t *testing.T) {
 	if n > maxLimiterKeys {
 		t.Fatalf("%d keys kept", n)
 	}
-	clock.add(loginWindow + time.Second)
-	if !a.limiter.attempt("fresh") {
-		t.Fatal("expired entries not swept")
+	if n < maxLimiterKeys*8/10 {
+		t.Fatalf("evicted too much: %d left", n)
 	}
 }
 

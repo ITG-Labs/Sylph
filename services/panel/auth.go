@@ -14,7 +14,7 @@ const (
 	loginMaxFailures       = 10
 	accountMaxCodeFailures = 5
 	loginWindow            = 15 * time.Minute
-	maxLimiterKeys         = 10000
+	maxLimiterKeys         = 50000
 	maxConcurrentHashes    = 4
 )
 
@@ -188,8 +188,8 @@ func (l *loginLimiter) attempt(key string) bool {
 		at.n++
 		return true
 	}
-	if at == nil && !l.hasRoom(now) {
-		return false
+	if at == nil {
+		l.makeRoom(now)
 	}
 	l.m[key] = &attempts{first: now, n: 1}
 	return true
@@ -202,16 +202,21 @@ func (l *loginLimiter) blocked(key string) bool {
 	return at != nil && l.now().Sub(at.first) <= loginWindow && at.n >= l.max
 }
 
-func (l *loginLimiter) hasRoom(now time.Time) bool {
+func (l *loginLimiter) makeRoom(now time.Time) {
 	if len(l.m) < maxLimiterKeys {
-		return true
+		return
 	}
 	for k, v := range l.m {
 		if now.Sub(v.first) > loginWindow {
 			delete(l.m, k)
 		}
 	}
-	return len(l.m) < maxLimiterKeys
+	for k := range l.m {
+		if len(l.m) < maxLimiterKeys*9/10 {
+			break
+		}
+		delete(l.m, k)
+	}
 }
 
 func (l *loginLimiter) reset(key string) {
