@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { fmtBytes, fmtRub, fmtDate, fmtDateTime, fmtUptime, fmtRelative, parseGB, plural, trafficPercent } from "./format"
+import { fmtBytes, fmtRub, fmtDate, fmtDateTime, fmtShortDay, fmtTelegram, fmtUptime, fmtRelative, parseGB, plural, trafficPercent } from "./format"
 
 describe("fmtBytes", () => {
   it("uses binary units with Russian names", () => {
@@ -77,5 +77,22 @@ describe("plural", () => {
   it("follows Russian rules", () => {
     const f = (n: number) => plural(n, "нода", "ноды", "нод")
     expect([1, 2, 5, 11, 12, 14, 21, 22, 25, 101, 111].map(f)).toEqual(["нода", "ноды", "нод", "нод", "нод", "нод", "нода", "ноды", "нод", "нода", "нод"])
+  })
+})
+
+describe("fmtTelegram", () => {
+  it("joins the nick and the name when they exist", () => {
+    expect(fmtTelegram("ivan", "Иван Петров")).toBe("@ivan · Иван Петров")
+    expect(fmtTelegram(null, "Иван")).toBe("Иван")
+    expect(fmtTelegram("ivan", null)).toBe("@ivan")
+    expect(fmtTelegram("ivan", "")).toBe("@ivan")
+    expect(fmtTelegram(null, null)).toBe("")
+  })
+})
+
+describe("fmtShortDay", () => {
+  it("shows a calendar day without a year or a zone shift", () => {
+    expect(fmtShortDay("2026-10-01")).toBe("1 окт")
+    expect(fmtShortDay("2026-12-31")).toBe("31 дек")
   })
 })

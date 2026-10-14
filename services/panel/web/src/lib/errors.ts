@@ -24,6 +24,7 @@ const byField: Record<string, string> = {
   tag: "Такой тег уже есть у этой ноды",
   cert_cn: "Нода с таким CN уже заведена",
   payment_id: "Такой id платежа уже занят",
+  group: "В группе ещё есть ноды или тарифы — сначала перенеси их",
 }
 
 const byCode: Record<string, string> = {
@@ -65,6 +66,9 @@ const fieldLabels: Record<string, string> = {
   days: "Дни",
   bytes: "Трафик",
   telegram_id: "Telegram ID",
+  subs_title: "Название",
+  subs_support_url: "Ссылка поддержки",
+  q: "Поиск",
 }
 
 export function describeError(err: unknown): string {

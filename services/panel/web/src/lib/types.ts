@@ -36,6 +36,8 @@ export interface UserRow {
   traffic_used_bytes: number
   traffic_limit_bytes: number | null
   devices: number
+  telegram_username: string | null
+  telegram_name: string | null
 }
 
 export interface UsersPage {
@@ -105,8 +107,15 @@ export interface PaymentsPage {
   next_before: number | null
 }
 
+export interface TelegramInfo {
+  username: string | null
+  name: string
+  updated_at: string
+}
+
 export interface UserCard {
   user: User
+  telegram: TelegramInfo | null
   periods: Period[]
   devices: Device[]
   trial: { plan_id: number; period_id: number; granted_at: string } | null
@@ -178,6 +187,34 @@ export interface Plan {
   trial: boolean
   visibility: "public" | "private"
   created_at: string
+  active_users?: number
+}
+
+export interface UpDown {
+  up: number
+  down: number
+}
+
+export interface TopUser {
+  user_id: number
+  telegram_id: number | null
+  telegram_username: string | null
+  telegram_name: string | null
+  bytes: number
+}
+
+export interface NodeTraffic {
+  today: UpDown
+  days_7: UpDown
+  days_30: UpDown
+  daily: (UpDown & { day: string })[]
+  top: { today: TopUser[]; days_7: TopUser[]; days_30: TopUser[] }
+}
+
+export interface Settings {
+  subs_title: string
+  subs_support_url: string
+  updated_at: string
 }
 
 export interface Invite {

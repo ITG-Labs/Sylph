@@ -9,7 +9,8 @@ const actions: Record<string, Record<string, string>> = {
   invite: { create: "создал приглашение", revoke: "отозвал приглашение" },
   node: { create: "завёл ноду", update: "изменил ноду" },
   inbound: { create: "создал вход", update: "изменил вход", delete: "удалил вход" },
-  group: { create: "создал группу" },
+  group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу" },
+  settings: { update: "изменил название или поддержку подписки" },
 }
 
 const entities: Record<string, string> = {
@@ -24,6 +25,7 @@ const entities: Record<string, string> = {
   node: "нода",
   inbound: "вход",
   group: "группа",
+  settings: "настройки",
 }
 
 export const auditEntities = [
@@ -38,6 +40,7 @@ export const auditEntities = [
   ["node", "Ноды"],
   ["inbound", "Входы"],
   ["group", "Группы"],
+  ["settings", "Настройки подписки"],
 ]
 
 export function auditAction(entity: string, action: string): string {
@@ -62,6 +65,8 @@ export function auditLink(entity: string, id: string): string | null {
       return `/plans/${id}`
     case "node":
       return `/nodes/${id}`
+    case "group":
+      return `/groups/${id}`
     default:
       return null
   }

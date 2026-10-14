@@ -95,7 +95,24 @@ export function UserPage() {
             <UserStatusBadge status={u.status} />
           </span>
         }
-        description={`№ ${u.id} · с нами с ${fmtDate(u.created_at)}`}
+        description={
+          <span className="flex flex-col gap-0.5">
+            {(c.telegram?.username || c.telegram?.name) && (
+              <span className="text-base text-foreground/90" title={c.telegram ? `из Telegram, обновлено ${fmtDateTime(c.telegram.updated_at)}` : undefined}>
+                {c.telegram?.username && (
+                  <a href={`https://t.me/${c.telegram.username}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+                    @{c.telegram.username}
+                  </a>
+                )}
+                {c.telegram?.username && c.telegram.name && " · "}
+                {c.telegram?.name}
+              </span>
+            )}
+            <span>
+              № {u.id} · с нами с {fmtDate(u.created_at)}
+            </span>
+          </span>
+        }
         actions={
           banned ? (
             <Button onClick={open({ kind: "unban" })}>
