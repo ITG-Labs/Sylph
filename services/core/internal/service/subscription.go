@@ -50,6 +50,8 @@ type SubscriptionView struct {
 	TrafficLimitBytes *int64       `json:"traffic_limit_bytes"`
 	ExpiresAt         *time.Time   `json:"expires_at"`
 	Connections       []Connection `json:"connections"`
+	Title             string       `json:"title"`
+	SupportURL        string       `json:"support_url"`
 }
 
 func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*SubscriptionView, error) {
@@ -68,6 +70,11 @@ func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*S
 	if err != nil {
 		return nil, err
 	}
+	brand, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	view.Title, view.SupportURL = brand.SubsTitle, brand.SubsSupportURL
 	s.log.LogAttrs(ctx, slog.LevelInfo, "subscription_view",
 		slog.Int64("user_id", u.ID),
 		slog.String("status", view.Status),

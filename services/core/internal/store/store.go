@@ -16,6 +16,8 @@ var ErrInvalidReference = errors.New("invalid reference")
 
 var ErrTrialOnSale = fmt.Errorf("%w: another trial plan is on sale", ErrConflict)
 
+var ErrGroupNotEmpty = errors.New("group is not empty")
+
 type Store struct {
 	pool    *pgxpool.Pool
 	statsTZ string

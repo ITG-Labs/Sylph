@@ -12,18 +12,46 @@ import (
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/admin/groups", s.handleGroupCreate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/groups", s.handleGroupList, mtls.RolePanel)
+	s.route(mux, "PATCH /v1/admin/groups/{id}", s.handleGroupRename, mtls.RolePanel)
+	s.route(mux, "DELETE /v1/admin/groups/{id}", s.handleGroupDelete, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/plans", s.handlePlanCreate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/plans", s.handlePlanList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/plans/{id}", s.handlePlanUpdate, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/nodes", s.handleNodeCreate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes", s.handleNodeList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/nodes/{id}", s.handleNodeUpdate, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/nodes/{id}/stats", s.handleNodeStats, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes/{id}/inbounds", s.handleInboundList, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/nodes/{id}/inbounds", s.handleInboundCreate, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/inbounds/{id}", s.handleInboundUpdate, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/inbounds/{id}", s.handleInboundDelete, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/overview", s.handleOverview, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/audit", s.handleAuditList, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/settings", s.handleSettingsGet, mtls.RolePanel)
+	s.route(mux, "PATCH /v1/admin/settings", s.handleSettingsUpdate, mtls.RolePanel)
+}
+
+func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
+	st, err := s.svc.GetSettings(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err, "settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	var patch service.SettingsPatch
+	if !decodeBody(w, r, &patch) {
+		return
+	}
+	st, err := s.svc.UpdateSettings(r.Context(), patch)
+	if err != nil {
+		s.writeServiceError(w, err, "settings")
+		return
+	}
+	s.logChange(r, "settings", "update", "")
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +86,39 @@ func (s *Server) handleGroupList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, nonNil(list))
+}
+
+func (s *Server) handleGroupRename(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	g, err := s.svc.RenameGroup(r.Context(), id, body.Name)
+	if err != nil {
+		s.writeServiceError(w, err, "group")
+		return
+	}
+	s.logChange(r, "group", "update", id)
+	writeJSON(w, http.StatusOK, g)
+}
+
+func (s *Server) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.DeleteGroup(r.Context(), id); err != nil {
+		s.writeServiceError(w, err, "group")
+		return
+	}
+	s.logChange(r, "group", "delete", id)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +237,19 @@ func (s *Server) handleNodeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logChange(r, "node", "update", id)
 	writeJSON(w, http.StatusOK, n)
+}
+
+func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	st, err := s.svc.NodeTraffic(r.Context(), id)
+	if err != nil {
+		s.writeServiceError(w, err, "node")
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleInboundList(w http.ResponseWriter, r *http.Request) {

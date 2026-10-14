@@ -34,7 +34,8 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		TelegramID int64 `json:"telegram_id"`
+		TelegramID int64                         `json:"telegram_id"`
+		Profile    *service.TelegramProfileInput `json:"profile"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -48,6 +49,11 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("user_create_failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal", "create failed")
 		return
+	}
+	if body.Profile != nil {
+		if err := s.svc.SaveTelegramProfile(r.Context(), u.ID, *body.Profile); err != nil {
+			s.log.Error("telegram_profile_failed", "user_id", u.ID, "error", err.Error())
+		}
 	}
 	if u.Status == model.UserBanned {
 		writeBanned(w)

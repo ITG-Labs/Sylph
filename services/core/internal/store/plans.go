@@ -21,6 +21,52 @@ func (s *Store) CreateLocationGroup(ctx context.Context, name string) (*model.Lo
 	return g, nil
 }
 
+func (s *Store) RenameLocationGroup(ctx context.Context, id int64, name string) (*model.LocationGroup, error) {
+	g := &model.LocationGroup{ID: id, Name: name}
+	err := s.pool.QueryRow(ctx,
+		`UPDATE location_groups SET name = $2 WHERE id = $1 RETURNING created_at`, id, name,
+	).Scan(&g.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, mapWriteErr(err)
+	}
+	return g, nil
+}
+
+func (s *Store) DeleteLocationGroup(ctx context.Context, id int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var locked int64
+	err = tx.QueryRow(ctx, `SELECT id FROM location_groups WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var used bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM nodes WHERE group_id = $1) OR EXISTS (SELECT 1 FROM plans WHERE location_group_id = $1)`,
+		id).Scan(&used); err != nil {
+		return err
+	}
+	if used {
+		return ErrGroupNotEmpty
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM location_groups WHERE id = $1`, id); err != nil {
+		if errors.Is(mapWriteErr(err), ErrInvalidReference) {
+			return ErrGroupNotEmpty
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) ListLocationGroups(ctx context.Context) ([]model.LocationGroup, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, name, created_at FROM location_groups ORDER BY id`)
@@ -92,6 +138,35 @@ func (s *Store) GetPlan(ctx context.Context, id int64) (*model.Plan, error) {
 
 func (s *Store) ListPlans(ctx context.Context) ([]model.Plan, error) {
 	return s.listPlans(ctx, `SELECT `+planColumns+` FROM plans ORDER BY id`)
+}
+
+type PlanRow struct {
+	model.Plan
+	ActiveUsers int `json:"active_users"`
+}
+
+func (s *Store) ListAdminPlans(ctx context.Context) ([]PlanRow, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+planColumnsP+`,
+		        (SELECT count(DISTINCT sub.user_id) FROM subscriptions sub JOIN users u ON u.id = sub.user_id
+		         WHERE sub.plan_id = p.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
+		           AND u.status = 'active')
+		 FROM plans p ORDER BY p.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PlanRow{}
+	for rows.Next() {
+		var r PlanRow
+		p := &r.Plan
+		if err := rows.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit,
+			&p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.CreatedAt, &r.ActiveUsers); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ListPlansOnSale(ctx context.Context) ([]model.Plan, error) {

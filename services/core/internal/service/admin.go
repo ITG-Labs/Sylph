@@ -79,6 +79,22 @@ func (s *Service) ListGroups(ctx context.Context) ([]model.LocationGroup, error)
 	return s.store.ListLocationGroups(ctx)
 }
 
+func (s *Service) RenameGroup(ctx context.Context, id int64, name string) (*model.LocationGroup, error) {
+	if err := validName("name", name); err != nil {
+		return nil, err
+	}
+	g, err := s.store.RenameLocationGroup(ctx, id, name)
+	return g, conflictOr(err, "name", "group already exists")
+}
+
+func (s *Service) DeleteGroup(ctx context.Context, id int64) error {
+	err := s.store.DeleteLocationGroup(ctx, id)
+	if errors.Is(err, store.ErrGroupNotEmpty) {
+		return &ConflictError{Field: "group", Message: "group is not empty: move its nodes and plans out first"}
+	}
+	return err
+}
+
 func validatePlan(p *model.Plan) error {
 	if err := validName("name", p.Name); err != nil {
 		return err
@@ -179,8 +195,15 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	return p, planWriteErr(s.store.UpdatePlan(ctx, p))
 }
 
-func (s *Service) ListPlans(ctx context.Context) ([]model.Plan, error) {
-	return s.store.ListPlans(ctx)
+func (s *Service) ListPlans(ctx context.Context) ([]store.PlanRow, error) {
+	return s.store.ListAdminPlans(ctx)
+}
+
+func (s *Service) NodeTraffic(ctx context.Context, nodeID int64) (store.NodeTraffic, error) {
+	if _, err := s.store.GetNode(ctx, nodeID); err != nil {
+		return store.NodeTraffic{}, err
+	}
+	return s.store.NodeTraffic(ctx, nodeID)
 }
 
 func validateNode(n *model.Node) error {
