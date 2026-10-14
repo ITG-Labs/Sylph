@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { NavLink, Navigate, Outlet, useLocation, useMatches, useNavigate } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
-import { LayoutGroup, motion } from "motion/react"
+import { motion } from "motion/react"
 import { CreditCard, LayoutDashboard, Layers, LogOut, Menu, ScrollText, Server, Tags, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
@@ -21,54 +21,71 @@ const nav = [
   { to: "/audit", label: "Аудит", icon: ScrollText },
 ]
 
-function NavItems({ group, onNavigate }: { group: string; onNavigate?: () => void }) {
+function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  const ref = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+  const [pill, setPill] = useState<{ y: number; h: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => {
+      const a = el.querySelector<HTMLElement>('[aria-current="page"]')
+      setPill(a && a.offsetHeight > 0 ? { y: a.offsetTop, h: a.offsetHeight } : null)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [pathname])
+
   return (
-    <LayoutGroup id={group}>
-      <nav className="flex flex-col gap-1">
-        {nav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                "group relative flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none",
-                !isActive && "hover:bg-white/5",
-                isActive && "text-foreground",
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <motion.span
-                    layoutId="nav-pill"
-                    className="glass-pill absolute inset-0 rounded-[1rem]"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.55 }}
-                  />
+    <nav ref={ref} className="relative flex flex-col gap-1">
+      {pill && (
+        <motion.span
+          aria-hidden
+          className="glass-pill absolute inset-x-0 top-0 rounded-[1rem]"
+          initial={false}
+          animate={{ y: pill.y, height: pill.h }}
+          transition={{ type: "spring", bounce: 0.2, duration: 0.55 }}
+        />
+      )}
+      {nav.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.end}
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            cn(
+              "group relative flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none",
+              !isActive && "hover:bg-white/5",
+              isActive && "text-foreground",
+            )
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <item.icon
+                className={cn(
+                  "relative size-[1.125rem] transition-colors duration-200",
+                  isActive ? "text-primary drop-shadow-[0_0_8px_oklch(0.74_0.15_287/55%)]" : "text-muted-foreground group-hover:text-foreground",
                 )}
-                <item.icon
-                  className={cn(
-                    "relative size-[1.125rem] transition-colors duration-200",
-                    isActive ? "text-primary drop-shadow-[0_0_8px_oklch(0.74_0.15_287/55%)]" : "text-muted-foreground group-hover:text-foreground",
-                  )}
-                />
-                <span className="relative">{item.label}</span>
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-    </LayoutGroup>
+              />
+              <span className="relative">{item.label}</span>
+            </>
+          )}
+        </NavLink>
+      ))}
+    </nav>
   )
 }
 
 function UserBlock({ name, onLogout }: { name: string; onLogout: () => void }) {
   return (
     <div className="flex items-center gap-3 rounded-[1rem] bg-white/[0.045] p-2 pl-2.5 shadow-[inset_0_0_0_1px_oklch(1_0_0/7%)]">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-violet-500/80 to-cyan-500/70 text-sm font-semibold text-white shadow-[inset_0_1px_0_0_oklch(1_0_0/40%)]">
-        {name.slice(0, 1).toUpperCase()}
+      <div aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-violet-500/80 to-cyan-500/70 text-sm font-semibold text-white shadow-[inset_0_1px_0_0_oklch(1_0_0/40%)]">
+        {(Array.from(name)[0] ?? "").toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>
@@ -123,13 +140,13 @@ export function AppShell() {
         <div className="px-2 pt-2 pb-6">
           <Logo />
         </div>
-        <NavItems group="sidebar" />
+        <NavItems />
         <div className="mt-auto">
           <UserBlock name={me.data.name} onLogout={logout} />
         </div>
       </aside>
 
-      <header className="glass sticky top-[max(0.5rem,env(safe-area-inset-top))] z-30 mx-2 mt-2 flex h-14 items-center gap-2 rounded-2xl px-2 lg:hidden">
+      <header className="glass sticky top-2 z-30 mx-2 mt-2 flex h-14 items-center gap-2 rounded-2xl px-2 lg:hidden">
         <Button variant="ghost" size="icon" className="size-10" onClick={() => setOpen(true)} aria-label="Меню">
           <Menu className="size-5" />
         </Button>
@@ -142,7 +159,7 @@ export function AppShell() {
           <div className="px-2 pt-2 pb-6">
             <Logo />
           </div>
-          <NavItems group="sheet" onNavigate={() => setOpen(false)} />
+          <NavItems onNavigate={() => setOpen(false)} />
           <div className="mt-auto">
             <UserBlock name={me.data.name} onLogout={logout} />
           </div>

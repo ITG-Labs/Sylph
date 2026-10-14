@@ -78,7 +78,7 @@ export function AuditPage() {
               const link = auditLink(e.entity, e.entity_id)
               const details = auditDetails(e.details)
               return (
-                <li key={e.id} className="flex flex-col gap-1 border-b border-white/6 px-4 py-3 transition-colors last:border-0 hover:bg-white/[0.035] sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+                <li key={e.id} className="flex flex-col gap-1 border-b border-hairline px-4 py-3 transition-colors last:border-0 hover:bg-white/[0.035] sm:flex-row sm:items-start sm:gap-4 sm:px-5">
                   <div className="w-36 shrink-0 text-xs text-muted-foreground tabular-nums sm:pt-0.5">{fmtDateTime(e.at)}</div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm">

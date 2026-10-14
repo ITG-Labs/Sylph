@@ -180,7 +180,7 @@ export function UserPage() {
                 {queued.length > 0 && (
                   <div>
                     <div className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">В очереди</div>
-                    <ul className="well flex flex-col divide-y divide-white/6 rounded-xl">
+                    <ul className="well flex flex-col divide-y divide-hairline rounded-xl">
                       {queued.map((p) => (
                         <PeriodLine key={p.id} p={p} onClose={open({ kind: "close", period: p })} />
                       ))}
@@ -277,7 +277,7 @@ export function UserPage() {
 
           {closed.length > 0 && (
             <Section title="Прошлые периоды" description="последние 10">
-              <ul className="well flex flex-col divide-y divide-white/6 rounded-xl">
+              <ul className="well flex flex-col divide-y divide-hairline rounded-xl">
                 {closed.map((p) => (
                   <PeriodLine key={p.id} p={p} />
                 ))}
@@ -288,7 +288,7 @@ export function UserPage() {
 
         <div className="flex flex-col gap-4">
           <Section title="Ссылка подписки" description="токен из ссылки — по нему же ищется юзер">
-            <div className="field flex items-center gap-1 rounded-xl border border-white/8 py-1 pr-1 pl-3.5">
+            <div className="field flex items-center gap-1 rounded-xl border border-input py-1 pr-1 pl-3.5">
               <code className="min-w-0 flex-1 truncate font-mono text-sm">{u.sub_token}</code>
               <CopyButton value={u.sub_token} label="Скопировать токен" />
             </div>

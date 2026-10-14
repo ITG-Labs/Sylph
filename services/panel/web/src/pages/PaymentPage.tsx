@@ -27,7 +27,7 @@ const providerStatus: Record<string, string> = {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[9rem_1fr] gap-3 border-b border-white/6 py-3 text-sm last:border-0 sm:grid-cols-[12rem_1fr]">
+    <div className="grid grid-cols-[9rem_1fr] gap-3 border-b border-hairline py-3 text-sm last:border-0 sm:grid-cols-[12rem_1fr]">
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words">{children}</span>
     </div>

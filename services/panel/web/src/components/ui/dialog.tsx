@@ -33,7 +33,7 @@ function DialogContent({ className, children, showClose = true, ...props }: Reac
         data-slot="dialog-content"
         className={cn(
           "glass-strong fixed z-50 grid w-auto gap-4 p-5 text-popover-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-500 data-[state=open]:ease-spring data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-200 data-[state=closed]:ease-glide",
-          "inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[2rem] data-[state=open]:slide-in-from-bottom-16 data-[state=closed]:slide-out-to-bottom-10",
+          "inset-x-2 bottom-2 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[2rem] data-[state=open]:slide-in-from-bottom-16 data-[state=closed]:slide-out-to-bottom-10",
           "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] sm:p-6 sm:data-[state=open]:slide-in-from-bottom-4 sm:data-[state=open]:zoom-in-[0.94] sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:zoom-out-[0.97]",
           className,
         )}

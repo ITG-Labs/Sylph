@@ -144,7 +144,7 @@ export function OverviewPage() {
               </Button>
             </CardAction>
           </CardHeader>
-          <CardContent className="flex flex-col divide-y divide-white/6">
+          <CardContent className="flex flex-col divide-y divide-hairline">
             {o.nodes.nodes.length === 0 && <div className="py-6 text-sm text-muted-foreground">Нод пока нет</div>}
             {o.nodes.nodes.map((n) => (
               <Link
@@ -194,19 +194,19 @@ export function OverviewPage() {
                 </tr>
               </thead>
               <tbody className="tabular-nums">
-                <tr className="border-t border-white/6">
+                <tr className="border-t border-hairline">
                   <td className="py-2 text-muted-foreground">ЮKassa</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.yookassa.today)}</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.yookassa.days_7)}</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.yookassa.days_30)}</td>
                 </tr>
-                <tr className="border-t border-white/6">
+                <tr className="border-t border-hairline">
                   <td className="py-2 text-muted-foreground">Вручную</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.manual.today)}</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.manual.days_7)}</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.manual.days_30)}</td>
                 </tr>
-                <tr className="border-t border-white/10 font-semibold">
+                <tr className="border-t border-border font-semibold">
                   <td className="py-2">Всего</td>
                   <td className="py-2 text-right">{fmtRub(revToday)}</td>
                   <td className="py-2 text-right">{fmtRub(o.revenue.yookassa.days_7 + o.revenue.manual.days_7)}</td>

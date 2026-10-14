@@ -11,7 +11,7 @@ const buttonVariants = cva(
         default:
           "bg-primary bg-linear-to-b from-white/22 to-transparent text-primary-foreground shadow-[inset_0_1px_0_0_oklch(1_0_0/45%),inset_0_0_0_1px_oklch(1_0_0/12%),0_8px_22px_-8px_oklch(0.6_0.2_287/70%)] hover:brightness-110",
         destructive:
-          "bg-destructive bg-linear-to-b from-white/18 to-transparent text-white shadow-[inset_0_1px_0_0_oklch(1_0_0/35%),inset_0_0_0_1px_oklch(1_0_0/10%),0_8px_22px_-8px_oklch(0.55_0.2_22/70%)] hover:brightness-110 focus-visible:ring-destructive/40",
+          "bg-[oklch(0.58_0.2_22)] bg-linear-to-b from-white/18 to-transparent text-white shadow-[inset_0_1px_0_0_oklch(1_0_0/35%),inset_0_0_0_1px_oklch(1_0_0/10%),0_8px_22px_-8px_oklch(0.55_0.2_22/70%)] hover:brightness-110 focus-visible:ring-destructive/40",
         outline: "glass-pill text-foreground hover:bg-white/16",
         secondary: "glass-pill text-secondary-foreground hover:bg-white/16",
         ghost: "hover:bg-white/9 hover:text-accent-foreground",
