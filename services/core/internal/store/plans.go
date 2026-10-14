@@ -147,11 +147,13 @@ type PlanRow struct {
 
 func (s *Store) ListAdminPlans(ctx context.Context) ([]PlanRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+planColumnsP+`,
-		        (SELECT count(DISTINCT sub.user_id) FROM subscriptions sub JOIN users u ON u.id = sub.user_id
-		         WHERE sub.plan_id = p.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
-		           AND u.status = 'active')
-		 FROM plans p ORDER BY p.id`)
+		`WITH cur AS (
+		   SELECT sub.plan_id, count(DISTINCT sub.user_id) AS n
+		   FROM subscriptions sub JOIN users u ON u.id = sub.user_id
+		   WHERE NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now() AND u.status = 'active'
+		   GROUP BY sub.plan_id)
+		 SELECT `+planColumnsP+`, COALESCE(cur.n, 0)
+		 FROM plans p LEFT JOIN cur ON cur.plan_id = p.id ORDER BY p.id`)
 	if err != nil {
 		return nil, err
 	}

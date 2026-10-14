@@ -70,11 +70,12 @@ func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*S
 	if err != nil {
 		return nil, err
 	}
-	brand, err := s.store.GetSettings(ctx)
-	if err != nil {
-		return nil, err
+	view.Title = defaultSubsTitle
+	if brand, err := s.store.GetSettings(ctx); err != nil {
+		s.log.LogAttrs(ctx, slog.LevelWarn, "settings_unavailable", slog.String("error", err.Error()))
+	} else {
+		view.Title, view.SupportURL = brand.SubsTitle, brand.SubsSupportURL
 	}
-	view.Title, view.SupportURL = brand.SubsTitle, brand.SubsSupportURL
 	s.log.LogAttrs(ctx, slog.LevelInfo, "subscription_view",
 		slog.Int64("user_id", u.ID),
 		slog.String("status", view.Status),

@@ -49,6 +49,16 @@ func LoadConfig() (*Config, error) {
 	return cfg, nil
 }
 
+func DeprecatedEnv() []string {
+	var out []string
+	for _, k := range []string{"SYLPH_SUBS_TITLE", "SYLPH_SUBS_SUPPORT_URL"} {
+		if os.Getenv(k) != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 func envOr(key string, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

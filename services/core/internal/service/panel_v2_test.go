@@ -32,6 +32,8 @@ func TestParseUserSearch(t *testing.T) {
 		{"ivan petrov", userSearch{Text: "ivan petrov"}},
 		{"ab12", userSearch{Text: "ab12"}},
 		{"100%", userSearch{Text: "100%"}},
+		{"AC/DC", userSearch{Text: "AC/DC"}},
+		{"https://x.example/abc", userSearch{Token: "abc"}},
 	} {
 		got, err := parseUserSearch(c.in)
 		if err != nil {
@@ -42,7 +44,7 @@ func TestParseUserSearch(t *testing.T) {
 			t.Fatalf("%q: got %+v, want %+v", c.in, got, c.want)
 		}
 	}
-	for _, bad := range []string{"99999999999999999999", "@", "@bad nick", "@ник", "@" + strings.Repeat("a", 33), strings.Repeat("я", 65), "a\x00b", "/"} {
+	for _, bad := range []string{"99999999999999999999", "@", "@bad nick", "@ник", "@" + strings.Repeat("a", 33), strings.Repeat("я", 65), "a\x00b", "https://x.example/"} {
 		_, err := parseUserSearch(bad)
 		var fe *FieldError
 		if !errors.As(err, &fe) || fe.Field != "q" {
@@ -62,8 +64,11 @@ func TestCleanTelegramProfile(t *testing.T) {
 			t.Fatalf("nick %q kept as %q", nick, *got.Username)
 		}
 	}
-	if got := cleanTelegramProfile(TelegramProfileInput{FirstName: "\xff\xfe" + strings.Repeat(" ", 3)}); got.FirstName != "��" {
+	if got := cleanTelegramProfile(TelegramProfileInput{FirstName: "\xff\xfe" + strings.Repeat(" ", 3)}); got.FirstName != "\ufffd\ufffd" {
 		t.Fatalf("broken utf-8 = %q", got.FirstName)
+	}
+	if got := cleanTelegramProfile(TelegramProfileInput{FirstName: "\u202eнавИ\u200b \u2066x\u2069", LastName: "👨\u200d👩\u200d👧"}); got.FirstName != "навИ x" || got.LastName != "👨\u200d👩\u200d👧" {
+		t.Fatalf("invisible marks = %q %q", got.FirstName, got.LastName)
 	}
 }
 
@@ -104,6 +109,7 @@ func TestSettingsValidation(t *testing.T) {
 		{SettingsPatch{SubsSupportURL: strPtr("https://x.example/a b")}, "subs_support_url"},
 		{SettingsPatch{SubsSupportURL: strPtr("https://x.example/\r\nX-Evil: 1")}, "subs_support_url"},
 		{SettingsPatch{SubsSupportURL: strPtr("https://x.example/" + strings.Repeat("a", 512))}, "subs_support_url"},
+		{SettingsPatch{SubsSupportURL: strPtr("https://пример.рф/помощь")}, "subs_support_url"},
 	} {
 		_, err := svc.UpdateSettings(ctx, c.patch)
 		var fe *FieldError
@@ -181,5 +187,15 @@ func TestSubscriptionCarriesBrand(t *testing.T) {
 	}
 	if v.Status != StatusExpired || v.Title != "Нора" || v.SupportURL != "https://t.me/nora" {
 		t.Fatalf("expired view = %+v", v)
+	}
+}
+
+func TestSubscriptionSurvivesMissingSettings(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	if _, err := poolOf(f.svc).Exec(context.Background(), `DELETE FROM settings`); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.view(t, ""); v.Status != StatusOK || v.Title != "Sylph" || v.SupportURL != "" {
+		t.Fatalf("view without settings = %+v", v)
 	}
 }

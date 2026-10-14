@@ -78,3 +78,15 @@ func TestLoadConfigTimezone(t *testing.T) {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 }
+
+func TestDeprecatedEnvIsReported(t *testing.T) {
+	setBaseEnv(t)
+	if got := DeprecatedEnv(); len(got) != 0 {
+		t.Fatalf("clean env = %v", got)
+	}
+	t.Setenv("SYLPH_SUBS_TITLE", "Old")
+	t.Setenv("SYLPH_SUBS_SUPPORT_URL", "https://t.me/old")
+	if got := DeprecatedEnv(); len(got) != 2 || got[0] != "SYLPH_SUBS_TITLE" || got[1] != "SYLPH_SUBS_SUPPORT_URL" {
+		t.Fatalf("deprecated = %v", got)
+	}
+}

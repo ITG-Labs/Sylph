@@ -8,7 +8,10 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
-const maxSupportURLBytes = 512
+const (
+	maxSupportURLBytes = 512
+	defaultSubsTitle   = "Sylph"
+)
 
 type SettingsPatch struct {
 	SubsTitle      *string `json:"subs_title"`
@@ -21,8 +24,8 @@ func validSupportURL(v string) error {
 		return fieldErr(field, "must be at most 512 bytes")
 	}
 	for _, r := range v {
-		if unicode.IsControl(r) || unicode.IsSpace(r) || r == '\u2028' || r == '\u2029' {
-			return fieldErr(field, "must not contain spaces or control characters")
+		if r > unicode.MaxASCII || unicode.IsControl(r) || unicode.IsSpace(r) {
+			return fieldErr(field, "must be ASCII without spaces or control characters (use punycode for non-Latin domains)")
 		}
 	}
 	u, err := url.Parse(v)

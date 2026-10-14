@@ -145,6 +145,25 @@ var (
 
 const maxSearchTextRunes = 64
 
+func linkToken(q string) (string, bool) {
+	link := q
+	if i := strings.IndexAny(link, "?#"); i >= 0 {
+		link = link[:i]
+	}
+	link = strings.TrimRight(link, "/")
+	if i := strings.Index(link, "://"); i >= 0 && !strings.Contains(link[i+3:], "/") {
+		return "", false
+	}
+	token := link[strings.LastIndex(link, "/")+1:]
+	if token == "" || utf8.RuneCountInString(token) > maxTokenRunes {
+		return "", false
+	}
+	if hexTokenPattern.MatchString(token) {
+		return strings.ToLower(token), true
+	}
+	return token, strings.Contains(q, "://")
+}
+
 func parseUserSearch(q string) (userSearch, error) {
 	q = strings.TrimSpace(q)
 	switch {
@@ -162,17 +181,12 @@ func parseUserSearch(q string) (userSearch, error) {
 		}
 		return userSearch{}, fieldErr("q", "must be a Telegram username after @")
 	case strings.Contains(q, "/"):
-		if i := strings.IndexAny(q, "?#"); i >= 0 {
-			q = q[:i]
+		if token, ok := linkToken(q); ok {
+			return userSearch{Token: token}, nil
 		}
-		q = strings.TrimRight(q, "/")
-		if i := strings.LastIndex(q, "/"); i >= 0 {
-			q = q[i+1:]
-		}
-		if q == "" || utf8.RuneCountInString(q) > maxTokenRunes {
+		if strings.Contains(q, "://") {
 			return userSearch{}, fieldErr("q", "must be a Telegram ID, a user id, a subscription link, @username or a name")
 		}
-		return userSearch{Token: q}, nil
 	case hexTokenPattern.MatchString(q):
 		return userSearch{Token: strings.ToLower(q)}, nil
 	}

@@ -48,7 +48,7 @@ func brandTitle(v *View) string {
 }
 
 func supportURL(v *View) string {
-	if strings.IndexFunc(v.SupportURL, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+	if strings.IndexFunc(v.SupportURL, func(r rune) bool { return r > unicode.MaxASCII || unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
 		return ""
 	}
 	u, err := url.Parse(v.SupportURL)

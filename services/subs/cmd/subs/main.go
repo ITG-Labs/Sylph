@@ -32,6 +32,9 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	cfg, err := subs.LoadConfig()
+	for _, name := range subs.DeprecatedEnv() {
+		logger.Warn("deprecated_env", slog.String("name", name), slog.String("hint", "ignored: set the subscription title and support link in the panel settings"))
+	}
 	if err != nil {
 		return err
 	}

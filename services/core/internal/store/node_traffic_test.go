@@ -138,3 +138,31 @@ func TestNodeTrafficEmptyAndSaturated(t *testing.T) {
 		t.Fatalf("saturation = %+v %+v %+v", st.Today, st.Days7, st.Top.Today)
 	}
 }
+
+func TestNodeTrafficDaysFollowTheStatsZone(t *testing.T) {
+	for _, zone := range []string{"Pacific/Kiritimati", "Pacific/Pago_Pago"} {
+		s := setupStore(t)
+		ctx := context.Background()
+		if err := s.SetStatsTimezone(ctx, zone); err != nil {
+			t.Fatal(err)
+		}
+		n := deltaNode(t, s)
+		u := tgUser(t, s, 9001)
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO traffic_daily (user_id, node_id, day, bytes_up) VALUES ($1, $2, (now() AT TIME ZONE $3)::date, 5)`,
+			u.ID, n.ID, zone); err != nil {
+			t.Fatal(err)
+		}
+		st, err := s.NodeTraffic(ctx, n.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if today := time.Now().In(loc).Format(time.DateOnly); st.Daily[29].Day != today || st.Today.Up != 5 || len(st.Top.Today) != 1 {
+			t.Fatalf("%s: last day %s (want %s), today %+v, top %+v", zone, st.Daily[29].Day, today, st.Today, st.Top.Today)
+		}
+	}
+}

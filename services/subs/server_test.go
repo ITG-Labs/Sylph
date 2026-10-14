@@ -352,7 +352,7 @@ func TestBrandComesFromCoreEachTime(t *testing.T) {
 	if rec.Header().Get("Profile-Title") != "base64:"+base64.StdEncoding.EncodeToString([]byte("Sylph")) {
 		t.Fatalf("title without core brand = %q", rec.Header().Get("Profile-Title"))
 	}
-	for _, bad := range []string{"javascript:alert(1)", "t.me/x", "https://x.example/a\r\nX-Evil: 1", "https://"} {
+	for _, bad := range []string{"javascript:alert(1)", "t.me/x", "https://пример.рф/помощь", "https://x.example/a\r\nX-Evil: 1", "https://"} {
 		core.view.SupportURL = bad
 		rec = get(h, "/"+testToken, nil)
 		if _, ok := rec.Header()["Support-Url"]; ok {

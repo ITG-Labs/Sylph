@@ -20,10 +20,20 @@ type TelegramProfileInput struct {
 	LastName  string `json:"last_name"`
 }
 
+func invisibleMark(r rune) bool {
+	switch {
+	case r == '\u2028', r == '\u2029', r == '\u200b', r == '\u200e', r == '\u200f', r == '\u2060', r == '\ufeff', r == '\u061c':
+		return true
+	case r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+		return true
+	}
+	return false
+}
+
 func cleanTelegramName(v string) string {
 	var b strings.Builder
 	for _, r := range v {
-		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+		if unicode.IsControl(r) || invisibleMark(r) {
 			continue
 		}
 		b.WriteRune(r)

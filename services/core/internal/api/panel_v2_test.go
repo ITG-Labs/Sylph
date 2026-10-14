@@ -205,3 +205,31 @@ func TestAdminPlansShowActiveUsers(t *testing.T) {
 		t.Fatalf("bot plans carry active_users: %s", r.body)
 	}
 }
+
+func TestAdminNodesCountInbounds(t *testing.T) {
+	e := newAdminEnv(t)
+	id := e.createNode(t, "node-count", nil)
+	count := func() int {
+		r := e.call(t, http.MethodGet, "/v1/admin/nodes", nil)
+		mustStatus(t, r, http.StatusOK)
+		var list []struct {
+			ID       int64 `json:"id"`
+			Inbounds *int  `json:"inbounds"`
+		}
+		r.decode(t, &list)
+		for _, n := range list {
+			if n.ID == id && n.Inbounds != nil {
+				return *n.Inbounds
+			}
+		}
+		t.Fatalf("no inbounds count: %s", r.body)
+		return -1
+	}
+	if c := count(); c != 0 {
+		t.Fatalf("fresh node inbounds = %d", c)
+	}
+	mustStatus(t, e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", id), realityBody("main", "www.microsoft.com")), http.StatusOK)
+	if c := count(); c != 1 {
+		t.Fatalf("inbounds = %d", c)
+	}
+}

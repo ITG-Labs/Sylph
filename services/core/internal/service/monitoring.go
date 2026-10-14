@@ -45,8 +45,13 @@ func (s *Service) markNodes(ctx context.Context, nodes []model.Node) error {
 	if err != nil {
 		return err
 	}
+	inbounds, err := s.store.InboundCounts(ctx)
+	if err != nil {
+		return err
+	}
 	for i := range nodes {
 		nodes[i].Status = s.nodeStatus(&nodes[i], now)
+		nodes[i].Inbounds = inbounds[nodes[i].ID]
 	}
 	return nil
 }

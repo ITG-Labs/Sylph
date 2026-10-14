@@ -160,6 +160,11 @@ func TestAdminPlansCountActiveUsers(t *testing.T) {
 	pay(t, s, a.ID, p1.ID, now)
 	pay(t, s, b.ID, p1.ID, now)
 	pay(t, s, c.ID, p1.ID, now.Add(-40*24*time.Hour))
+	d := mkUser(t, s)
+	pay(t, s, d.ID, p1.ID, now)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET status = 'banned' WHERE id = $1`, d.ID); err != nil {
+		t.Fatal(err)
+	}
 	list, err := s.ListAdminPlans(ctx)
 	if err != nil {
 		t.Fatal(err)
