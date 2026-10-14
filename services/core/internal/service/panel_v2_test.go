@@ -53,7 +53,7 @@ func TestParseUserSearch(t *testing.T) {
 
 func TestCleanTelegramProfile(t *testing.T) {
 	long := strings.Repeat("я", 70)
-	got := cleanTelegramProfile(TelegramProfileInput{Username: "@Ivan_P", FirstName: " Ив\x00ан  ", LastName: long})
+	got := cleanTelegramProfile(TelegramProfileInput{Username: "@Ivan_P", FirstName: " Ив\x00ан\u2028 ", LastName: long})
 	if got.Username == nil || *got.Username != "Ivan_P" || got.FirstName != "Иван" || utf8.RuneCountInString(got.LastName) != 64 {
 		t.Fatalf("cleaned = %+v (%q)", got, got.FirstName)
 	}

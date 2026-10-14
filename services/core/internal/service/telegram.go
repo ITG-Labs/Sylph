@@ -23,7 +23,7 @@ type TelegramProfileInput struct {
 func cleanTelegramName(v string) string {
 	var b strings.Builder
 	for _, r := range v {
-		if unicode.IsControl(r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			continue
 		}
 		b.WriteRune(r)

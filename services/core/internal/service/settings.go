@@ -21,7 +21,7 @@ func validSupportURL(v string) error {
 		return fieldErr(field, "must be at most 512 bytes")
 	}
 	for _, r := range v {
-		if unicode.IsControl(r) || unicode.IsSpace(r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.IsSpace(r) || r == '\u2028' || r == '\u2029' {
 			return fieldErr(field, "must not contain spaces or control characters")
 		}
 	}
