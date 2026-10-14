@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react"
 import { ActionDialog } from "@/components/common/ActionDialog"
+import { MoveConsequences } from "@/components/group/MoveConsequences"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { core } from "@/lib/api"
 import { parseGB } from "@/lib/format"
+import { describePlanMove, isHarsh, planMoveImpact, type ImpactLine } from "@/lib/groups"
+import { useNodes } from "@/lib/queries"
 import type { Group, Plan } from "@/lib/types"
 
 const GiB = 1024 ** 3
@@ -114,14 +117,27 @@ export function PlanFormDialog({
     if (onSale !== plan.on_sale) changed.on_sale = onSale
   }
   const nothingChanged = !!plan && Object.keys(changed).length === 0
-  const changesLive = !!plan && ("traffic_limit_bytes" in changed || "location_group_id" in changed)
+  const nodes = useNodes()
+  const moveLines: ImpactLine[] =
+    plan && "location_group_id" in changed && nodes.data
+      ? describePlanMove({ ...plan, active_users: plan.active_users ?? 0 }, groupID, planMoveImpact({ ...plan, active_users: plan.active_users ?? 0 }, groupID, nodes.data))
+      : []
+  const limitLive = !!plan && "traffic_limit_bytes" in changed
 
   return (
     <ActionDialog
       open={open}
       onOpenChange={onOpenChange}
       title={plan ? `Тариф «${plan.name}»` : "Новый тариф"}
-      consequences={changesLive ? <p>Новые лимит трафика и группа нод действуют и на текущие периоды этого тарифа — ноды пересинкуются.</p> : undefined}
+      consequences={
+        limitLive || moveLines.length > 0 ? (
+          <>
+            {limitLive && <p>Новый лимит трафика действует и на текущие периоды этого тарифа — ноды пересинкуются.</p>}
+            <MoveConsequences lines={moveLines} />
+          </>
+        ) : undefined
+      }
+      destructive={isHarsh(moveLines)}
       confirmLabel={plan ? "Сохранить" : "Создать"}
       canConfirm={valid && !nothingChanged}
       success={plan ? "Тариф сохранён" : "Тариф создан"}

@@ -1,3 +1,5 @@
+import { plural } from "./format"
+
 export interface NodeLike {
   id: number
   name: string
@@ -53,4 +55,82 @@ export function planMoveImpact(plan: PlanLike, to: number | null, nodes: NodeLik
     gain: { plans: [plan], nodes: after.filter((n) => !before.includes(n)), users: plan.active_users },
     orphaned: hasLiveNode(to, nodes) ? [] : [plan],
   }
+}
+
+export interface ImpactLine {
+  tone: "lose" | "gain" | "info" | "danger"
+  text: string
+}
+
+const q = (s: string) => `«${s}»`
+const nodeLabel = (n: NodeLike) => (n.enabled ? q(n.name) : `${q(n.name)} (выключена)`)
+const usersCount = (n: number) => `${n} ${plural(n, "юзер", "юзера", "юзеров")}`
+const onPlans = (plans: PlanLike[]) => (plans.length === 1 ? `тарифе ${q(plans[0].name)}` : `тарифах ${plans.map((p) => q(p.name)).join(", ")}`)
+const nodesWord = (nodes: NodeLike[]) => (nodes.length === 1 ? `ноду ${nodeLabel(nodes[0])}` : `ноды ${nodes.map(nodeLabel).join(", ")}`)
+
+function orphanLine(plans: PlanLike[]): ImpactLine {
+  const whom = plans.length === 1 ? `тарифа ${q(plans[0].name)}` : `тарифов ${plans.map((p) => q(p.name)).join(", ")}`
+  return { tone: "danger", text: `У ${whom} не останется ни одной включённой ноды — ${plans.length === 1 ? "его" : "их"} юзерам станет не к чему подключиться.` }
+}
+
+export function describeNodeMove(node: NodeLike, to: number | null, impact: MoveImpact): ImpactLine[] {
+  const out: ImpactLine[] = []
+  const { lose, gain } = impact
+  if (to === null && node.group_id !== null) out.push({ tone: "info", text: "Нода станет общей: её видят все тарифы, в том числе созданные позже." })
+  if (!node.enabled) out.push({ tone: "info", text: "Нода выключена: в подписках её нет, но пускать юзеров она сразу начнёт по новой группе." })
+  if (lose.plans.length > 0) {
+    const n = lose.users
+    out.push(
+      n === 0
+        ? { tone: "info", text: `На ${onPlans(lose.plans)} сейчас никого нет — нода просто уйдёт из ${lose.plans.length === 1 ? "него" : "них"}.` }
+        : {
+            tone: "lose",
+            text: `${usersCount(n)} на ${onPlans(lose.plans)} ${plural(n, "потеряет", "потеряют", "потеряют")} ноду ${q(node.name)}: она перестанет ${plural(n, "его", "их", "их")} пускать в течение минуты, а из приложения пропадёт при следующем обновлении подписки.`,
+          },
+    )
+  }
+  if (gain.plans.length > 0) {
+    const n = gain.users
+    out.push(
+      n === 0
+        ? { tone: "info", text: `Нода добавится в ${gain.plans.length === 1 ? `тариф ${q(gain.plans[0].name)}` : `тарифы ${gain.plans.map((p) => q(p.name)).join(", ")}`}, но на ${gain.plans.length === 1 ? "нём" : "них"} сейчас никого нет.` }
+        : { tone: "gain", text: `${usersCount(n)} на ${onPlans(gain.plans)} ${plural(n, "получит", "получат", "получат")} ноду ${q(node.name)} при следующем обновлении подписки.` },
+    )
+  }
+  if (impact.orphaned.length > 0) out.push(orphanLine(impact.orphaned))
+  if (lose.plans.length === 0 && gain.plans.length === 0) out.push({ tone: "info", text: "Доступы юзеров не меняются." })
+  return out
+}
+
+export function describePlanMove(plan: PlanLike, to: number | null, impact: MoveImpact): ImpactLine[] {
+  const out: ImpactLine[] = []
+  const { lose, gain } = impact
+  const n = plan.active_users
+  const who = `${usersCount(n)} тарифа ${q(plan.name)}`
+  if (to === null && plan.location_group_id !== null) out.push({ tone: "info", text: "Без группы тариф видит только общие ноды." })
+  if (lose.nodes.length > 0) {
+    const many = lose.nodes.length > 1
+    out.push(
+      n === 0
+        ? { tone: "info", text: `Тариф перестанет видеть ${nodesWord(lose.nodes)}. Сейчас на нём никого нет.` }
+        : {
+            tone: "lose",
+            text: `${who} ${plural(n, "потеряет", "потеряют", "потеряют")} ${nodesWord(lose.nodes)}: ${many ? "они перестанут" : "она перестанет"} ${plural(n, "его", "их", "их")} пускать в течение минуты, а из приложения ${many ? "пропадут" : "пропадёт"} при следующем обновлении подписки.`,
+          },
+    )
+  }
+  if (gain.nodes.length > 0) {
+    out.push(
+      n === 0
+        ? { tone: "info", text: `Тариф начнёт видеть ${nodesWord(gain.nodes)}. Сейчас на нём никого нет.` }
+        : { tone: "gain", text: `${who} ${plural(n, "получит", "получат", "получат")} ${nodesWord(gain.nodes)} при следующем обновлении подписки.` },
+    )
+  }
+  if (impact.orphaned.length > 0) out.push({ tone: "danger", text: "У тарифа не останется ни одной включённой ноды — его юзерам станет не к чему подключиться." })
+  if (lose.nodes.length === 0 && gain.nodes.length === 0) out.push({ tone: "info", text: "Ноды тарифа не меняются." })
+  return out
+}
+
+export function isHarsh(lines: ImpactLine[]): boolean {
+  return lines.some((l) => l.tone === "danger" || l.tone === "lose")
 }

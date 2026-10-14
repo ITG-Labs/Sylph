@@ -65,6 +65,7 @@ test("every screen renders without console errors under the real CSP", async () 
     ["/plans", "Тарифы"],
     ["/groups", "Группы локаций"],
     ["/audit", "Аудит"],
+    ["/settings", "Настройки"],
   ]) {
     await shared.goto(path)
     await expect(shared.getByRole("heading", { name: heading, exact: true })).toBeVisible()
@@ -79,6 +80,79 @@ test("every screen renders without console errors under the real CSP", async () 
     await shared.keyboard.press("Escape")
   }
   expect(errors).toEqual([])
+})
+
+test("a group is created, renamed and deleted while empty", async () => {
+  const name = `e2e-${Date.now() % 1_000_000}`
+  await shared.goto("/groups")
+  await shared.getByRole("button", { name: "Новая группа" }).click()
+  await shared.locator("#gname").fill(name)
+  await shared.getByRole("dialog").getByRole("button", { name: "Создать" }).click()
+  await shared.getByRole("link", { name: new RegExp(name) }).click()
+  await expect(shared.getByRole("heading", { name, exact: true })).toBeVisible()
+  await shared.getByRole("button", { name: "Переименовать" }).click()
+  await shared.locator("#gname").fill(`${name}-x`)
+  await shared.getByRole("dialog").getByRole("button", { name: "Сохранить" }).click()
+  await expect(shared.getByRole("heading", { name: `${name}-x`, exact: true })).toBeVisible()
+  await shared.getByRole("button", { name: "Удалить" }).click()
+  await expect(shared.getByRole("dialog")).toContainText("Группа пустая")
+  await shared.getByRole("dialog").getByRole("button", { name: "Удалить" }).click()
+  await expect(shared).toHaveURL(/\/groups$/)
+  await expect(shared.getByText(`${name}-x`)).toHaveCount(0)
+})
+
+test("a group with members cannot be deleted", async () => {
+  const groups = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/groups")).json()) as { id: number }[])
+  const nodes = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/nodes")).json()) as { group_id: number | null }[])
+  const busy = groups.find((g) => nodes.some((n) => n.group_id === g.id))
+  test.skip(!busy, "no group with nodes on this stand")
+  await shared.goto(`/groups/${busy!.id}`)
+  await shared.getByRole("button", { name: "Удалить" }).click()
+  await expect(shared.getByRole("dialog")).toContainText("Удалить можно только пустую группу")
+  await expect(shared.getByRole("dialog").getByRole("button", { name: "Удалить" })).toBeDisabled()
+  await shared.keyboard.press("Escape")
+})
+
+test("a node card shows its traffic", async () => {
+  const nodes = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/nodes")).json()) as { id: number }[])
+  test.skip(nodes.length === 0, "no nodes on this stand")
+  await shared.goto(`/nodes/${nodes[0].id}`)
+  await expect(shared.getByText("вверх + вниз, сутки по Москве")).toBeVisible()
+  const chart = shared.getByRole("img", { name: "Трафик ноды по дням за 30 дней" })
+  await expect(chart.or(shared.getByText("За 30 дней через ноду не прошло ни байта"))).toBeVisible()
+  if (await chart.isVisible()) {
+    await shared.getByRole("tab", { name: "7 дней" }).click()
+    await expect(shared.getByText("за 7 дней")).toBeVisible()
+  }
+})
+
+test("users are found by nick", async () => {
+  const page = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/users?limit=100")).json()) as { users: { id: number; telegram_username: string | null }[] })
+  const withNick = page.users.find((u) => u.telegram_username)
+  test.skip(!withNick, "no user with a nick on this stand")
+  await shared.goto(`/users?q=${encodeURIComponent("@" + withNick!.telegram_username!.slice(0, 3))}`)
+  await expect(shared.locator("table").getByText(`@${withNick!.telegram_username}`)).toBeVisible()
+})
+
+test("subscription settings are saved and restored", async () => {
+  const before = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/settings")).json()) as { subs_title: string; subs_support_url: string })
+  const save = async (title: string, support: string) => {
+    await shared.goto("/settings")
+    await shared.locator("#subs-title").fill(title)
+    await shared.locator("#subs-support").fill(support)
+    const button = shared.getByRole("button", { name: "Сохранить" })
+    if (await button.isDisabled()) return
+    await button.click()
+    await shared.getByRole("dialog").getByRole("button", { name: "Сохранить" }).click()
+    await expect(shared.getByRole("dialog")).toHaveCount(0)
+  }
+  await shared.goto("/settings")
+  await shared.locator("#subs-support").fill("t.me/no-scheme")
+  await expect(shared.getByText("нужна ссылка вида https://… без пробелов")).toBeVisible()
+  await save("e2e title", "https://t.me/e2e_help")
+  const saved = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/settings")).json()) as { subs_title: string; subs_support_url: string })
+  expect([saved.subs_title, saved.subs_support_url]).toEqual(["e2e title", "https://t.me/e2e_help"])
+  await save(before.subs_title, before.subs_support_url)
 })
 
 test("proxy refuses requests without the panel header and routes outside the allowlist", async () => {

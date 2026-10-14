@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { NavLink, Navigate, Outlet, useLocation, useMatches, useNavigate } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { motion } from "motion/react"
-import { CreditCard, LayoutDashboard, Layers, LogOut, Menu, ScrollText, Server, Tags, Users } from "lucide-react"
+import { CreditCard, LayoutDashboard, Layers, LogOut, Menu, ScrollText, Server, Settings, Tags, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -19,6 +19,7 @@ const nav = [
   { to: "/plans", label: "Тарифы", icon: Tags },
   { to: "/groups", label: "Группы", icon: Layers },
   { to: "/audit", label: "Аудит", icon: ScrollText },
+  { to: "/settings", label: "Настройки", icon: Settings },
 ]
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
