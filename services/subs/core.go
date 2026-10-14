@@ -38,6 +38,8 @@ type View struct {
 	TrafficLimitBytes *int64       `json:"traffic_limit_bytes"`
 	ExpiresAt         *time.Time   `json:"expires_at"`
 	Connections       []Connection `json:"connections"`
+	Title             string       `json:"title"`
+	SupportURL        string       `json:"support_url"`
 }
 
 var ErrNotFound = errors.New("subscription not found")

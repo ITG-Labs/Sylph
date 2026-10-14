@@ -109,6 +109,20 @@ func TestSubsLive(t *testing.T) {
 		}
 	})
 
+	t.Run("brand from the panel reaches clients without a restart", func(t *testing.T) {
+		happ := map[string]string{"User-Agent": "Happ/3.6.1"}
+		title := func(v string) string { return "base64:" + base64.StdEncoding.EncodeToString([]byte(v)) }
+		_, hdr, _ := env.fetch(t, "/"+linksUser.SubToken, happ)
+		if hdr.Get("Profile-Title") != title("Sylph") || hdr.Get("Support-Url") != "" {
+			t.Fatalf("default brand = %q %q", hdr.Get("Profile-Title"), hdr.Get("Support-Url"))
+		}
+		env.call(t, http.MethodPatch, "/v1/admin/settings", map[string]any{"subs_title": "Sylph E2E", "subs_support_url": "https://t.me/sylph_support"}, nil)
+		_, hdr, _ = env.fetch(t, "/"+linksUser.SubToken, happ)
+		if hdr.Get("Profile-Title") != title("Sylph E2E") || hdr.Get("Support-Url") != "https://t.me/sylph_support" {
+			t.Fatalf("brand = %q %q", hdr.Get("Profile-Title"), hdr.Get("Support-Url"))
+		}
+	})
+
 	t.Run("statuses become stubs with a reason", func(t *testing.T) {
 		happ := map[string]string{"User-Agent": "Happ/3.6.1"}
 		if got := liveStub(t, env, expiredUser, happ); got != StubExpired {

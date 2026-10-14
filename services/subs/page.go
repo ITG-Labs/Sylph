@@ -219,7 +219,7 @@ func (s *Server) servePage(ctx context.Context, w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) pageData(view *View, link string) pageData {
-	d := pageData{Title: s.settings.Title, Style: template.CSS(pageStyle), Script: template.JS(pageScript), Support: s.settings.SupportURL, Link: link}
+	d := pageData{Title: brandTitle(view), Style: template.CSS(pageStyle), Script: template.JS(pageScript), Support: supportURL(view), Link: link}
 	switch view.Status {
 	case StatusOK:
 		d.Active, d.Status = true, "✅ Подписка активна"

@@ -3,7 +3,6 @@ package subs
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -27,11 +26,7 @@ func LoadConfig() (*Config, error) {
 		CACert:     os.Getenv("SYLPH_CA_CERT"),
 		ServerName: envOr("SYLPH_CORE_NAME", "core.sylph.internal"),
 		Listen:     envOr("SYLPH_LISTEN", ":8080"),
-		Settings: Settings{
-			Title:       envOr("SYLPH_SUBS_TITLE", "Sylph"),
-			UpdateHours: 12,
-			SupportURL:  os.Getenv("SYLPH_SUBS_SUPPORT_URL"),
-		},
+		Settings:   Settings{UpdateHours: 12},
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -51,12 +46,6 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("SYLPH_SUBS_TZ: %w", err)
 	}
 	cfg.Settings.Location = loc
-	if s := cfg.Settings.SupportURL; s != "" {
-		u, err := url.Parse(s)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return nil, errors.New("SYLPH_SUBS_SUPPORT_URL must be an http(s) URL")
-		}
-	}
 	return cfg, nil
 }
 
