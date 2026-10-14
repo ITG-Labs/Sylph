@@ -1,46 +1,91 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "sonner/dist/styles.css";
+@import "@fontsource-variable/inter/opsz.css";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.155 0.012 275);
-  --foreground: oklch(0.96 0.005 275);
-  --card: oklch(0.19 0.014 275);
-  --card-foreground: oklch(0.96 0.005 275);
-  --popover: oklch(0.205 0.016 275);
-  --popover-foreground: oklch(0.96 0.005 275);
-  --primary: oklch(0.72 0.15 285);
-  --primary-foreground: oklch(0.16 0.03 285);
-  --secondary: oklch(0.25 0.016 275);
-  --secondary-foreground: oklch(0.94 0.005 275);
-  --muted: oklch(0.23 0.014 275);
-  --muted-foreground: oklch(0.68 0.02 275);
-  --accent: oklch(0.27 0.02 280);
-  --accent-foreground: oklch(0.97 0.005 275);
-  --destructive: oklch(0.64 0.21 22);
+  --background: oklch(0.145 0.022 272);
+  --foreground: oklch(0.97 0.004 275);
+  --card-foreground: oklch(0.97 0.004 275);
+  --popover-foreground: oklch(0.97 0.004 275);
+  --primary: oklch(0.74 0.15 287);
+  --primary-foreground: oklch(0.17 0.04 285);
+  --secondary: oklch(1 0 0 / 8%);
+  --secondary-foreground: oklch(0.95 0.005 275);
+  --muted: oklch(1 0 0 / 6%);
+  --muted-foreground: oklch(0.79 0.018 275);
+  --accent: oklch(1 0 0 / 9%);
+  --accent-foreground: oklch(0.98 0.004 275);
+  --destructive: oklch(0.72 0.17 22);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.72 0.15 285 / 60%);
-  --success: oklch(0.76 0.15 165);
-  --warning: oklch(0.8 0.15 75);
-  --info: oklch(0.78 0.12 220);
-  --sidebar: oklch(0.135 0.012 275);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 8%);
+  --hairline: oklch(1 0 0 / 6.5%);
+  --ring: oklch(0.74 0.15 287 / 60%);
+  --success: oklch(0.78 0.15 165);
+  --warning: oklch(0.82 0.15 75);
+  --info: oklch(0.8 0.12 220);
+
+  --glass-fill: oklch(0.27 0.026 278 / 48%);
+  --glass-fill-strong: oklch(0.21 0.024 278 / 74%);
+  --glass-fill-thin: oklch(0.21 0.026 278 / 50%);
+  --glass-filter: blur(22px) saturate(185%);
+  --glass-filter-strong: blur(36px) saturate(190%);
+  --glass-sheen: oklch(1 0 0 / 8%);
+  --glass-rim: oklch(1 0 0 / 22%);
+  --glass-edge: oklch(1 0 0 / 9%);
+  --glass-rim-soft: oklch(1 0 0 / 11%);
+  --glass-edge-soft: oklch(1 0 0 / 7%);
+  --glass-shade: oklch(0.08 0.03 275 / 55%);
+  --scrim: oklch(0.08 0.02 275 / 55%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-fill: oklch(0.22 0.022 277);
+    --glass-fill-strong: oklch(0.2 0.022 277);
+    --glass-fill-thin: oklch(0.19 0.02 276);
+    --glass-filter: none;
+    --glass-filter-strong: none;
+    --scrim: oklch(0.08 0.02 275 / 80%);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --glass-fill: oklch(0.2 0.022 277 / 94%);
+    --glass-fill-strong: oklch(0.18 0.022 277 / 97%);
+    --glass-fill-thin: oklch(0.19 0.02 276 / 92%);
+    --glass-rim: oklch(1 0 0 / 40%);
+    --glass-edge: oklch(1 0 0 / 30%);
+    --glass-rim-soft: oklch(1 0 0 / 34%);
+    --glass-edge-soft: oklch(1 0 0 / 28%);
+    --muted-foreground: oklch(0.84 0.02 275);
+    --border: oklch(1 0 0 / 28%);
+    --input: oklch(1 0 0 / 34%);
+    --hairline: oklch(1 0 0 / 22%);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-fill: oklch(0.22 0.024 277 / 94%);
+    --glass-fill-strong: oklch(0.2 0.022 277 / 97%);
+  }
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.375rem;
+  --radius-3xl: 1.75rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
@@ -54,30 +99,276 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-hairline: var(--hairline);
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
-  --color-sidebar: var(--sidebar);
-  --font-sans: "Inter", "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease-spring: linear(0, 0.067, 0.221, 0.408, 0.591, 0.748, 0.873, 0.963, 1.021, 1.053, 1.065, 1.065, 1.057, 1.045, 1.032, 1.021, 1.012, 1.005, 1, 0.997, 0.996, 0.996, 0.996, 0.997, 0.997, 0.998, 0.999, 1, 1);
+  --ease-glide: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@utility glass {
+  background-color: var(--glass-fill);
+  background-image: linear-gradient(180deg, var(--glass-sheen), transparent 46%);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-rim),
+    inset 0 0 0 1px var(--glass-edge),
+    inset 0 -1px 0 0 oklch(1 0 0 / 3%),
+    0 14px 44px -16px var(--glass-shade),
+    0 2px 8px -3px oklch(0 0 0 / 30%);
+}
+
+@utility glass-strong {
+  background-color: var(--glass-fill-strong);
+  background-image: linear-gradient(180deg, var(--glass-sheen), transparent 40%);
+  -webkit-backdrop-filter: var(--glass-filter-strong);
+  backdrop-filter: var(--glass-filter-strong);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-rim),
+    inset 0 0 0 1px var(--glass-edge),
+    0 28px 80px -24px oklch(0.05 0.03 275 / 75%),
+    0 4px 16px -4px oklch(0 0 0 / 35%);
+}
+
+@utility glass-thin {
+  background-color: var(--glass-fill-thin);
+  background-image: linear-gradient(180deg, oklch(1 0 0 / 5%), transparent 52%);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-rim-soft),
+    inset 0 0 0 1px var(--glass-edge-soft),
+    0 10px 32px -18px oklch(0.05 0.03 275 / 60%);
+}
+
+@utility glass-pill {
+  background-color: oklch(1 0 0 / 11%);
+  background-image: linear-gradient(180deg, oklch(1 0 0 / 9%), transparent 70%);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-rim),
+    inset 0 0 0 1px var(--glass-edge-soft),
+    0 4px 14px -6px oklch(0 0 0 / 45%);
+}
+
+@utility field {
+  background-color: oklch(0.08 0.02 275 / 32%);
+  box-shadow:
+    inset 0 1px 2px 0 oklch(0 0 0 / 30%),
+    inset 0 -1px 0 0 oklch(1 0 0 / 5%);
+}
+
+@utility well {
+  background-color: oklch(1 0 0 / 3.5%);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 6%),
+    inset 0 0 0 1px var(--glass-edge-soft);
+}
+
+@utility tint-rim {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 9%),
+    0 10px 30px -18px oklch(0.05 0.03 275 / 60%);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 18%) transparent;
   }
   html {
     color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv11", "ss01", "tnum";
   }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
 }
 
-.bg-glow {
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
   background:
-    radial-gradient(60rem 30rem at 85% -10%, oklch(0.72 0.15 285 / 9%), transparent 60%),
-    radial-gradient(40rem 24rem at -10% 110%, oklch(0.78 0.12 220 / 6%), transparent 60%);
+    radial-gradient(120% 90% at 50% 0%, oklch(0.2 0.04 280), transparent 70%),
+    var(--background);
+}
+
+.app-backdrop > span {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+}
+
+.app-backdrop > .blob-violet {
+  width: 62rem;
+  height: 52rem;
+  top: -22rem;
+  right: -18rem;
+  background: radial-gradient(closest-side, oklch(0.54 0.22 293 / 72%), oklch(0.46 0.2 293 / 26%) 55%, transparent);
+  animation: drift-a 46s ease-in-out infinite alternate;
+}
+
+.app-backdrop > .blob-teal {
+  width: 56rem;
+  height: 46rem;
+  bottom: -20rem;
+  left: -16rem;
+  background: radial-gradient(closest-side, oklch(0.64 0.13 205 / 60%), oklch(0.56 0.12 210 / 20%) 58%, transparent);
+  animation: drift-b 54s ease-in-out infinite alternate;
+}
+
+.app-backdrop > .blob-indigo {
+  width: 44rem;
+  height: 38rem;
+  top: 28%;
+  left: 18%;
+  background: radial-gradient(closest-side, oklch(0.44 0.18 268 / 50%), transparent);
+  animation: drift-c 62s ease-in-out infinite alternate;
+}
+
+.app-backdrop > .blob-rose {
+  width: 30rem;
+  height: 26rem;
+  bottom: 4%;
+  right: 6%;
+  background: radial-gradient(closest-side, oklch(0.52 0.18 330 / 32%), transparent);
+  animation: drift-a 70s ease-in-out infinite alternate-reverse;
+}
+
+.app-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.login-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 46rem;
+  height: 40rem;
+  translate: -50% -46%;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side at 32% 34%, oklch(0.58 0.22 293 / 70%), transparent 72%),
+    radial-gradient(closest-side at 70% 70%, oklch(0.66 0.13 205 / 55%), transparent 70%),
+    radial-gradient(closest-side at 62% 26%, oklch(0.55 0.18 330 / 30%), transparent 70%);
+  animation: halo-spin 40s linear infinite;
+}
+
+@keyframes halo-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes drift-a {
+  to {
+    transform: translate3d(-9rem, 7rem, 0) scale(1.08);
+  }
+}
+
+@keyframes drift-b {
+  to {
+    transform: translate3d(11rem, -6rem, 0) scale(1.06);
+  }
+}
+
+@keyframes drift-c {
+  to {
+    transform: translate3d(8rem, 9rem, 0) scale(0.92);
+  }
+}
+
+@media (max-width: 1023px), (hover: none), (prefers-reduced-motion: reduce) {
+  .app-backdrop > span[class],
+  .login-halo {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .app-backdrop > span[class],
+  .login-halo {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-state] {
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-enter-scale: 1;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+    --tw-exit-scale: 1;
+  }
+}
+
+@media (max-width: 639px) {
+  .app-backdrop > .blob-violet {
+    width: 36rem;
+    height: 32rem;
+    top: -14rem;
+    right: -16rem;
+  }
+  .app-backdrop > .blob-teal {
+    width: 34rem;
+    height: 30rem;
+    bottom: -12rem;
+    left: -16rem;
+  }
+  .app-backdrop > .blob-indigo {
+    width: 26rem;
+    height: 24rem;
+    left: -4rem;
+  }
+}
+
+[data-sonner-toaster][data-sonner-theme="dark"] {
+  --normal-bg: var(--glass-fill-strong);
+  --normal-bg-hover: oklch(0.28 0.024 278 / 80%);
+  --normal-border: transparent;
+  --normal-border-hover: transparent;
+  --normal-text: var(--foreground);
+  --success-bg: var(--glass-fill-strong);
+  --success-border: transparent;
+  --success-text: var(--success);
+  --info-bg: var(--glass-fill-strong);
+  --info-border: transparent;
+  --info-text: var(--info);
+  --warning-bg: var(--glass-fill-strong);
+  --warning-border: transparent;
+  --warning-text: var(--warning);
+  --error-bg: var(--glass-fill-strong);
+  --error-border: transparent;
+  --error-text: oklch(0.8 0.13 22);
+  --border-radius: 1.25rem;
+  font-family: var(--font-sans);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  -webkit-backdrop-filter: var(--glass-filter-strong);
+  backdrop-filter: var(--glass-filter-strong);
+  background-image: linear-gradient(180deg, var(--glass-sheen), transparent 50%);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-rim),
+    inset 0 0 0 1px var(--glass-edge),
+    0 18px 50px -18px oklch(0.05 0.03 275 / 75%);
+  font-size: 14px;
 }

@@ -6,7 +6,7 @@ export function ErrorPage() {
   const err = useRouteError()
   const text = isRouteErrorResponse(err) ? `${err.status} ${err.statusText}` : err instanceof Error ? err.message : String(err)
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-destructive/30 bg-destructive/5 px-6 py-14 text-center">
+    <div className="glass-thin flex flex-col items-center gap-4 rounded-2xl px-6 py-14 text-center shadow-[inset_0_0_0_1px_oklch(0.66_0.21_22/30%)]">
       <Bug className="size-8 text-destructive" />
       <div>
         <div className="font-medium">Экран сломался</div>

@@ -11,7 +11,16 @@ import { Button } from "@/components/ui/button"
 import { core } from "@/lib/api"
 import { fmtRelative, fmtUptime } from "@/lib/format"
 import { useGroups, useInvalidate } from "@/lib/queries"
-import type { Node } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import type { Node, NodeStatus } from "@/lib/types"
+
+const glow: Record<NodeStatus, string> = {
+  online: "from-emerald-400/20",
+  degraded: "from-amber-400/24",
+  offline: "from-rose-500/26",
+  never: "from-slate-400/12",
+  disabled: "from-transparent",
+}
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -50,7 +59,12 @@ export function NodesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {q.data.map((n) => (
-            <Link key={n.id} to={`/nodes/${n.id}`} className="group flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-white/15">
+            <Link
+              key={n.id}
+              to={`/nodes/${n.id}`}
+              className="group glass-thin relative isolate flex min-w-0 flex-col gap-4 overflow-hidden rounded-2xl p-5 transition-[background-color,translate,scale] duration-200 ease-glide hover:-translate-y-0.5 hover:bg-white/[0.07] active:scale-[0.99]"
+            >
+              <span aria-hidden className={cn("pointer-events-none absolute -top-20 -right-20 -z-10 size-56 rounded-full bg-radial to-transparent to-70%", glow[n.status] ?? glow.never)} />
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-lg font-semibold">{n.name}</div>
@@ -63,7 +77,7 @@ export function NodesPage() {
                   <ChevronRight className="size-4 text-muted-foreground transition group-hover:translate-x-0.5" />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="well grid grid-cols-3 gap-x-3 gap-y-3 rounded-xl p-3.5">
                 <Metric label="юзеров" value={n.active_users ?? "—"} />
                 <Metric label="агент" value={n.agent_version ?? "—"} />
                 <Metric label="xray" value={n.xray_version ?? "—"} />
@@ -74,7 +88,7 @@ export function NodesPage() {
                 <Metric label="синк" value={fmtRelative(n.last_sync_at)} />
               </div>
               {n.config_error && (
-                <div className="flex gap-2 rounded-lg border border-warning/25 bg-warning/[0.06] p-3 text-sm">
+                <div className="tint-rim flex gap-2 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
                   <span className="min-w-0 font-mono text-xs break-words">{n.config_error}</span>
                 </div>

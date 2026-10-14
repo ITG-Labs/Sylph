@@ -50,7 +50,7 @@ export function AuditPage() {
             setParams(next, { replace: true })
           }}
         >
-          <SelectTrigger className="sm:w-80">
+          <SelectTrigger className="h-10 sm:w-80">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -62,7 +62,7 @@ export function AuditPage() {
             ))}
           </SelectContent>
         </Select>
-        <Input className="sm:w-48" placeholder="id сущности" value={entityId} onChange={(e) => setEntityId(e.target.value)} />
+        <Input className="h-10 sm:w-48" placeholder="id сущности" value={entityId} onChange={(e) => setEntityId(e.target.value)} />
       </div>
 
       {list.isPending ? (
@@ -73,12 +73,12 @@ export function AuditPage() {
         <Empty>Записей нет</Empty>
       ) : (
         <>
-          <ol className="flex flex-col overflow-hidden rounded-xl border bg-card">
+          <ol className="glass-thin flex flex-col overflow-hidden rounded-2xl">
             {rows.map((e) => {
               const link = auditLink(e.entity, e.entity_id)
               const details = auditDetails(e.details)
               return (
-                <li key={e.id} className="flex flex-col gap-1 border-b px-4 py-3 last:border-0 sm:flex-row sm:items-start sm:gap-4">
+                <li key={e.id} className="flex flex-col gap-1 border-b border-hairline px-4 py-3 transition-colors last:border-0 hover:bg-white/[0.035] sm:flex-row sm:items-start sm:gap-4 sm:px-5">
                   <div className="w-36 shrink-0 text-xs text-muted-foreground tabular-nums sm:pt-0.5">{fmtDateTime(e.at)}</div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm">

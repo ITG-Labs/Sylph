@@ -13,11 +13,11 @@ function SheetTrigger(props: React.ComponentProps<typeof SheetPrimitive.Trigger>
 function SheetContent({ className, children, ...props }: React.ComponentProps<typeof SheetPrimitive.Content>) {
   return (
     <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+      <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-(--scrim) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-300 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-200" />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-full w-72 max-w-[85vw] flex-col border-r bg-sidebar shadow-2xl transition ease-in-out data-[state=open]:animate-in data-[state=open]:slide-in-from-left data-[state=open]:duration-300 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=closed]:duration-200",
+          "glass-strong fixed top-2 bottom-2 left-2 z-50 flex w-72 max-w-[calc(100vw-3rem)] flex-col rounded-[1.75rem] data-[state=open]:animate-in data-[state=open]:slide-in-from-left-[110%] data-[state=open]:duration-500 data-[state=open]:ease-spring data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left-[110%] data-[state=closed]:duration-250 data-[state=closed]:ease-glide",
           className,
         )}
         {...props}

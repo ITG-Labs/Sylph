@@ -6,7 +6,7 @@ import { describeError } from "@/lib/errors"
 
 export function LoadError({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 py-10 text-center">
+    <div className="glass-thin flex flex-col items-center gap-3 rounded-2xl py-10 text-center shadow-[inset_0_0_0_1px_oklch(0.66_0.21_22/30%)]">
       <ServerCrash className="size-7 text-destructive" />
       <div className="text-sm">{describeError(error)}</div>
       {onRetry && (
@@ -23,7 +23,7 @@ export function LoadingBlock({ rows = 3 }: { rows?: number }): ReactNode {
   return (
     <div className="flex flex-col gap-3">
       {Array.from({ length: rows }, (_, i) => (
-        <Skeleton key={i} className="h-16 w-full" />
+        <Skeleton key={i} className="h-16 w-full rounded-2xl" />
       ))}
     </div>
   )

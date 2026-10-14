@@ -70,17 +70,17 @@ export function UsersPage() {
 
       <div className="mb-4 flex flex-col gap-2 lg:flex-row">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pr-9 pl-9" placeholder="123456789, 42 или https://…/токен" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-10 pr-10 pl-10" placeholder="123456789, 42 или https://…/токен" value={q} onChange={(e) => setQ(e.target.value)} />
           {q && (
-            <button type="button" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground" onClick={() => setQ("")} aria-label="Очистить">
-              <X className="size-4" />
+            <button type="button" className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-muted-foreground transition hover:bg-white/16 hover:text-foreground" onClick={() => setQ("")} aria-label="Очистить">
+              <X className="size-3.5" />
             </button>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-2 lg:flex">
+        <div className="grid grid-cols-2 gap-2 lg:flex">
           <Select value={status} onValueChange={(v) => setFilter("status", v)}>
-            <SelectTrigger className="lg:w-40">
+            <SelectTrigger className="h-10 lg:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -90,7 +90,7 @@ export function UsersPage() {
             </SelectContent>
           </Select>
           <Select value={subscription} onValueChange={(v) => setFilter("subscription", v)}>
-            <SelectTrigger className="lg:w-44">
+            <SelectTrigger className="h-10 lg:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -100,7 +100,7 @@ export function UsersPage() {
             </SelectContent>
           </Select>
           <Select value={plan} onValueChange={(v) => setFilter("plan_id", v)}>
-            <SelectTrigger className="lg:w-44">
+            <SelectTrigger className="col-span-2 h-10 lg:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -123,7 +123,7 @@ export function UsersPage() {
         <Empty>{filtered ? "Никого не нашлось — попробуй другой запрос или сбрось фильтры" : "Юзеров пока нет"}</Empty>
       ) : (
         <>
-          <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+          <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -165,7 +165,7 @@ export function UsersPage() {
 
           <div className="flex flex-col gap-2 md:hidden">
             {users.map((u) => (
-              <Link key={u.id} to={`/users/${u.id}`} className="flex flex-col gap-3 rounded-xl border bg-card p-4 active:bg-white/[0.03]">
+              <Link key={u.id} to={`/users/${u.id}`} className="glass-thin flex flex-col gap-3 rounded-2xl p-4 transition-transform duration-200 ease-glide active:scale-[0.985]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium">{u.telegram_id ?? "—"}</div>

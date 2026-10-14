@@ -45,7 +45,7 @@ export function NodePage() {
 
   return (
     <>
-      <Link to="/nodes" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link to="/nodes" className="glass-pill mb-4 inline-flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-sm text-muted-foreground transition-[background-color,color,scale] duration-200 hover:bg-white/16 hover:text-foreground active:scale-[0.96]">
         <ArrowLeft className="size-4" />
         Ноды
       </Link>
@@ -72,7 +72,7 @@ export function NodePage() {
       />
 
       {n.config_error && (
-        <div className="mb-4 flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.06] p-4 text-sm">
+        <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="min-w-0">
             <div className="font-medium">Нода не смогла применить конфиг и работает на прошлом</div>
@@ -118,7 +118,7 @@ export function NodePage() {
           ) : (
             <div className="flex flex-col gap-3">
               {inbounds.data.map((ib) => (
-                <div key={ib.id} className="rounded-lg border bg-white/[0.02] p-4">
+                <div key={ib.id} className="well rounded-xl p-4">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="font-mono text-sm font-medium">{ib.tag}</span>
                     {ib.label && <Badge variant="secondary">{ib.label}</Badge>}

@@ -27,7 +27,7 @@ const providerStatus: Record<string, string> = {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[9rem_1fr] gap-3 border-b py-2.5 text-sm last:border-0 sm:grid-cols-[12rem_1fr]">
+    <div className="grid grid-cols-[9rem_1fr] gap-3 border-b border-hairline py-3 text-sm last:border-0 sm:grid-cols-[12rem_1fr]">
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words">{children}</span>
     </div>
@@ -71,7 +71,7 @@ export function PaymentPage() {
 
   return (
     <>
-      <Link to="/payments" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link to="/payments" className="glass-pill mb-4 inline-flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-sm text-muted-foreground transition-[background-color,color,scale] duration-200 hover:bg-white/16 hover:text-foreground active:scale-[0.96]">
         <ArrowLeft className="size-4" />
         Платежи
       </Link>
@@ -121,9 +121,9 @@ export function PaymentPage() {
       {(recheck || recheckError) && (
         <div className="mb-4">
           {recheckError ? (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/[0.07] p-4 text-sm text-destructive">{recheckError}</div>
+            <div className="tint-rim rounded-2xl border border-destructive/30 bg-destructive/[0.08] p-4 text-sm text-destructive">{recheckError}</div>
           ) : recheck?.provider ? (
-            <div className="flex gap-3 rounded-xl border border-info/25 bg-info/[0.06] p-4 text-sm">
+            <div className="tint-rim flex gap-3 rounded-2xl border border-info/25 bg-info/[0.07] p-4 text-sm">
               <Check className="mt-0.5 size-4 shrink-0 text-info" />
               {recheck.provider.found ? (
                 <div className="flex flex-col gap-1">

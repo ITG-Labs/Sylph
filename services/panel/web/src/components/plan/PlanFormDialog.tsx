@@ -16,7 +16,7 @@ function gbText(bytes: number | null | undefined) {
 
 function Toggle({ title, hint, checked, onChange, disabled }: { title: string; hint: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+    <div className="well flex items-center justify-between gap-3 rounded-xl p-3">
       <div>
         <div className="text-sm font-medium">{title}</div>
         <div className="text-xs text-muted-foreground">{hint}</div>

@@ -101,7 +101,7 @@ export function NodeFormDialog({
       <Field label="Группа локаций">
         <GroupSelect groups={groups} value={group} onChange={setGroup} />
       </Field>
-      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+      <div className="well flex items-center justify-between gap-3 rounded-xl p-3">
         <div>
           <div className="text-sm font-medium">Включена</div>
           <div className="text-xs text-muted-foreground">выключенная не попадает в подписки</div>

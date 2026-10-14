@@ -22,7 +22,7 @@ type Dialog = { kind: "edit" } | { kind: "invite" } | { kind: "revokeInvite"; in
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-white/[0.02] p-3">
+    <div className="well rounded-xl p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-medium tabular-nums">{value}</div>
     </div>
@@ -59,7 +59,7 @@ export function PlanPage() {
 
   return (
     <>
-      <Link to="/plans" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link to="/plans" className="glass-pill mb-4 inline-flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-sm text-muted-foreground transition-[background-color,color,scale] duration-200 hover:bg-white/16 hover:text-foreground active:scale-[0.96]">
         <ArrowLeft className="size-4" />
         Тарифы
       </Link>
@@ -109,7 +109,7 @@ export function PlanPage() {
                 {[...invites.data].sort((a, b) => b.id - a.id).map((inv) => {
                   const dead = !!inv.revoked_at || (inv.expires_at !== null && new Date(inv.expires_at) < new Date()) || (inv.max_uses !== null && inv.uses >= inv.max_uses)
                   return (
-                    <li key={inv.id} className="flex flex-col gap-2 rounded-lg border bg-white/[0.02] p-3">
+                    <li key={inv.id} className="flex flex-col gap-2 well rounded-xl p-3">
                       <div className="flex items-center gap-2">
                         <Link2 className="size-4 shrink-0 text-muted-foreground" />
                         <code className="min-w-0 flex-1 truncate font-mono text-xs">{inv.link ?? inv.code}</code>
