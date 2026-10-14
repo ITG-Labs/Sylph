@@ -106,7 +106,7 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
               height={base}
               fill="transparent"
               onPointerEnter={(e) => e.pointerType === "mouse" && setActive(i)}
-              onPointerDown={() => setActive(active === i ? null : i)}
+              onPointerDown={(e) => e.pointerType !== "mouse" && setActive(active === i ? null : i)}
             />
           ))}
           {n > 0 && (

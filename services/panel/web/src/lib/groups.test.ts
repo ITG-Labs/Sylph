@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { describeNodeMove, describePlanMove, nodeMoveImpact, planMoveImpact, sees } from "./groups"
 
-const node = (id: number, group_id: number | null, enabled = true) => ({ id, name: `n${id}`, group_id, enabled })
+const node = (id: number, group_id: number | null, enabled = true, inbounds = 1, address = "x.example") => ({ id, name: `n${id}`, group_id, enabled, inbounds, address })
 const plan = (id: number, location_group_id: number | null, active_users: number) => ({ id, name: `p${id}`, location_group_id, active_users })
 const ids = (xs: { id: number }[]) => xs.map((x) => x.id)
 
@@ -76,9 +76,18 @@ describe("groups", () => {
     expect(ids(planMoveImpact(plans[2], null, noCommon).orphaned)).toEqual([20])
   })
 
-  it("disabled nodes do not keep a plan alive", () => {
-    const onlyDisabled = [node(5, PREM, false)]
-    expect(ids(planMoveImpact(plans[0], PREM, onlyDisabled).orphaned)).toEqual([10])
+  it("nodes outside subscriptions do not keep a plan alive", () => {
+    const eu = node(1, EU)
+    expect(ids(planMoveImpact(plans[0], PREM, [eu, node(5, PREM, false)]).orphaned)).toEqual([10])
+    expect(ids(planMoveImpact(plans[0], PREM, [eu, node(6, PREM, true, 0)]).orphaned)).toEqual([10])
+    expect(ids(planMoveImpact(plans[0], PREM, [eu, node(7, PREM, true, 1, "")]).orphaned)).toEqual([10])
+    expect(planMoveImpact(plans[0], PREM, [eu, node(8, PREM)]).orphaned).toEqual([])
+  })
+
+  it("does not warn about plans that had nothing to lose", () => {
+    const hidden = [node(5, PREM, false), node(6, PREM, true, 0)]
+    expect(planMoveImpact(plans[2], null, hidden).orphaned).toEqual([])
+    expect(nodeMoveImpact(hidden[1], EU, plans, hidden).orphaned).toEqual([])
   })
 })
 
@@ -108,7 +117,7 @@ describe("move texts", () => {
     const lines = describeNodeMove(nodes[3], EU, nodeMoveImpact(nodes[3], EU, empty, nodes))
     expect(texts(lines)).toEqual([
       "На тарифах «p20», «p30» сейчас никого нет — нода просто уйдёт из них.",
-      "У тарифа «p30» не останется ни одной включённой ноды — его юзерам станет не к чему подключиться.",
+      "У тарифа «p30» в подписке не останется ни одной ноды — его юзерам станет не к чему подключиться.",
     ])
     expect(lines[1].tone).toBe("danger")
     expect(texts(describeNodeMove(nodes[2], null, nodeMoveImpact(nodes[2], null, plans, nodes)))[0]).toBe(
@@ -119,13 +128,36 @@ describe("move texts", () => {
   it("tells a plan which nodes it loses and gains", () => {
     expect(texts(describePlanMove(plans[0], PREM, planMoveImpact(plans[0], PREM, nodes)))).toEqual([
       "12 юзеров тарифа «p10» потеряют ноды «n1», «n2»: они перестанут их пускать в течение минуты, а из приложения пропадут при следующем обновлении подписки.",
-      "12 юзеров тарифа «p10» получат ноды «n3», «n5» (выключена) при следующем обновлении подписки.",
+      "12 юзеров тарифа «p10» получат ноды «n3», «n5» (выключена — в подписке её нет) при следующем обновлении подписки.",
     ])
     const lonely = plan(40, EU, 0)
     expect(texts(describePlanMove(lonely, null, planMoveImpact(lonely, null, nodes.filter((n) => n.id !== 4))))).toEqual([
       "Без группы тариф видит только общие ноды.",
       "Тариф перестанет видеть ноды «n1», «n2». Сейчас на нём никого нет.",
-      "У тарифа не останется ни одной включённой ноды — его юзерам станет не к чему подключиться.",
+      "У тарифа в подписке не останется ни одной ноды — его юзерам станет не к чему подключиться.",
+    ])
+  })
+
+  it("never promises an app change for a node outside subscriptions", () => {
+    const off = node(9, EU, false)
+    const all = [...nodes, off]
+    expect(texts(describeNodeMove(off, PREM, nodeMoveImpact(off, PREM, plans, all)))).toEqual([
+      "Нода выключена — в подписках её нет, у юзеров в приложениях ничего не поменяется. Пускать она будет уже по новой группе.",
+      "15 юзеров на тарифах «p10», «p11» потеряют доступ к ноде «n9»: она перестанет их пускать в течение минуты.",
+      "Нода начнёт пускать 30 юзеров на тарифе «p20», но в приложениях появится, только когда её включат.",
+    ])
+    const bare = node(10, null, true, 0)
+    expect(texts(describeNodeMove(bare, EU, nodeMoveImpact(bare, EU, [plan(10, EU, 1)], [bare])))[0]).toBe(
+      "Нода без входов — в подписках её нет, у юзеров в приложениях ничего не поменяется. Пускать она будет уже по новой группе.",
+    )
+    expect(texts(describeNodeMove(node(11, EU, true, 1, ""), null, nodeMoveImpact(node(11, EU, true, 1, ""), null, [plan(30, null, 1)], nodes))).at(-1)).toBe(
+      "Нода начнёт пускать 1 юзера на тарифе «p30», но в приложениях появится, только когда у неё появится адрес.",
+    )
+    const onlyOff = [node(1, EU), node(12, PREM, false)]
+    expect(texts(describePlanMove(plans[0], PREM, planMoveImpact(plans[0], PREM, onlyOff)))).toEqual([
+      "12 юзеров тарифа «p10» потеряют ноду «n1»: она перестанет их пускать в течение минуты, а из приложения пропадёт при следующем обновлении подписки.",
+      "12 юзеров тарифа «p10» получат ноду «n12» (выключена — в подписке её нет), но в подписку она попадёт, только когда станет доступна.",
+      "У тарифа в подписке не останется ни одной ноды — его юзерам станет не к чему подключиться.",
     ])
   })
 })

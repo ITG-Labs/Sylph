@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
 import { fmtDate, fmtRub, plural } from "@/lib/format"
-import { describeNodeMove, describePlanMove, isHarsh, nodeMoveImpact, planMoveImpact, type ImpactLine, type PlanLike } from "@/lib/groups"
+import { describeNodeMove, describePlanMove, hiddenReason, isHarsh, nodeMoveImpact, planMoveImpact, type ImpactLine, type PlanLike } from "@/lib/groups"
 import { useGroups, useInvalidate, useNodes, usePlans } from "@/lib/queries"
 import type { Node, Plan } from "@/lib/types"
 
@@ -265,7 +265,7 @@ export function GroupPage() {
               <>
                 <span className="min-w-0 truncate font-medium">
                   {n.name}
-                  {!n.enabled && <span className="font-normal text-muted-foreground"> · выключена</span>}
+                  {hiddenReason(n) && <span className="font-normal text-muted-foreground"> · {hiddenReason(n)}</span>}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">{where(n.group_id) ? `в «${where(n.group_id)}»` : "общая"}</span>
               </>

@@ -30,7 +30,7 @@ export function UsersPage() {
   const navigate = useNavigate()
   const plans = usePlans()
   const [q, setQ] = useState(params.get("q") ?? "")
-  const dq = useDebounced(q.trim(), 350)
+  const dq = useDebounced(q.trim() === "@" ? "" : q.trim(), 350)
   const status = params.get("status") ?? "all"
   const subscription = params.get("subscription") ?? "all"
   const plan = params.get("plan_id") ?? "all"

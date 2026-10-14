@@ -148,7 +148,9 @@ test("subscription settings are saved and restored", async () => {
   }
   await shared.goto("/settings")
   await shared.locator("#subs-support").fill("t.me/no-scheme")
-  await expect(shared.getByText("нужна ссылка вида https://… без пробелов")).toBeVisible()
+  await expect(shared.getByText("нужна ссылка вида https://… латиницей и без пробелов")).toBeVisible()
+  await shared.locator("#subs-support").fill("https://пример.рф/помощь")
+  await expect(shared.getByText("нужна ссылка вида https://… латиницей и без пробелов")).toBeVisible()
   await save("e2e title", "https://t.me/e2e_help")
   const saved = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/settings")).json()) as { subs_title: string; subs_support_url: string })
   expect([saved.subs_title, saved.subs_support_url]).toEqual(["e2e title", "https://t.me/e2e_help"])

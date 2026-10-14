@@ -76,10 +76,10 @@ export function NodeFormDialog({
   const moveLines: ImpactLine[] =
     node && groupID !== node.group_id && plans.data && nodes.data
       ? describeNodeMove(
-          node,
+          { ...node, enabled },
           groupID,
           nodeMoveImpact(
-            node,
+            { ...node, enabled },
             groupID,
             plans.data.map((p) => ({ ...p, active_users: p.active_users ?? 0 })),
             nodes.data,

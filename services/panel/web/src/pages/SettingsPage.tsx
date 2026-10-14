@@ -13,7 +13,7 @@ import { fmtDateTime } from "@/lib/format"
 import { useInvalidate } from "@/lib/queries"
 import type { Settings } from "@/lib/types"
 
-const urlPattern = /^https?:\/\/[^\s/?#]+[^\s]*$/
+const urlPattern = /^https?:\/\/[\x21-\x2e\x30-\x3e\x40-\x7e]+([/?#][\x21-\x7e]*)?$/
 
 export function SettingsPage() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => core.get<Settings>("/v1/admin/settings") })
@@ -63,7 +63,7 @@ export function SettingsPage() {
                 <Label htmlFor="subs-support">Ссылка поддержки</Label>
                 <Input id="subs-support" value={support} onChange={(e) => setSupport(e.target.value)} placeholder="https://t.me/…" inputMode="url" aria-invalid={!urlOk} />
                 <p className={urlOk ? "text-xs text-muted-foreground" : "text-xs text-[oklch(0.82_0.12_22)]"}>
-                  {urlOk ? "кнопка «Поддержка» в Happ / v2RayTun и на страничке подписки; пусто — кнопки нет" : "нужна ссылка вида https://… без пробелов"}
+                  {urlOk ? "кнопка «Поддержка» в Happ / v2RayTun и на страничке подписки; пусто — кнопки нет" : "нужна ссылка вида https://… латиницей и без пробелов (кириллический домен — в punycode, xn--…)"}
                 </p>
               </div>
             </div>

@@ -145,6 +145,7 @@ export interface Node {
   xray_uptime_sec: number | null
   last_sync_at: string | null
   status: NodeStatus
+  inbounds: number
   created_at: string
 }
 
