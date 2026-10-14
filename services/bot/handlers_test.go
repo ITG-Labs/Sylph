@@ -104,6 +104,7 @@ type fakeCore struct {
 	removeErr error
 
 	registerErr error
+	profiles    []*Profile
 
 	trialUntil time.Time
 	trialErr   error
@@ -130,8 +131,11 @@ func (c *fakeCore) note(s string) {
 	c.calls = append(c.calls, s)
 }
 
-func (c *fakeCore) Register(_ context.Context, tg int64) (*User, error) {
+func (c *fakeCore) Register(_ context.Context, tg int64, p *Profile) (*User, error) {
 	c.note("register")
+	c.mu.Lock()
+	c.profiles = append(c.profiles, p)
+	c.mu.Unlock()
 	if c.registerErr != nil {
 		return nil, c.registerErr
 	}
@@ -310,6 +314,26 @@ func TestStartRegistersAndShowsTheMenu(t *testing.T) {
 		t.Fatalf("menu buttons are not colored: %+v", msgs[0].keyboard)
 	}
 	mustContain(t, msgs[0].text, "<b>", "━━")
+}
+
+func TestEveryVisitSendsTheTelegramProfile(t *testing.T) {
+	core := &fakeCore{}
+	app, tg := newTestApp(t, core)
+	m := message("/start", models.ChatTypePrivate)
+	m.Message.From.Username, m.Message.From.FirstName, m.Message.From.LastName = "ivan", "Иван", "Пе\x00тров\n"
+	app.Handle(context.Background(), tg, m)
+	cb := callback("menu:sub")
+	cb.CallbackQuery.From.FirstName = "Ваня"
+	app.Handle(context.Background(), tg, cb)
+	if len(core.profiles) < 2 || core.profiles[0] == nil || core.profiles[1] == nil {
+		t.Fatalf("profiles = %+v", core.profiles)
+	}
+	if got := *core.profiles[0]; got != (Profile{Username: "ivan", FirstName: "Иван", LastName: "Петров"}) {
+		t.Fatalf("message profile = %+v", got)
+	}
+	if got := *core.profiles[1]; got != (Profile{FirstName: "Ваня"}) {
+		t.Fatalf("callback profile = %+v", got)
+	}
 }
 
 func TestAnyTextShowsTheMenu(t *testing.T) {

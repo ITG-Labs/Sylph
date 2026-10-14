@@ -97,7 +97,7 @@ type Device struct {
 }
 
 type Core interface {
-	Register(ctx context.Context, telegramID int64) (*User, error)
+	Register(ctx context.Context, telegramID int64, profile *Profile) (*User, error)
 	Status(ctx context.Context, telegramID int64) (*Status, error)
 	Plans(ctx context.Context, userID int64) ([]Plan, error)
 	CreatePayment(ctx context.Context, userID, planID int64) (*Payment, error)
@@ -119,9 +119,19 @@ func NewCoreClient(api *apiclient.Client) *CoreClient {
 	return &CoreClient{api: api}
 }
 
-func (c *CoreClient) Register(ctx context.Context, telegramID int64) (*User, error) {
+type Profile struct {
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
+func (c *CoreClient) Register(ctx context.Context, telegramID int64, profile *Profile) (*User, error) {
+	body := struct {
+		TelegramID int64    `json:"telegram_id"`
+		Profile    *Profile `json:"profile,omitempty"`
+	}{telegramID, profile}
 	var u User
-	return &u, c.do(ctx, http.MethodPost, "/v1/users", map[string]int64{"telegram_id": telegramID}, &u)
+	return &u, c.do(ctx, http.MethodPost, "/v1/users", body, &u)
 }
 
 func (c *CoreClient) Status(ctx context.Context, telegramID int64) (*Status, error) {

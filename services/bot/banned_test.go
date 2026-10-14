@@ -59,14 +59,14 @@ func TestCoreMapsBannedToItsOwnError(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"code":"banned","message":"user is banned"}`)
 	})
-	if _, err := c.Register(context.Background(), 1); !errors.Is(err, ErrBanned) {
+	if _, err := c.Register(context.Background(), 1, nil); !errors.Is(err, ErrBanned) {
 		t.Fatalf("register: %v", err)
 	}
 	f, _ := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"code":"forbidden","message":"role not allowed"}`)
 	})
-	if _, err := f.Register(context.Background(), 1); errors.Is(err, ErrBanned) {
+	if _, err := f.Register(context.Background(), 1, nil); errors.Is(err, ErrBanned) {
 		t.Fatal("a forbidden role was read as a ban")
 	}
 }
