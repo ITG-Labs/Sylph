@@ -99,8 +99,6 @@ services:
       SYLPH_TLS_CERT: /ca/certs/subs/cert.pem
       SYLPH_TLS_KEY: /ca/certs/subs/key.pem
       SYLPH_CA_CERT: /ca/ca.pem
-      SYLPH_SUBS_TITLE: Sylph E2E
-      SYLPH_SUBS_SUPPORT_URL: https://t.me/sylph_support
     volumes:
       - ./bin/ca:/ca:ro
     networks: [e2e]

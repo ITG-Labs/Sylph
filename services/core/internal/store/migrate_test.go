@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 17 {
-		t.Fatalf("tables = %d, want 17", count)
+	if count != 19 {
+		t.Fatalf("tables = %d, want 19", count)
 	}
 }
 
@@ -581,5 +581,68 @@ func TestMigration008DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 008 again: %v", err)
+	}
+}
+
+func TestMigration009DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(8); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 't1')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 009: %v", err)
+	}
+	for _, name := range []string{"telegram_profiles", "settings", "idx_traffic_daily_node_day"} {
+		if !tableExists(t, pool, name) {
+			t.Fatalf("up 009 did not create %s", name)
+		}
+	}
+	var title, support string
+	if err := pool.QueryRow(ctx, `SELECT subs_title, subs_support_url FROM settings`).Scan(&title, &support); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Sylph" || support != "" {
+		t.Fatalf("default settings = %q %q", title, support)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO settings (id) VALUES (FALSE)`); err == nil {
+		t.Fatal("a second settings row was accepted")
+	}
+	before := nodesVersion(t, pool)
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_profiles (user_id, username, first_name) VALUES (1, 'ivan', 'Иван')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE telegram_profiles SET username = 'ivan2' WHERE user_id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if v := nodesVersion(t, pool); v != before {
+		t.Fatalf("a telegram profile bumped nodes: %d -> %d", before, v)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 009: %v", err)
+	}
+	for _, name := range []string{"telegram_profiles", "settings", "idx_traffic_daily_node_day"} {
+		if tableExists(t, pool, name) {
+			t.Fatalf("down 009 left %s", name)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 009 again: %v", err)
 	}
 }

@@ -40,13 +40,26 @@ func TestCoreRegister(t *testing.T) {
 	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"id":7,"sub_token":"tok"}`)
 	})
-	u, err := c.Register(context.Background(), 1001)
+	u, err := c.Register(context.Background(), 1001, nil)
 	if err != nil || u.ID != 7 || u.SubToken != "tok" {
 		t.Fatalf("user = %+v, %v", u, err)
 	}
 	got := (*calls)[0]
 	if got.method != http.MethodPost || got.path != "/v1/users" || got.body["telegram_id"] != float64(1001) || len(got.body) != 1 {
 		t.Fatalf("call = %+v", got)
+	}
+}
+
+func TestCoreRegisterSendsTheProfile(t *testing.T) {
+	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"id":7,"sub_token":"tok"}`)
+	})
+	if _, err := c.Register(context.Background(), 1001, &Profile{Username: "ivan", FirstName: "Иван"}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := (*calls)[0].body["profile"].(map[string]any)
+	if p == nil || p["username"] != "ivan" || p["first_name"] != "Иван" || p["last_name"] != "" || len(p) != 3 {
+		t.Fatalf("body = %+v", (*calls)[0].body)
 	}
 }
 

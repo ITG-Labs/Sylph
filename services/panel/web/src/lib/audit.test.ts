@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { auditAction, auditDetails, auditLink } from "./audit"
+import { auditAction, auditDetails, auditEntity, auditLink } from "./audit"
 
 describe("audit", () => {
   it("humanizes known actions and falls back", () => {
@@ -7,6 +7,10 @@ describe("audit", () => {
     expect(auditAction("payment", "refund")).toBe("отметил возврат")
     expect(auditAction("payments", "recheck")).toBe("перепроверил платёж в ЮKassa")
     expect(auditAction("widget", "zap")).toBe("zap widget")
+    expect(auditAction("group", "update")).toBe("переименовал группу")
+    expect(auditAction("group", "delete")).toBe("удалил группу")
+    expect(auditAction("settings", "update")).toBe("изменил название или поддержку подписки")
+    expect(auditEntity("settings")).toBe("настройки")
   })
   it("links entities", () => {
     expect(auditLink("users", "7")).toBe("/users/7")
@@ -15,6 +19,8 @@ describe("audit", () => {
     expect(auditLink("inbound", "3")).toBeNull()
     expect(auditLink("payments", "")).toBeNull()
     expect(auditLink("payments", "p-1")).toBe("/payments/p-1")
+    expect(auditLink("group", "2")).toBe("/groups/2")
+    expect(auditLink("settings", "")).toBeNull()
   })
   it("flattens details", () => {
     expect(auditDetails({ days: 7, reason: "x" })).toBe("days: 7 · reason: x")

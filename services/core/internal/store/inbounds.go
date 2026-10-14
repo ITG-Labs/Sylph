@@ -179,6 +179,24 @@ func (s *Store) DeleteInbound(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *Store) InboundCounts(ctx context.Context) (map[int64]int, error) {
+	rows, err := s.pool.Query(ctx, `SELECT node_id, count(*) FROM node_inbounds GROUP BY node_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 type Endpoint struct {
 	NodeName    string
 	NodeAddress string

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -74,7 +75,7 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 	if m.Chat.Type != models.ChatTypePrivate || m.From == nil {
 		return
 	}
-	u, err := a.core.Register(ctx, m.From.ID)
+	u, err := a.core.Register(ctx, m.From.ID, profileOf(m.From))
 	if errors.Is(err, ErrBanned) {
 		return
 	}
@@ -92,6 +93,19 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 	a.send(ctx, tg, m.Chat.ID, text, kb)
 }
 
+func cleanProfileText(v string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, v))
+}
+
+func profileOf(u *models.User) *Profile {
+	return &Profile{Username: cleanProfileText(u.Username), FirstName: cleanProfileText(u.FirstName), LastName: cleanProfileText(u.LastName)}
+}
+
 func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQuery) {
 	to := reply{chatID: q.From.ID}
 	switch {
@@ -104,7 +118,7 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 		return
 	}
 	tgID := q.From.ID
-	if _, err := a.core.Register(ctx, tgID); errors.Is(err, ErrBanned) {
+	if _, err := a.core.Register(ctx, tgID, profileOf(&q.From)); errors.Is(err, ErrBanned) {
 		return
 	}
 	data := q.Data
@@ -156,7 +170,7 @@ func (a *App) status(ctx context.Context, tgID int64) (*Status, error) {
 	if !errors.Is(err, ErrNotFound) {
 		return st, err
 	}
-	if _, err := a.core.Register(ctx, tgID); err != nil {
+	if _, err := a.core.Register(ctx, tgID, nil); err != nil {
 		return nil, err
 	}
 	return a.core.Status(ctx, tgID)

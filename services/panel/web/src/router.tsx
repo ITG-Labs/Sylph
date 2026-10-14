@@ -5,6 +5,7 @@ import { ErrorPage } from "./pages/ErrorPage"
 import { LoginPage } from "./pages/LoginPage"
 import { NodePage } from "./pages/NodePage"
 import { NodesPage } from "./pages/NodesPage"
+import { GroupPage } from "./pages/GroupPage"
 import { GroupsPage } from "./pages/GroupsPage"
 import { OverviewPage } from "./pages/OverviewPage"
 import { PlanPage } from "./pages/PlanPage"
@@ -12,6 +13,7 @@ import { PlansPage } from "./pages/PlansPage"
 import { PaymentPage } from "./pages/PaymentPage"
 import { PaymentsPage } from "./pages/PaymentsPage"
 import { PlaceholderPage } from "./pages/PlaceholderPage"
+import { SettingsPage } from "./pages/SettingsPage"
 import { UserPage } from "./pages/UserPage"
 import { UsersPage } from "./pages/UsersPage"
 
@@ -34,7 +36,9 @@ export const router = createBrowserRouter([
       { path: "plans", element: <PlansPage /> },
       { path: "plans/:id", element: <PlanPage /> },
       { path: "groups", element: <GroupsPage /> },
+      { path: "groups/:id", element: <GroupPage /> },
       { path: "audit", element: <AuditPage /> },
+      { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <PlaceholderPage title="Нет такой страницы" /> },
         ],
       },

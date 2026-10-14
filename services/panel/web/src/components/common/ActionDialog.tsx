@@ -13,6 +13,7 @@ export interface ActionDialogProps {
   title: string
   description?: ReactNode
   consequences?: ReactNode
+  consequencesBelow?: boolean
   confirmLabel: string
   destructive?: boolean
   reason?: { label: string; required?: boolean; placeholder?: string }
@@ -28,6 +29,7 @@ export function ActionDialog({
   title,
   description,
   consequences,
+  consequencesBelow,
   confirmLabel,
   destructive,
   reason,
@@ -49,6 +51,12 @@ export function ActionDialog({
   }, [open])
 
   const reasonMissing = !!reason?.required && text.trim() === ""
+  const warning = consequences && (
+    <div className={destructive ? "flex gap-3 tint-rim rounded-xl border border-destructive/30 bg-destructive/[0.08] p-3 text-sm" : "flex gap-3 tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm"}>
+      <AlertTriangle className={destructive ? "mt-0.5 size-4 shrink-0 text-destructive" : "mt-0.5 size-4 shrink-0 text-warning"} />
+      <div className="flex flex-col gap-1.5 leading-relaxed">{consequences}</div>
+    </div>
+  )
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -74,13 +82,9 @@ export function ActionDialog({
             <DialogTitle>{title}</DialogTitle>
             {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
           </DialogHeader>
-          {consequences && (
-            <div className={destructive ? "flex gap-3 tint-rim rounded-xl border border-destructive/30 bg-destructive/[0.08] p-3 text-sm" : "flex gap-3 tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm"}>
-              <AlertTriangle className={destructive ? "mt-0.5 size-4 shrink-0 text-destructive" : "mt-0.5 size-4 shrink-0 text-warning"} />
-              <div className="flex flex-col gap-1.5 leading-relaxed">{consequences}</div>
-            </div>
-          )}
+          {!consequencesBelow && warning}
           {children}
+          {consequencesBelow && warning}
           {reason && (
             <div className="flex flex-col gap-2">
               <Label htmlFor="action-reason">

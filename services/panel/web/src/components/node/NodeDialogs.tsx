@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react"
 import { ActionDialog } from "@/components/common/ActionDialog"
+import { MoveConsequences } from "@/components/group/MoveConsequences"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { core } from "@/lib/api"
+import { describeNodeMove, isHarsh, nodeMoveImpact, type ImpactLine } from "@/lib/groups"
+import { useNodes, usePlans } from "@/lib/queries"
 import type { Group, Inbound, Node } from "@/lib/types"
 
 export const fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "random"]
@@ -68,6 +71,22 @@ export function NodeFormDialog({
 
   const groupID = group === "none" ? null : Number(group)
   const ok = name.trim() !== "" && address.trim() !== "" && (node || cn.trim() !== "")
+  const plans = usePlans()
+  const nodes = useNodes()
+  const moveLines: ImpactLine[] =
+    node && groupID !== node.group_id && plans.data && nodes.data
+      ? describeNodeMove(
+          { ...node, enabled },
+          groupID,
+          nodeMoveImpact(
+            { ...node, enabled },
+            groupID,
+            plans.data.map((p) => ({ ...p, active_users: p.active_users ?? 0 })),
+            nodes.data,
+          ),
+        )
+      : []
+  const disabling = !!node && node.enabled && !enabled
 
   return (
     <ActionDialog
@@ -75,8 +94,15 @@ export function NodeFormDialog({
       onOpenChange={onOpenChange}
       title={node ? `Изменить ноду «${node.name}»` : "Завести ноду"}
       description={node ? `CN серта: ${node.cert_cn} — не меняется` : "Серт ноды выпускается у тебя: make cert NAME=<CN> TYPE=client ROLE=node"}
-      consequences={node && node.enabled && !enabled ? <p>Выключенная нода пропадёт из подписок со следующим обновлением, её юзеры переключатся на другие ноды.</p> : undefined}
-      destructive={!!node && node.enabled && !enabled}
+      consequences={
+        disabling || moveLines.length > 0 ? (
+          <>
+            {disabling && <p>Выключенная нода пропадёт из подписок со следующим обновлением, её юзеры переключатся на другие ноды.</p>}
+            <MoveConsequences lines={moveLines} />
+          </>
+        ) : undefined
+      }
+      destructive={disabling || isHarsh(moveLines)}
       confirmLabel={node ? "Сохранить" : "Завести"}
       canConfirm={!!ok}
       success={node ? "Нода сохранена" : "Нода заведена"}

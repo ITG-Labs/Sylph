@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -130,33 +131,73 @@ type UserQuery struct {
 	Limit        int
 }
 
-func searchTerm(q string) (*int64, string, error) {
-	q = strings.TrimSpace(q)
-	if q == "" {
-		return nil, "", nil
+type userSearch struct {
+	Number   *int64
+	Token    string
+	Username string
+	Text     string
+}
+
+var (
+	hexTokenPattern      = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	usernameQueryPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+)
+
+const maxSearchTextRunes = 64
+
+func linkToken(q string) (string, bool) {
+	link := q
+	if i := strings.IndexAny(link, "?#"); i >= 0 {
+		link = link[:i]
 	}
-	if strings.Trim(q, "0123456789") == "" {
+	link = strings.TrimRight(link, "/")
+	if i := strings.Index(link, "://"); i >= 0 && !strings.Contains(link[i+3:], "/") {
+		return "", false
+	}
+	token := link[strings.LastIndex(link, "/")+1:]
+	if token == "" || utf8.RuneCountInString(token) > maxTokenRunes {
+		return "", false
+	}
+	if hexTokenPattern.MatchString(token) {
+		return strings.ToLower(token), true
+	}
+	return token, strings.Contains(q, "://")
+}
+
+func parseUserSearch(q string) (userSearch, error) {
+	q = strings.TrimSpace(q)
+	switch {
+	case q == "":
+		return userSearch{}, nil
+	case strings.Trim(q, "0123456789") == "":
 		n, err := strconv.ParseInt(q, 10, 64)
 		if err != nil {
-			return nil, "", fieldErr("q", "number is too large")
+			return userSearch{}, fieldErr("q", "number is too large")
 		}
-		return &n, "", nil
+		return userSearch{Number: &n}, nil
+	case strings.HasPrefix(q, "@"):
+		if nick := q[1:]; usernameQueryPattern.MatchString(nick) {
+			return userSearch{Username: nick}, nil
+		}
+		return userSearch{}, fieldErr("q", "must be a Telegram username after @")
+	case strings.Contains(q, "/"):
+		if token, ok := linkToken(q); ok {
+			return userSearch{Token: token}, nil
+		}
+		if strings.Contains(q, "://") {
+			return userSearch{}, fieldErr("q", "must be a Telegram ID, a user id, a subscription link, @username or a name")
+		}
+	case hexTokenPattern.MatchString(q):
+		return userSearch{Token: strings.ToLower(q)}, nil
 	}
-	if i := strings.IndexAny(q, "?#"); i >= 0 {
-		q = q[:i]
+	if err := validText("q", q, maxSearchTextRunes); err != nil {
+		return userSearch{}, err
 	}
-	q = strings.TrimRight(q, "/")
-	if i := strings.LastIndex(q, "/"); i >= 0 {
-		q = q[i+1:]
-	}
-	if q == "" || utf8.RuneCountInString(q) > maxTokenRunes {
-		return nil, "", fieldErr("q", "must be a Telegram ID, a user id, a subscription link or its token")
-	}
-	return nil, q, nil
+	return userSearch{Text: q}, nil
 }
 
 func (s *Service) ListUsers(ctx context.Context, q UserQuery) ([]store.UserRow, error) {
-	number, token, err := searchTerm(q.Q)
+	search, err := parseUserSearch(q.Q)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +214,8 @@ func (s *Service) ListUsers(ctx context.Context, q UserQuery) ([]store.UserRow, 
 		return nil, fieldErr("limit", "must be 1-100")
 	}
 	return s.store.ListUsers(ctx, store.UserFilter{
-		Number: number, Token: token, Status: q.Status, Subscription: q.Subscription,
+		Number: search.Number, Token: search.Token, Username: search.Username, Text: search.Text,
+		Status: q.Status, Subscription: q.Subscription,
 		PlanID: q.PlanID, Before: q.Before, Limit: q.Limit,
 	})
 }

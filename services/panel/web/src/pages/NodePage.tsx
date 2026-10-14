@@ -9,6 +9,7 @@ import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
 import { InboundFormDialog, NodeFormDialog } from "@/components/node/NodeDialogs"
+import { NodeTrafficSection } from "@/components/node/NodeTrafficSection"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { core } from "@/lib/api"
@@ -162,6 +163,8 @@ export function NodePage() {
           )}
         </Section>
       </div>
+
+      <NodeTrafficSection nodeId={n.id} />
 
       <NodeFormDialog open={dialog?.kind === "edit"} onOpenChange={close} node={n} groups={groups.data ?? []} onDone={() => refresh()} />
       <ActionDialog

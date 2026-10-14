@@ -85,3 +85,14 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few
   return many
 }
+
+export function fmtTelegram(username: string | null, name: string | null): string {
+  return [username ? `@${username}` : "", name ?? ""].filter((s) => s !== "").join(" · ")
+}
+
+const shortMonths = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+export function fmtShortDay(day: string): string {
+  const [, m, d] = day.split("-").map(Number)
+  return `${d} ${shortMonths[m - 1]}`
+}

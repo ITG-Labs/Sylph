@@ -42,11 +42,12 @@ func (f *fakeCore) Subscription(ctx context.Context, req Request) (*View, error)
 func okView() *View {
 	limit := int64(107374182400)
 	expires := time.Date(2026, 11, 11, 6, 21, 27, 0, time.UTC)
-	return &View{Status: StatusOK, TrafficUsedBytes: 5368709120, TrafficLimitBytes: &limit, ExpiresAt: &expires, Connections: goldenConnections()}
+	return &View{Status: StatusOK, TrafficUsedBytes: 5368709120, TrafficLimitBytes: &limit, ExpiresAt: &expires, Connections: goldenConnections(),
+		Title: "Sylph VPN", SupportURL: "https://t.me/sylph_support"}
 }
 
 func testSettings() Settings {
-	return Settings{Title: "Sylph VPN", UpdateHours: 12, SupportURL: "https://t.me/sylph_support"}
+	return Settings{UpdateHours: 12}
 }
 
 func newTestServer(core Core, logs io.Writer) http.Handler {
@@ -262,7 +263,9 @@ func TestUserinfoWithoutLimitOrSubscription(t *testing.T) {
 }
 
 func TestSupportURLIsOptional(t *testing.T) {
-	s := NewServer(&fakeCore{view: okView()}, Settings{Title: "Sylph", UpdateHours: 6}, logging.NewWithWriter("subs", "info", io.Discard))
+	v := okView()
+	v.SupportURL = ""
+	s := NewServer(&fakeCore{view: v}, Settings{UpdateHours: 6}, logging.NewWithWriter("subs", "info", io.Discard))
 	rec := get(s.Handler(), "/"+testToken, nil)
 	if _, ok := rec.Header()["Support-Url"]; ok {
 		t.Fatal("empty support url sent")
@@ -333,5 +336,30 @@ func TestTrailingSlashServesTheSameSubscription(t *testing.T) {
 	rec := get(newTestServer(core, nil), "/"+testToken+"/", nil)
 	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), RenderBase64(goldenConnections())) || core.calls[0].SubToken != testToken {
 		t.Fatalf("trailing slash = %d %s %+v", rec.Code, rec.Body.String(), core.calls)
+	}
+}
+
+func TestBrandComesFromCoreEachTime(t *testing.T) {
+	core := &fakeCore{view: okView()}
+	h := newTestServer(core, nil)
+	core.view.Title, core.view.SupportURL = "Нора", "https://t.me/nora"
+	rec := get(h, "/"+testToken, nil)
+	if rec.Header().Get("Profile-Title") != "base64:"+base64.StdEncoding.EncodeToString([]byte("Нора")) || rec.Header().Get("Support-Url") != "https://t.me/nora" {
+		t.Fatalf("headers = %v", rec.Header())
+	}
+	core.view.Title = ""
+	rec = get(h, "/"+testToken, nil)
+	if rec.Header().Get("Profile-Title") != "base64:"+base64.StdEncoding.EncodeToString([]byte("Sylph")) {
+		t.Fatalf("title without core brand = %q", rec.Header().Get("Profile-Title"))
+	}
+	for _, bad := range []string{"javascript:alert(1)", "t.me/x", "https://пример.рф/помощь", "https://x.example/a\r\nX-Evil: 1", "https://"} {
+		core.view.SupportURL = bad
+		rec = get(h, "/"+testToken, nil)
+		if _, ok := rec.Header()["Support-Url"]; ok {
+			t.Fatalf("support %q passed through", bad)
+		}
+		if page := browserGet(h, "sub.example.com", nil).Body.String(); strings.Contains(page, "Поддержка") {
+			t.Fatalf("support %q shown on the page", bad)
+		}
 	}
 }

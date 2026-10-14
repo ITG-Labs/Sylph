@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { core, qs } from "@/lib/api"
-import { fmtDate } from "@/lib/format"
+import { fmtDate, fmtTelegram } from "@/lib/format"
 import { usePlans } from "@/lib/queries"
 import type { UsersPage as UsersPageData } from "@/lib/types"
 
@@ -30,7 +30,7 @@ export function UsersPage() {
   const navigate = useNavigate()
   const plans = usePlans()
   const [q, setQ] = useState(params.get("q") ?? "")
-  const dq = useDebounced(q.trim(), 350)
+  const dq = useDebounced(q.trim() === "@" ? "" : q.trim(), 350)
   const status = params.get("status") ?? "all"
   const subscription = params.get("subscription") ?? "all"
   const plan = params.get("plan_id") ?? "all"
@@ -66,12 +66,12 @@ export function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Юзеры" description="поиск по Telegram ID, номеру юзера или ссылке подписки" />
+      <PageHeader title="Юзеры" description="поиск по Telegram ID, номеру юзера, @нику, имени или ссылке подписки" />
 
       <div className="mb-4 flex flex-col gap-2 lg:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-10 pr-10 pl-10" placeholder="123456789, 42 или https://…/токен" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-10 pr-10 pl-10" placeholder="TG ID, номер, @ник, имя или ссылка" value={q} onChange={(e) => setQ(e.target.value)} />
           {q && (
             <button type="button" className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-muted-foreground transition hover:bg-white/16 hover:text-foreground" onClick={() => setQ("")} aria-label="Очистить">
               <X className="size-3.5" />
@@ -144,7 +144,10 @@ export function UsersPage() {
                       <Link to={`/users/${u.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
                         {u.telegram_id ?? "—"}
                       </Link>
-                      <div className="text-xs text-muted-foreground">№ {u.id}</div>
+                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={fmtTelegram(u.telegram_username, u.telegram_name) || undefined}>
+                        № {u.id}
+                        {(u.telegram_username || u.telegram_name) && ` · ${fmtTelegram(u.telegram_username, u.telegram_name)}`}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <UserStatusBadge status={u.status} />
@@ -167,8 +170,9 @@ export function UsersPage() {
             {users.map((u) => (
               <Link key={u.id} to={`/users/${u.id}`} className="glass-thin flex flex-col gap-3 rounded-2xl p-4 transition-transform duration-200 ease-glide active:scale-[0.985]">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-medium">{u.telegram_id ?? "—"}</div>
+                    {(u.telegram_username || u.telegram_name) && <div className="truncate text-sm text-foreground/85">{fmtTelegram(u.telegram_username, u.telegram_name)}</div>}
                     <div className="text-xs text-muted-foreground">№ {u.id} · с {fmtDate(u.created_at)}</div>
                   </div>
                   <UserStatusBadge status={u.status} />

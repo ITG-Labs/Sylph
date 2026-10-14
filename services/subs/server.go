@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ITG-Labs/sylph/internal/version"
@@ -32,10 +34,28 @@ var contentTypes = map[Format]string{
 }
 
 type Settings struct {
-	Title       string
 	UpdateHours int
-	SupportURL  string
 	Location    *time.Location
+}
+
+const defaultTitle = "Sylph"
+
+func brandTitle(v *View) string {
+	if strings.TrimSpace(v.Title) == "" {
+		return defaultTitle
+	}
+	return v.Title
+}
+
+func supportURL(v *View) string {
+	if strings.IndexFunc(v.SupportURL, func(r rune) bool { return r > unicode.MaxASCII || unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+		return ""
+	}
+	u, err := url.Parse(v.SupportURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return ""
+	}
+	return v.SupportURL
 }
 
 type Server struct {
@@ -147,10 +167,10 @@ func (s *Server) serve(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	h.Set("Content-Type", contentTypes[format])
 	h.Set("Cache-Control", "no-store")
 	h.Set("Subscription-Userinfo", userinfo(view))
-	h.Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(s.settings.Title)))
+	h.Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(brandTitle(view))))
 	h.Set("Profile-Update-Interval", strconv.Itoa(s.settings.UpdateHours))
-	if s.settings.SupportURL != "" {
-		h.Set("Support-Url", s.settings.SupportURL)
+	if support := supportURL(view); support != "" {
+		h.Set("Support-Url", support)
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
