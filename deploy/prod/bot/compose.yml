@@ -48,7 +48,7 @@ services:
       default:
         ipv4_address: ${SYLPH_CADDY_IP:-172.30.11.10}
     ports:
-      - "${SYLPH_HTTPS_PORT:-443}:443"
+      - "0.0.0.0:${SYLPH_HTTPS_PORT:-443}:443"
     environment:
       SYLPH_BOT_DOMAIN: ${SYLPH_BOT_DOMAIN:?set SYLPH_BOT_DOMAIN in .env}
     volumes:

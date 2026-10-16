@@ -1,4 +1,7 @@
 {
+	cert_issuer acme {
+		disable_http_challenge
+	}
 	servers {
 		protocols h1 h2
 	}

@@ -39,7 +39,7 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sylph -d sylph"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U sylph -d sylph"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -89,7 +89,18 @@ services:
       SYLPH_CRON_STATS_RETENTION_DAYS: ${SYLPH_CRON_STATS_RETENTION_DAYS:-365}
       SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
     volumes:
-      - ./certs:/certs:ro
+      - type: bind
+        source: ./certs/ca.pem
+        target: /certs/ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./certs/cron
+        target: /certs/cron
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core:
         condition: service_started
