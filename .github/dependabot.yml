@@ -64,6 +64,10 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    groups:
+      images:
+        patterns: ["*"]
+        group-by: dependency-name
     ignore:
       - dependency-name: "*xray-core"
 
@@ -85,6 +89,10 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    groups:
+      compose-images:
+        patterns: ["*"]
+        group-by: dependency-name
     ignore:
       - dependency-name: "*xray-core"
       - dependency-name: postgres
