@@ -122,3 +122,65 @@ func TestDialIsLazyAndCallsFailOnDeadPort(t *testing.T) {
 		t.Fatal("want error from closed port")
 	}
 }
+
+func TestLiveRoutingRulesByUser(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+	u, other := xraytest.NewUUID(), xraytest.NewUUID()
+	route := func(email string) string {
+		t.Helper()
+		out, err := c.TestRoute(ctx, xraytest.ClientTag, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := route(u); got != "" {
+		t.Fatalf("before rules: %s", got)
+	}
+	tag, all := "sylph-p1-r1", "sylph-p1-default"
+	t.Cleanup(func() {
+		_ = c.RemoveRule(ctx, tag)
+		_ = c.RemoveRule(ctx, all)
+	})
+	if err := c.AppendRules(ctx, []RouteRule{{Tag: tag, Users: []string{u}, OutboundTag: "blocked"}}); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := c.RuleTags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(tags, []string{"static-1", tag}) {
+		t.Fatalf("rule tags = %v", tags)
+	}
+	if route(u) != "blocked" || route(other) != "" {
+		t.Fatalf("user rule: %s / %s", route(u), route(other))
+	}
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.RemoveUser(ctx, xraytest.ClientTag, u) })
+	if err := xraytest.Exchange(xraytest.ClientVLESS, u, []byte("ping"), 4); err == nil {
+		t.Fatal("traffic of a blocked user went through")
+	}
+	if err := c.AppendRules(ctx, []RouteRule{{Tag: all, CatchAll: true, OutboundTag: "blocked"}}); err != nil {
+		t.Fatal(err)
+	}
+	if route(other) != "blocked" {
+		t.Fatalf("catch-all: %s", route(other))
+	}
+	for _, r := range []string{tag, all} {
+		if err := c.RemoveRule(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if route(u) != "" || route(other) != "" {
+		t.Fatalf("after removal: %s / %s", route(u), route(other))
+	}
+	if err := xraytest.Exchange(xraytest.ClientVLESS, u, []byte("ping"), 4); err != nil {
+		t.Fatalf("traffic after removing the rule: %v", err)
+	}
+	if tags, _ := c.RuleTags(ctx); !slices.Equal(tags, []string{"static-1"}) {
+		t.Fatalf("rule tags after removal = %v", tags)
+	}
+}
