@@ -7,13 +7,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ITG-Labs/sylph/pkg/netaddr"
 )
 
 const (
@@ -26,10 +27,7 @@ const (
 
 var Fingerprints = []string{"chrome", "firefox", "safari", "ios", "android", "edge", "random"}
 
-var (
-	tagPattern   = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
-	labelPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
-)
+var tagPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 type Reality struct {
 	Dest        string   `json:"dest"`
@@ -122,11 +120,11 @@ func normalizeReality(r *Reality) error {
 	}
 	port = strconv.Itoa(p)
 	host = strings.ToLower(host)
-	if net.ParseIP(host) == nil && (!isHostname(host) || !letterTLD(host)) {
+	if net.ParseIP(host) == nil && (!netaddr.IsHostname(host) || !netaddr.LetterTLD(host)) {
 		return fieldErr("reality.dest", "host must be a hostname or an IP in its usual notation")
 	}
 	host = CanonicalHost(host)
-	if internalHost(host) {
+	if netaddr.Internal(host) {
 		return fieldErr("reality.dest", "must not point to localhost, a private, link-local or special address")
 	}
 	r.Dest = net.JoinHostPort(host, port)
@@ -136,7 +134,7 @@ func normalizeReality(r *Reality) error {
 	names := make([]string, 0, len(r.ServerNames))
 	for _, n := range r.ServerNames {
 		n = strings.ToLower(n)
-		if !isHostname(n) || !strings.Contains(n, ".") || net.ParseIP(n) != nil {
+		if !netaddr.IsHostname(n) || !strings.Contains(n, ".") || net.ParseIP(n) != nil {
 			return fieldErr("reality.server_names", "%q is not a hostname", n)
 		}
 		if slices.Contains(names, n) {
@@ -182,50 +180,8 @@ func normalizeReality(r *Reality) error {
 	return nil
 }
 
-var (
-	cgnat         = netip.MustParsePrefix("100.64.0.0/10")
-	v4Compatible  = netip.MustParsePrefix("::/96")
-	v4Translated  = netip.MustParsePrefix("::ffff:0:0:0/96")
-	nat64         = netip.MustParsePrefix("64:ff9b::/96")
-	loopbackNames = []string{"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
-)
-
-func letterTLD(host string) bool {
-	tld := host[strings.LastIndex(host, ".")+1:]
-	return tld != "" && tld[0] >= 'a' && tld[0] <= 'z'
-}
-
-func internalHost(host string) bool {
-	if slices.Contains(loopbackNames, host) || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	addr = addr.Unmap()
-	if addr.Is6() && (v4Compatible.Contains(addr) || v4Translated.Contains(addr) || nat64.Contains(addr)) {
-		b := addr.As16()
-		embedded := netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
-		if !addr.IsUnspecified() && !addr.IsLoopback() && internalIP(embedded) {
-			return true
-		}
-	}
-	return internalIP(addr)
-}
-
-func internalIP(addr netip.Addr) bool {
-	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
-		addr.IsInterfaceLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() || cgnat.Contains(addr) ||
-		addr == netip.AddrFrom4([4]byte{255, 255, 255, 255})
-}
-
 func CanonicalHost(host string) string {
-	host = strings.ToLower(host)
-	if addr, err := netip.ParseAddr(host); err == nil && addr.Zone() == "" {
-		return addr.Unmap().String()
-	}
-	return host
+	return netaddr.CanonicalHost(host)
 }
 
 func DestHost(dest string) string {
@@ -236,23 +192,11 @@ func DestHost(dest string) string {
 	return CanonicalHost(host)
 }
 
-func isHostname(h string) bool {
-	if len(h) == 0 || len(h) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(h, ".") {
-		if !labelPattern.MatchString(label) {
-			return false
-		}
-	}
-	return true
-}
-
 func IsAddress(h string) bool {
 	if net.ParseIP(h) != nil {
 		return true
 	}
-	return isHostname(strings.ToLower(h)) && strings.Contains(h, ".")
+	return netaddr.IsHostname(strings.ToLower(h)) && strings.Contains(h, ".")
 }
 
 func NewPrivateKey() (string, error) {

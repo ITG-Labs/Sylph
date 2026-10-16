@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 19 {
-		t.Fatalf("tables = %d, want 19", count)
+	if count != 22 {
+		t.Fatalf("tables = %d, want 22", count)
 	}
 }
 
@@ -644,5 +644,80 @@ func TestMigration009DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 009 again: %v", err)
+	}
+}
+
+func TestMigration010DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(9); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1'), ('n2', 'n2')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 010: %v", err)
+	}
+	for _, name := range []string{"routing_profiles", "node_links", "geo_sources"} {
+		if !tableExists(t, pool, name) {
+			t.Fatalf("up 010 did not create %s", name)
+		}
+	}
+	for _, c := range [][2]string{{"nodes", "profile_id"}, {"nodes", "geo_status"}, {"nodes", "routing_error"}, {"settings", "geo_generation"}} {
+		if !columnExists(t, pool, c[0], c[1]) {
+			t.Fatalf("up 010 did not add %s.%s", c[0], c[1])
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO routing_profiles (name, doc) VALUES ('p', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	before := nodesVersion(t, pool)
+	var v1, v2 int64
+	if err := pool.QueryRow(ctx, `SELECT users_version FROM nodes WHERE cert_cn = 'n2'`).Scan(&v2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE nodes SET profile_id = 1 WHERE cert_cn = 'n1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT users_version FROM nodes WHERE cert_cn = 'n1'`).Scan(&v1); err != nil {
+		t.Fatal(err)
+	}
+	var after2 int64
+	if err := pool.QueryRow(ctx, `SELECT users_version FROM nodes WHERE cert_cn = 'n2'`).Scan(&after2); err != nil {
+		t.Fatal(err)
+	}
+	if v1 <= before || after2 != v2 {
+		t.Fatalf("profile change bumped wrong nodes: n1 %d (before %d), n2 %d -> %d", v1, before, v2, after2)
+	}
+	for _, q := range []string{
+		`INSERT INTO node_links (from_node_id, to_node_id, key_uuid) VALUES (1, 1, 'k')`,
+		`INSERT INTO geo_sources (name, kind, url) VALUES ('x', 'other', 'https://x.example.com/a.dat')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 010: %v", err)
+	}
+	for _, name := range []string{"routing_profiles", "node_links", "geo_sources"} {
+		if tableExists(t, pool, name) {
+			t.Fatalf("down 010 left %s", name)
+		}
+	}
+	if columnExists(t, pool, "nodes", "profile_id") || columnExists(t, pool, "settings", "geo_generation") {
+		t.Fatal("down 010 left columns")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 010 again: %v", err)
 	}
 }
