@@ -1,0 +1,95 @@
+name: sylph-core
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-locked: &locked
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+services:
+  perms:
+    <<: *locked
+    image: alpine:3.24.2
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    network_mode: none
+    volumes:
+      - ./certs:/certs
+    command:
+      - sh
+      - -euc
+      - |
+        chown -R 65532:65532 /certs
+        chmod -R u=rX,go= /certs
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: sylph
+      POSTGRES_DB: sylph
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sylph -d sylph"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  core:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-core:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    ports:
+      - "${SYLPH_HTTPS_PORT:-443}:8443"
+    environment:
+      SYLPH_DB_URL: postgres://sylph:${POSTGRES_PASSWORD}@postgres:5432/sylph?sslmode=disable
+      SYLPH_LISTEN: ":8443"
+      SYLPH_TLS_CERT: /certs/core/cert.pem
+      SYLPH_TLS_KEY: /certs/core/key.pem
+      SYLPH_CLIENT_CA: /certs/ca.pem
+      SYLPH_REVOKED_JSON: /certs/revoked.json
+      SYLPH_YOOKASSA_SHOP_ID: ${SYLPH_YOOKASSA_SHOP_ID:-}
+      SYLPH_YOOKASSA_SECRET_KEY: ${SYLPH_YOOKASSA_SECRET_KEY:-}
+      SYLPH_YOOKASSA_RETURN_URL: ${SYLPH_YOOKASSA_RETURN_URL:-}
+      SYLPH_BOT_USERNAME: ${SYLPH_BOT_USERNAME:-}
+      SYLPH_STATS_TZ: ${SYLPH_STATS_TZ:-Europe/Moscow}
+      SYLPH_NODE_OFFLINE_AFTER: ${SYLPH_NODE_OFFLINE_AFTER:-1m}
+      SYLPH_NODE_SYNC_STALE_AFTER: ${SYLPH_NODE_SYNC_STALE_AFTER:-3m}
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      default:
+        aliases: [core.sylph.internal]
+    depends_on:
+      perms:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  cron:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-cron:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      SYLPH_CORE_URL: https://core.sylph.internal:8443
+      SYLPH_TLS_CERT: /certs/cron/cert.pem
+      SYLPH_TLS_KEY: /certs/cron/key.pem
+      SYLPH_CA_CERT: /certs/ca.pem
+      SYLPH_CRON_RETENTION_DAYS: ${SYLPH_CRON_RETENTION_DAYS:-30}
+      SYLPH_CRON_STATS_RETENTION_DAYS: ${SYLPH_CRON_STATS_RETENTION_DAYS:-365}
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      core:
+        condition: service_started

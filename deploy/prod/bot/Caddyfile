@@ -1,0 +1,25 @@
+{
+	servers {
+		protocols h1 h2
+	}
+	log {
+		format filter {
+			wrap json
+			request>uri delete
+			request>headers delete
+		}
+	}
+}
+
+{$SYLPH_BOT_DOMAIN} {
+	@webhook {
+		method POST
+		path /yookassa
+	}
+	handle @webhook {
+		reverse_proxy bot:8080
+	}
+	handle {
+		respond 404
+	}
+}

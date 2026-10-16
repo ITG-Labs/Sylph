@@ -1,0 +1,107 @@
+name: sylph-node
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-locked: &locked
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+services:
+  perms:
+    <<: *locked
+    image: alpine:3.24.2
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    network_mode: none
+    volumes:
+      - ./certs:/certs
+      - ./data:/data
+    command:
+      - sh
+      - -euc
+      - |
+        mkdir -p /data/agent /data/xray-config /data/xray-geo /data/caddy
+        chown -R 65533:65532 /certs /data/agent /data/xray-config /data/xray-geo
+        chmod -R u=rX,go= /certs
+        chmod -R u=rwX,go= /data/agent
+        chmod -R u=rwX,g=rX,o= /data/xray-config /data/xray-geo
+        chown -R 0:0 /data/caddy
+
+  caddy:
+    image: ghcr.io/itg-labs/sylph-caddy:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    ports:
+      - "${SYLPH_HTTPS_PORT:-443}:443"
+    volumes:
+      - caddy-admin:/run/caddy-admin
+      - ./data/caddy:/data
+    depends_on:
+      perms:
+        condition: service_completed_successfully
+
+  bootstrap:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-agent:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    cap_add: [KILL]
+    network_mode: none
+    command: ["bootstrap"]
+    volumes:
+      - ./data/xray-config:/etc/xray
+    depends_on:
+      perms:
+        condition: service_completed_successfully
+
+  xray:
+    <<: *locked
+    image: ghcr.io/xtls/xray-core:${XRAY_VERSION:?set XRAY_VERSION in .env}
+    user: "65532:65532"
+    restart: unless-stopped
+    network_mode: service:caddy
+    pid: service:caddy
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./data/xray-config:/etc/xray:ro
+      - ./data/xray-geo:/usr/local/share/xray/sylph:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      caddy:
+        condition: service_started
+
+  agent:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-agent:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    cap_add: [KILL]
+    restart: unless-stopped
+    network_mode: service:caddy
+    pid: service:caddy
+    environment:
+      SYLPH_CORE_URL: ${SYLPH_CORE_URL:?set SYLPH_CORE_URL in .env}
+      SYLPH_CORE_NAME: ${SYLPH_CORE_NAME:-core.sylph.internal}
+      SYLPH_TLS_CERT: /certs/cert.pem
+      SYLPH_TLS_KEY: /certs/key.pem
+      SYLPH_CA_CERT: /certs/ca.pem
+      SYLPH_XRAY_VERSION: ${XRAY_VERSION}
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+      - ./data/agent:/var/lib/sylph-agent
+      - ./data/xray-config:/etc/xray
+      - ./data/xray-geo:/usr/local/share/xray/sylph
+      - caddy-admin:/run/caddy-admin
+    depends_on:
+      xray:
+        condition: service_started
+
+volumes:
+  caddy-admin:
