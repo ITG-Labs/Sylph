@@ -9,6 +9,7 @@ import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
 import { InboundFormDialog, NodeFormDialog } from "@/components/node/NodeDialogs"
+import { NodeRoutingSection } from "@/components/node/NodeRoutingSection"
 import { NodeTrafficSection } from "@/components/node/NodeTrafficSection"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -162,6 +163,10 @@ export function NodePage() {
             </div>
           )}
         </Section>
+      </div>
+
+      <div className="mt-4">
+        <NodeRoutingSection node={n} />
       </div>
 
       <NodeTrafficSection nodeId={n.id} />

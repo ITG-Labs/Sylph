@@ -1,3 +1,5 @@
+import type { GeoStatus } from "./routing"
+
 export type NodeStatus = "online" | "degraded" | "offline" | "never" | "disabled"
 
 export interface Overview {
@@ -146,6 +148,9 @@ export interface Node {
   last_sync_at: string | null
   status: NodeStatus
   inbounds: number
+  profile_id: number | null
+  geo_status: Record<string, GeoStatus> | null
+  routing_error: string | null
   created_at: string
 }
 

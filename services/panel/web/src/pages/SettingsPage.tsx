@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/PageHeader"
 import { ActionDialog } from "@/components/common/ActionDialog"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Section } from "@/components/common/Section"
+import { GeoSourcesSection } from "@/components/routing/GeoSourcesSection"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -105,6 +106,10 @@ export function SettingsPage() {
           </div>
         </form>
       </Section>
+
+      <div className="mt-4">
+        <GeoSourcesSection />
+      </div>
 
       <ActionDialog
         open={confirm}
