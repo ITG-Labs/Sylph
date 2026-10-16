@@ -9,6 +9,21 @@ import (
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	err    error
+}
+
+func RecordError(w http.ResponseWriter, err error) {
+	for {
+		switch x := w.(type) {
+		case *statusWriter:
+			x.err = err
+			return
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = x.Unwrap()
+		default:
+			return
+		}
+	}
 }
 
 func (w *statusWriter) WriteHeader(code int) {
@@ -35,7 +50,8 @@ func Middleware(logger *slog.Logger) func(http.Handler) http.Handler {
 					status = http.StatusInternalServerError
 					event = "http_panic"
 				}
-				logger.LogAttrs(r.Context(), slog.LevelInfo, event,
+				level := slog.LevelInfo
+				attrs := []slog.Attr{
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
 					slog.Int("status", status),
@@ -43,7 +59,12 @@ func Middleware(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.String("request_id", id),
 					slog.String("remote", r.RemoteAddr),
 					slog.String("peer", peerCN(r)),
-				)
+				}
+				if sw.err != nil {
+					level = slog.LevelError
+					attrs = append(attrs, slog.String("error", sw.err.Error()))
+				}
+				logger.LogAttrs(r.Context(), level, event, attrs...)
 				if rec != nil {
 					panic(rec)
 				}

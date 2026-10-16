@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 
+	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
@@ -42,9 +44,17 @@ func clientCN(r *http.Request) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		logging.RecordError(w, fmt.Errorf("encode response: %w", err))
+		status = http.StatusInternalServerError
+		b = []byte(`{"code":"internal","message":"encode failed"}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if _, err := w.Write(append(b, '\n')); err != nil {
+		logging.RecordError(w, fmt.Errorf("write response: %w", err))
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code string, message string) {

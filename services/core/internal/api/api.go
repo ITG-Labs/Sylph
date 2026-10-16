@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -24,8 +23,7 @@ func NewServer(svc *service.Service, log *slog.Logger, revoked *mtls.RevocationL
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version.Version})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version.Version})
 	})
 	s.registerSyncRoutes(mux)
 	s.registerServiceRoutes(mux)

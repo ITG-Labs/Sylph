@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -241,9 +242,17 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		logging.RecordError(w, fmt.Errorf("encode response: %w", err))
+		status = http.StatusInternalServerError
+		b = []byte(`{"code":"internal","message":"encode failed"}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if _, err := w.Write(append(b, '\n')); err != nil {
+		logging.RecordError(w, fmt.Errorf("write response: %w", err))
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
