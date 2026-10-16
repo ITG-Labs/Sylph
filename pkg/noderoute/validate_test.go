@@ -160,6 +160,16 @@ func TestValidateRejects(t *testing.T) {
 			p.Outbounds = append(p.Outbounds, Outbound{Tag: "nl-2", Kind: KindBlock})
 		}, "balancers[0].outbounds"},
 		{"balancer fallback", func(p *Profile) { p.Balancers[0].Fallback = "best" }, "balancers[0].fallback"},
+		{"balancer member prefixes a system outbound", func(p *Profile) {
+			p.Outbounds = append(p.Outbounds, Outbound{Tag: "sylp", Kind: KindBlock})
+			p.Balancers[0].Outbounds = append(p.Balancers[0].Outbounds, "sylp")
+		}, "balancers[0].outbounds"},
+		{"raw protocol in another case", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","PROTOCOL":"loopback"}`)
+		}, "outbounds[8].raw"},
+		{"raw tag in another case", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","Tag":"direct"}`)
+		}, "outbounds[8].raw"},
 		{"probe url", func(p *Profile) { p.Probe.URL = "http://x.example.com/" }, "probe.url"},
 		{"probe interval", func(p *Profile) { p.Probe.Interval = "1s" }, "probe.interval"},
 		{"rule without conditions", func(p *Profile) { p.Rules[0].Protocol = nil }, "rules[0]"},
@@ -190,5 +200,16 @@ func TestValidateRejectsCascadeAfterResolveWhenRequired(t *testing.T) {
 	p := goodProfile()
 	if err := ValidateResolved(&p); fieldOf(t, err) != "outbounds[7].kind" {
 		t.Fatalf("resolved profile with a cascade: %v", err)
+	}
+}
+
+func TestSourceCodes(t *testing.T) {
+	p := Profile{Rules: []Rule{
+		{Domain: []string{"ru-blocked:ru-blocked", "geosite:cn", "example.com", "full:a.example.com", "ru-blocked:Youtube@ads"}, To: "x"},
+		{IP: []string{"geoip:ru", "1.1.1.1", "10.0.0.0/8", "my-ips:office"}, To: "x"},
+	}}
+	got := p.SourceCodes()
+	if len(got) != 2 || strings.Join(got["ru-blocked"], ",") != "RU-BLOCKED,YOUTUBE" || strings.Join(got["my-ips"], ",") != "OFFICE" {
+		t.Fatalf("codes = %v", got)
 	}
 }

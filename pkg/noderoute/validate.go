@@ -343,6 +343,11 @@ func checkRaw(field string, raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
 		return fieldErr(field, "must be a JSON object")
 	}
+	for k := range obj {
+		if (strings.EqualFold(k, "protocol") && k != "protocol") || (strings.EqualFold(k, "tag") && k != "tag") {
+			return fieldErr(field, "write %q in lowercase: xray reads keys in any case", k)
+		}
+	}
 	proto, _ := obj["protocol"].(string)
 	if proto == "" {
 		return fieldErr(field, "must have a protocol")
@@ -380,6 +385,11 @@ func checkBalancer(field string, b *Balancer, outbounds map[string]bool) error {
 		for other := range outbounds {
 			if other != tag && strings.HasPrefix(other, tag) {
 				return fieldErr(field+".outbounds", "tag %q is the beginning of %q: xray would pick both, rename one", tag, other)
+			}
+		}
+		for _, system := range []string{GuardOutboundTag, ServiceOutboundTag} {
+			if strings.HasPrefix(system, tag) {
+				return fieldErr(field+".outbounds", "tag %q is the beginning of the system outbound %q: xray would pick it too, rename the outbound", tag, system)
 			}
 		}
 	}
@@ -594,6 +604,37 @@ func (p *Profile) Sources() (domain, ip []string) {
 	slices.Sort(domain)
 	slices.Sort(ip)
 	return domain, ip
+}
+
+func (p *Profile) SourceCodes() map[string][]string {
+	out := map[string][]string{}
+	add := func(list []string, builtin []string) {
+		for _, v := range list {
+			if _, err := netip.ParsePrefix(v); err == nil {
+				continue
+			}
+			if _, err := netip.ParseAddr(v); err == nil {
+				continue
+			}
+			prefix, rest, ok := splitPrefix(v)
+			if !ok || slices.Contains(builtin, prefix) {
+				continue
+			}
+			code, _, _ := strings.Cut(rest, "@")
+			code = strings.ToUpper(code)
+			if !slices.Contains(out[prefix], code) {
+				out[prefix] = append(out[prefix], code)
+			}
+		}
+	}
+	for _, r := range p.Rules {
+		add(r.Domain, builtinDomain)
+		add(r.IP, builtinIP)
+	}
+	for _, codes := range out {
+		slices.Sort(codes)
+	}
+	return out
 }
 
 func (p *Profile) Plans() []int64 {
