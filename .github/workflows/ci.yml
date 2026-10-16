@@ -30,8 +30,8 @@ jobs:
       SYLPH_TEST_DB: postgres://sylph:sylph@localhost:55432/sylph_test
       SYLPH_TEST_XRAY: 127.0.0.1:55085
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.work
       - run: docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
@@ -44,8 +44,8 @@ jobs:
       matrix:
         module: [".", "services/core", "services/agent", "services/cron", "services/subs", "services/bot", "services/panel"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.work
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
@@ -58,8 +58,8 @@ jobs:
       run:
         working-directory: services/panel/web
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 26
           cache: npm
@@ -71,8 +71,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.work
       - run: go vet ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/...
@@ -117,7 +117,7 @@ jobs:
             file: deploy/caddy/Dockerfile
             context: deploy/caddy
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - id: version
