@@ -47,9 +47,10 @@ func liveNodeInbounds() []Inbound {
 	return []Inbound{in("beta", "beta.test", liveBetaKey), in("alpha", "alpha.test", liveAlphaKey)}
 }
 
-func allowLoopback(api string) func([]Inbound) ([]byte, error) {
-	return func(in []Inbound) ([]byte, error) {
-		data, err := BuildXray(in, api)
+func allowLoopback(api string) func(XrayInput) ([]byte, error) {
+	return func(in XrayInput) ([]byte, error) {
+		in.APIListen = api
+		data, err := BuildXrayRouted(in)
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +196,7 @@ func TestNodeLive(t *testing.T) {
 		t.Fatal("xray did not start")
 	}
 	caddy := NewCaddyAPI(cfg.CaddyAdmin, 5*time.Second)
-	newNode := func(build func([]Inbound) ([]byte, error)) *NodeConfig {
+	newNode := func(build func(XrayInput) ([]byte, error)) *NodeConfig {
 		n := NewNodeConfig(cfg, x, caddy, discardLogger())
 		if build != nil {
 			n.buildXray = build
@@ -346,7 +347,7 @@ func TestNodeLive(t *testing.T) {
 			t.Fatalf("config_error = %v", e)
 		}
 		disk, _ := os.ReadFile(cfg.XrayConfig)
-		want, _ := allow(in)
+		want, _ := allow(XrayInput{Inbounds: in})
 		if !bytes.Equal(disk, want) {
 			t.Fatal("config on disk not rolled back")
 		}

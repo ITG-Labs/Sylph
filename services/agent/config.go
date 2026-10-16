@@ -10,6 +10,8 @@ const (
 	defaultXrayAPI    = "127.0.0.1:10085"
 	defaultXrayConfig = "/etc/xray/config.json"
 	defaultCaddyAdmin = "unix//run/caddy-admin/admin.sock|0666"
+	defaultGeoDir     = "/usr/local/share/xray/sylph"
+	defaultGeoPrefix  = "sylph"
 )
 
 type Config struct {
@@ -27,6 +29,9 @@ type Config struct {
 	XrayTimeout   time.Duration
 	XrayConfig    string
 	CaddyAdmin    string
+	GeoDir        string
+	GeoStatePath  string
+	XrayGeoPrefix string
 	SyncInterval  time.Duration
 }
 
@@ -46,6 +51,9 @@ func LoadConfig() (*Config, error) {
 		XrayTimeout:   5 * time.Second,
 		XrayConfig:    envOr("SYLPH_XRAY_CONFIG", defaultXrayConfig),
 		CaddyAdmin:    envOr("SYLPH_CADDY_ADMIN", defaultCaddyAdmin),
+		GeoDir:        envOr("SYLPH_GEO_DIR", defaultGeoDir),
+		GeoStatePath:  envOr("SYLPH_GEO_STATE_PATH", "geo.json"),
+		XrayGeoPrefix: envOr("SYLPH_XRAY_GEO_PREFIX", defaultGeoPrefix),
 		SyncInterval:  30 * time.Second,
 	}
 	if cfg.CoreURL == "" {

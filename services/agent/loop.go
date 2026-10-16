@@ -48,6 +48,11 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
 		ConfigError:    l.node.ConfigError(),
 	}
+	if l.node.geo != nil {
+		if st := l.node.geo.Status(); len(st) > 0 {
+			hb.GeoStatus = st
+		}
+	}
 	if count, ok := l.activeUsers(ctx, l.applied); ok {
 		hb.ActiveUsers = &count
 	}
@@ -79,7 +84,11 @@ func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) 
 }
 
 func (l *Loop) apply(ctx context.Context) error {
-	l.applied = l.node.Apply(ctx, l.engine.Inbounds())
+	d := l.engine.Desired()
+	if l.node.geo != nil {
+		l.node.geo.Start(ctx, d.Geo)
+	}
+	l.applied = l.node.ApplyDesired(ctx, d)
 	if l.applied == nil {
 		return l.engine.Revoke(ctx, l.node.RunningTags())
 	}

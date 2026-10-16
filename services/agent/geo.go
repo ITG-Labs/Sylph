@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -51,7 +53,10 @@ type GeoManager struct {
 	maxBytes  int64
 	retry     time.Duration
 	now       func() time.Time
+	mu        sync.Mutex
+	busy      atomic.Bool
 	state     map[string]geoEntry
+	wanted    []string
 }
 
 func NewGeoManager(dir, statePath string, logger *slog.Logger) *GeoManager {
@@ -80,8 +85,27 @@ func (g *GeoManager) Load() error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("parse geo state: %w", err)
 	}
+	g.mu.Lock()
 	g.state = state
+	g.mu.Unlock()
 	return nil
+}
+
+func (g *GeoManager) Start(ctx context.Context, geo *SyncGeo) {
+	if geo == nil || !g.busy.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer g.busy.Store(false)
+		g.Ensure(ctx, geo)
+	}()
+}
+
+func (g *GeoManager) entry(name string) (geoEntry, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.state[name]
+	return e, ok
 }
 
 func (g *GeoManager) hostAllowed(host string) bool {
@@ -99,9 +123,19 @@ func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo) {
 	if geo == nil {
 		return
 	}
+	wanted := make([]string, 0, len(geo.Sources))
+	for _, src := range geo.Sources {
+		wanted = append(wanted, src.Name)
+	}
+	g.mu.Lock()
+	g.wanted = wanted
+	g.mu.Unlock()
 	changed := false
 	for _, src := range geo.Sources {
-		e, known := g.state[src.Name]
+		if ctx.Err() != nil {
+			break
+		}
+		e, known := g.entry(src.Name)
 		_, statErr := os.Stat(g.path(src.Name))
 		exists := statErr == nil && noderoute.SourcePattern.MatchString(src.Name)
 		sameSource := known && e.URL == src.URL && e.SHA256URL == src.SHA256URL
@@ -123,11 +157,16 @@ func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo) {
 			next.SHA256, next.Size, next.DownloadedAt = sum, size, g.now()
 			g.logger.Info("geo_downloaded", "source", src.Name, "size", size, "sha256", sum[:12])
 		}
+		g.mu.Lock()
 		g.state[src.Name] = next
+		g.mu.Unlock()
 		changed = true
 	}
 	if changed {
-		if err := writeJSONAtomic(g.statePath, g.state); err != nil {
+		g.mu.Lock()
+		err := writeJSONAtomic(g.statePath, g.state)
+		g.mu.Unlock()
+		if err != nil {
 			g.logger.Error("geo_state_save_failed", "error", err.Error())
 		}
 	}
@@ -248,8 +287,13 @@ func (g *GeoManager) download(ctx context.Context, src GeoSource) (string, int64
 }
 
 func (g *GeoManager) Status() map[string]GeoStatus {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	out := map[string]GeoStatus{}
 	for name, e := range g.state {
+		if g.wanted != nil && !slices.Contains(g.wanted, name) {
+			continue
+		}
 		st := GeoStatus{SHA256: e.SHA256, Size: e.Size, Error: e.Error}
 		if !e.DownloadedAt.IsZero() {
 			st.DownloadedAt = e.DownloadedAt.UTC().Format(time.RFC3339)
@@ -260,6 +304,8 @@ func (g *GeoManager) Status() map[string]GeoStatus {
 }
 
 func (g *GeoManager) Files(names []string) (missing []string, sums []string, newest time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	for _, name := range names {
 		info, err := os.Stat(g.path(name))
 		if err != nil || !noderoute.SourcePattern.MatchString(name) {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -16,6 +17,8 @@ const (
 	firstInternalPort = 20001
 	xrayAPITag        = "sylph_api"
 )
+
+var errRouting = errors.New("routing")
 
 var inboundTagPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
@@ -150,7 +153,7 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 		profile := *in.Routing
 		static, err := noderoute.Render(noderoute.RenderInput{Profile: &profile, ServiceKeys: in.ServiceKeys, GeoFile: geoFile(in.GeoPrefix)})
 		if err != nil {
-			return nil, fmt.Errorf("routing: %w", err)
+			return nil, fmt.Errorf("%w: %w", errRouting, err)
 		}
 		if noderoute.HasPlanRules(&profile) {
 			cfg.API.Services = append(cfg.API.Services, "RoutingService")
