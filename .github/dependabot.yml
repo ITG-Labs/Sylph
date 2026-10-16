@@ -1,0 +1,91 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /services/core
+      - /services/agent
+      - /services/cron
+      - /services/subs
+      - /services/bot
+      - /services/panel
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      go-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /services/panel/web
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Europe/Moscow
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: build
+      prefix-development: build
+      include: scope
+    groups:
+      web-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /deploy
+      - /deploy/agent
+      - /deploy/panel
+      - /deploy/caddy
+      - /deploy/test/node
+      - /deploy/test/subs
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      - dependency-name: "*xray-core"
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /deploy/prod/core
+      - /deploy/prod/panel
+      - /deploy/prod/bot
+      - /deploy/prod/subs
+      - /deploy/prod/node
+      - /deploy/test
+      - /deploy/test/xray
+      - /deploy/test/node
+      - /deploy/test/subs
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      - dependency-name: "*xray-core"
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
