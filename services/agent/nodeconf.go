@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 const (
@@ -29,9 +31,11 @@ type rejection struct {
 }
 
 type nodeState struct {
-	Applied       []Inbound  `json:"applied"`
-	XrayRejected  *rejection `json:"xray_rejected,omitempty"`
-	CaddyRejected *rejection `json:"caddy_rejected,omitempty"`
+	Applied            []Inbound          `json:"applied"`
+	AppliedRouting     *noderoute.Profile `json:"applied_routing,omitempty"`
+	AppliedServiceKeys []string           `json:"applied_service_keys,omitempty"`
+	XrayRejected       *rejection         `json:"xray_rejected,omitempty"`
+	CaddyRejected      *rejection         `json:"caddy_rejected,omitempty"`
 }
 
 type NodeConfig struct {
@@ -40,30 +44,50 @@ type NodeConfig struct {
 	caddy       CaddyAPI
 	proc        xrayProcess
 	logger      *slog.Logger
-	buildXray   func([]Inbound) ([]byte, error)
+	geo         *GeoManager
+	buildXray   func(XrayInput) ([]byte, error)
 	settle      time.Duration
 	restartWait time.Duration
 	poll        time.Duration
 	state       nodeState
+	geoNames    []string
+	settled     bool
 	xrayErr     string
 	caddyErr    string
 }
 
 func NewNodeConfig(cfg *Config, xray XrayClient, caddy CaddyAPI, logger *slog.Logger) *NodeConfig {
-	return &NodeConfig{
+	n := &NodeConfig{
 		cfg:         cfg,
 		xray:        xray,
 		caddy:       caddy,
 		proc:        procXray{root: "/proc"},
 		logger:      logger,
-		buildXray:   func(in []Inbound) ([]byte, error) { return BuildXray(in, cfg.XrayAPI) },
+		buildXray:   BuildXrayRouted,
 		settle:      xraySettleUptime,
 		restartWait: xrayRestartWait,
 		poll:        xrayRestartPoll,
 	}
+	if cfg.GeoDir != "" {
+		n.geo = NewGeoManager(cfg.GeoDir, cfg.GeoStatePath, logger)
+	}
+	return n
+}
+
+func (n *NodeConfig) input(d NodeDesired) XrayInput {
+	return XrayInput{Inbounds: d.Inbounds, APIListen: n.cfg.XrayAPI, Routing: d.Routing, ServiceKeys: d.ServiceKeys, GeoPrefix: n.cfg.XrayGeoPrefix}
+}
+
+func (n *NodeConfig) applied() NodeDesired {
+	return NodeDesired{Inbounds: n.state.Applied, Routing: n.state.AppliedRouting, ServiceKeys: n.state.AppliedServiceKeys}
 }
 
 func (n *NodeConfig) Load() error {
+	if n.geo != nil {
+		if err := n.geo.Load(); err != nil {
+			return err
+		}
+	}
 	data, err := os.ReadFile(n.cfg.NodeStatePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -75,8 +99,8 @@ func (n *NodeConfig) Load() error {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return fmt.Errorf("parse node state: %w", err)
 	}
-	if st.Applied != nil && !n.onDisk(st.Applied) {
-		st.Applied = nil
+	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys}) {
+		st.Applied, st.AppliedRouting, st.AppliedServiceKeys = nil, nil, nil
 	}
 	if st.XrayRejected != nil {
 		n.xrayErr = st.XrayRejected.Error
@@ -88,8 +112,8 @@ func (n *NodeConfig) Load() error {
 	return nil
 }
 
-func (n *NodeConfig) onDisk(inbounds []Inbound) bool {
-	want, err := n.buildXray(inbounds)
+func (n *NodeConfig) onDisk(d NodeDesired) bool {
+	want, err := n.buildXray(n.input(d))
 	if err != nil {
 		return false
 	}
@@ -129,19 +153,59 @@ func (n *NodeConfig) RunningTags() []string {
 }
 
 func (n *NodeConfig) Apply(ctx context.Context, desired []Inbound) []Inbound {
-	if desired == nil {
+	return n.ApplyDesired(ctx, NodeDesired{Inbounds: desired})
+}
+
+func (n *NodeConfig) ApplyDesired(ctx context.Context, d NodeDesired) []Inbound {
+	n.settled = false
+	if d.Inbounds == nil {
 		return n.state.Applied
 	}
-	want, err := n.buildXray(desired)
-	if err != nil {
+	want, err := n.buildXray(n.input(d))
+	switch {
+	case errors.Is(err, errRouting):
+		n.failXray("routing_invalid", err)
+	case err != nil:
 		n.failXray("inbounds_invalid", err)
-	} else {
-		n.ensureXray(ctx, desired, want)
+	default:
+		n.ensureRouted(ctx, d, want)
 	}
 	if n.state.Applied != nil && ctx.Err() == nil {
 		n.ensureCaddy(ctx, n.state.Applied)
 	}
 	return n.state.Applied
+}
+
+func (n *NodeConfig) Settled() bool {
+	return n.settled
+}
+
+func (n *NodeConfig) AppliedRouting() *noderoute.Profile {
+	return n.state.AppliedRouting
+}
+
+func (n *NodeConfig) ensureRouted(ctx context.Context, d NodeDesired, want []byte) {
+	var names []string
+	if d.Routing != nil {
+		domain, ip := d.Routing.Sources()
+		names = append(domain, ip...)
+		slices.Sort(names)
+		names = slices.Compact(names)
+	}
+	n.geoNames = names
+	if len(names) == 0 {
+		n.ensureXray(ctx, d, want, configHash(want), time.Time{})
+		return
+	}
+	missing, sums, newest := names, []string(nil), time.Time{}
+	if n.geo != nil {
+		missing, sums, newest = n.geo.Files(names)
+	}
+	if len(missing) > 0 {
+		n.failXray("geo_missing", fmt.Errorf("waiting for geo bases %s to download", strings.Join(missing, ", ")))
+		return
+	}
+	n.ensureXray(ctx, d, want, configHash(append(slices.Clone(want), strings.Join(sums, "\n")...)), newest)
 }
 
 func (n *NodeConfig) ConfigError() *string {
@@ -216,8 +280,7 @@ func truncate(s string, max int) string {
 	return string(r[:max])
 }
 
-func (n *NodeConfig) ensureXray(ctx context.Context, desired []Inbound, want []byte) {
-	sum := configHash(want)
+func (n *NodeConfig) ensureXray(ctx context.Context, desired NodeDesired, want []byte, sum string, geoChanged time.Time) {
 	if r := n.state.XrayRejected; r != nil && r.Hash == sum {
 		n.xrayErr = r.Error
 		return
@@ -236,7 +299,8 @@ func (n *NodeConfig) ensureXray(ctx context.Context, desired []Inbound, want []b
 		n.failXray("xray_unreachable", err)
 		return
 	}
-	if bytes.Equal(disk, want) && mtime.Before(time.Now().Add(-uptime)) {
+	started := time.Now().Add(-uptime)
+	if bytes.Equal(disk, want) && mtime.Before(started) && geoChanged.Before(started) {
 		n.acceptXray(desired)
 		return
 	}
@@ -258,11 +322,11 @@ func (n *NodeConfig) ensureXray(ctx context.Context, desired []Inbound, want []b
 	n.restartXray(ctx, desired, want, disk, sum, pid)
 }
 
-func (n *NodeConfig) restartXray(ctx context.Context, desired []Inbound, want []byte, disk []byte, sum string, pid int) {
+func (n *NodeConfig) restartXray(ctx context.Context, desired NodeDesired, want []byte, disk []byte, sum string, pid int) {
 	path := n.cfg.XrayConfig
 	prev := disk
 	if prev == nil {
-		frame, err := n.buildXray([]Inbound{})
+		frame, err := n.buildXray(n.input(NodeDesired{Inbounds: []Inbound{}}))
 		if err != nil {
 			n.failXray("xray_config_unwritable", err)
 			return
@@ -288,7 +352,7 @@ func (n *NodeConfig) restartXray(ctx context.Context, desired []Inbound, want []
 		_ = os.Remove(previousPath(path))
 		_ = syncDir(filepath.Dir(path))
 		n.acceptXray(desired)
-		n.logger.Info("xray_config_applied", "inbounds", len(desired), "config", sum[:12], "restart_ms", time.Since(started).Milliseconds())
+		n.logger.Info("xray_config_applied", "inbounds", len(desired.Inbounds), "routing", desired.Routing != nil, "config", sum[:12], "restart_ms", time.Since(started).Milliseconds())
 		return
 	}
 	if ctx.Err() != nil {
@@ -300,6 +364,9 @@ func (n *NodeConfig) restartXray(ctx context.Context, desired []Inbound, want []
 func (n *NodeConfig) rollbackXray(ctx context.Context, sum string) {
 	msg := fmt.Sprintf("xray_config_rejected: xray did not come up with the new config within %s", n.restartWait)
 	n.restorePrevious()
+	if n.geo != nil && n.geo.Restore(n.geoNames, "xray did not come up with this file, the previous one is back") {
+		msg += "; new geo bases were rolled back"
+	}
 	started := time.Now()
 	if pid, err := n.proc.Find(); err == nil {
 		_ = n.proc.Terminate(pid)
@@ -353,12 +420,19 @@ func (n *NodeConfig) waitRestarted(ctx context.Context, since time.Time) bool {
 	}
 }
 
-func (n *NodeConfig) acceptXray(desired []Inbound) {
+func (n *NodeConfig) acceptXray(desired NodeDesired) {
 	n.xrayErr = ""
-	if reflect.DeepEqual(n.state.Applied, desired) && n.state.XrayRejected == nil {
+	n.settled = true
+	if n.geo != nil {
+		n.geo.Commit(n.geoNames)
+	}
+	desired.Geo = nil
+	if reflect.DeepEqual(n.applied(), desired) && n.state.XrayRejected == nil {
 		return
 	}
-	n.state.Applied = slices.Clone(desired)
+	n.state.Applied = slices.Clone(desired.Inbounds)
+	n.state.AppliedRouting = desired.Routing
+	n.state.AppliedServiceKeys = slices.Clone(desired.ServiceKeys)
 	n.state.XrayRejected = nil
 	n.saveState()
 }

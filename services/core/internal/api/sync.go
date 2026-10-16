@@ -125,12 +125,14 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AgentVersion   string  `json:"agent_version"`
-		XrayVersion    string  `json:"xray_version"`
-		AgentUptimeSec int64   `json:"agent_uptime_sec"`
-		XrayUptimeSec  *int64  `json:"xray_uptime_sec"`
-		ActiveUsers    *int    `json:"active_users"`
-		ConfigError    *string `json:"config_error"`
+		AgentVersion   string          `json:"agent_version"`
+		XrayVersion    string          `json:"xray_version"`
+		AgentUptimeSec int64           `json:"agent_uptime_sec"`
+		XrayUptimeSec  *int64          `json:"xray_uptime_sec"`
+		ActiveUsers    *int            `json:"active_users"`
+		ConfigError    *string         `json:"config_error"`
+		GeoStatus      json.RawMessage `json:"geo_status"`
+		RoutingError   *string         `json:"routing_error"`
 	}
 	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
@@ -148,6 +150,8 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		XrayUptimeSec:  body.XrayUptimeSec,
 		ActiveUsers:    body.ActiveUsers,
 		ConfigError:    truncateRunes(body.ConfigError, maxConfigErrorRunes),
+		GeoStatus:      geoStatusOf(body.GeoStatus),
+		RoutingError:   truncateRunes(body.RoutingError, maxConfigErrorRunes),
 	}
 	if err := s.svc.NodeHeartbeat(r.Context(), cn, hb); err != nil {
 		if errors.Is(err, store.ErrNotFound) {

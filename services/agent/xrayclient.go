@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 type XrayClient interface {
@@ -12,6 +14,9 @@ type XrayClient interface {
 	ListUsers(ctx context.Context, inboundTag string) ([]string, error)
 	QueryStats(ctx context.Context, pattern string) (map[string]int64, error)
 	Uptime(ctx context.Context) (time.Duration, error)
+	AppendRules(ctx context.Context, rules []noderoute.TailRule) error
+	RemoveRule(ctx context.Context, tag string) error
+	RuleTags(ctx context.Context) ([]string, error)
 }
 
 func WaitForXray(ctx context.Context, x XrayClient, timeout time.Duration, step time.Duration, logger *slog.Logger) bool {

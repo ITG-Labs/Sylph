@@ -17,6 +17,7 @@ import (
 
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/protocol"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/proxymancmd"
+	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/routercmd"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/serial"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/statscmd"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/vless"
@@ -30,6 +31,7 @@ type Client struct {
 	conn    *grpc.ClientConn
 	handler proxymancmd.HandlerServiceClient
 	stats   statscmd.StatsServiceClient
+	routing routercmd.RoutingServiceClient
 	timeout time.Duration
 }
 
@@ -56,6 +58,7 @@ func dial(target string, timeout time.Duration, opts ...grpc.DialOption) (*Clien
 		conn:    conn,
 		handler: proxymancmd.NewHandlerServiceClient(conn),
 		stats:   statscmd.NewStatsServiceClient(conn),
+		routing: routercmd.NewRoutingServiceClient(conn),
 		timeout: timeout,
 	}, nil
 }

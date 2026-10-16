@@ -40,7 +40,7 @@ test-xray-down:
 	docker compose -f deploy/test/xray/docker-compose.yml down
 
 test-xray: test-xray-up
-	SYLPH_TEST_XRAY=127.0.0.1:55085 go test -race -count=1 ./services/agent/...; \
+	SYLPH_TEST_XRAY=127.0.0.1:55085 SYLPH_TEST_XRAY_IMAGE=ghcr.io/xtls/xray-core:26.10.10 go test -race -count=1 ./services/agent/...; \
 	status=$$?; $(MAKE) test-xray-down; exit $$status
 
 NODE_COMPOSE := docker compose -f deploy/test/node/docker-compose.yml
@@ -70,6 +70,7 @@ test-subs:
 	$(SUBS_CA) --name panel --type client --role panel
 	$(SUBS_CA) --name subs --type client --role subs
 	$(SUBS_CA) --name node-1 --type client --role node
+	$(SUBS_CA) --name node-2 --type client --role node
 	chmod -R a+rX $(SUBS_BIN)/ca
 	$(SUBS_COMPOSE) build
 	$(SUBS_COMPOSE) run --rm runner; \
@@ -85,7 +86,12 @@ XRAY_PROTO_MAP := \
 	common/protocol/user.proto=$(AGENT_MODULE)/internal/xrayapi/protocol;protocol \
 	common/serial/typed_message.proto=$(AGENT_MODULE)/internal/xrayapi/serial;serial \
 	core/config.proto=$(AGENT_MODULE)/internal/xrayapi/core;core \
-	proxy/vless/account.proto=$(AGENT_MODULE)/internal/xrayapi/vless;vless
+	proxy/vless/account.proto=$(AGENT_MODULE)/internal/xrayapi/vless;vless \
+	app/router/command/command.proto=$(AGENT_MODULE)/internal/xrayapi/routercmd;routercmd \
+	app/router/config.proto=$(AGENT_MODULE)/internal/xrayapi/router;router \
+	common/geodata/geodat.proto=$(AGENT_MODULE)/internal/xrayapi/geodata;geodata \
+	common/net/port.proto=$(AGENT_MODULE)/internal/xrayapi/xnet;xnet \
+	common/net/network.proto=$(AGENT_MODULE)/internal/xrayapi/xnet;xnet
 
 proto:
 	GOBIN=$(CURDIR)/.bin go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO)

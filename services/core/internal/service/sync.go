@@ -4,12 +4,26 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
 type NodeUser struct {
-	UUID string `json:"uuid"`
+	UUID   string `json:"uuid"`
+	PlanID int64  `json:"plan_id"`
+}
+
+type SyncGeoSource struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	URL       string `json:"url"`
+	SHA256URL string `json:"sha256_url"`
+}
+
+type SyncGeo struct {
+	Generation int64           `json:"generation"`
+	Sources    []SyncGeoSource `json:"sources"`
 }
 
 type SyncInbound struct {
@@ -23,9 +37,12 @@ type SyncInbound struct {
 }
 
 type SyncResponse struct {
-	Version  int64         `json:"version"`
-	Users    []NodeUser    `json:"users"`
-	Inbounds []SyncInbound `json:"inbounds"`
+	Version     int64              `json:"version"`
+	Users       []NodeUser         `json:"users"`
+	Inbounds    []SyncInbound      `json:"inbounds"`
+	Routing     *noderoute.Profile `json:"routing,omitempty"`
+	ServiceKeys []string           `json:"service_keys,omitempty"`
+	Geo         *SyncGeo           `json:"geo,omitempty"`
 }
 
 func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64) (*SyncResponse, error) {
@@ -49,13 +66,13 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 	if node.UsersVersion == knownVersion {
 		return &SyncResponse{Version: node.UsersVersion}, nil
 	}
-	keys, err := s.store.ListNodeUserKeys(ctx, node.ID)
+	keys, err := s.store.ListNodeKeys(ctx, node.ID)
 	if err != nil {
 		return nil, err
 	}
 	nodeUsers := make([]NodeUser, 0, len(keys))
 	for _, k := range keys {
-		nodeUsers = append(nodeUsers, NodeUser{UUID: k})
+		nodeUsers = append(nodeUsers, NodeUser{UUID: k.UUID, PlanID: k.PlanID})
 	}
 	stored, err := s.store.ListNodeInbounds(ctx, node.ID)
 	if err != nil {
@@ -72,5 +89,14 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 			Security: spec.Security, Flow: inbound.Flow(spec.Transport, spec.Security), Reality: spec.Reality,
 		})
 	}
-	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers, Inbounds: inbounds}, nil
+	serviceKeys, err := s.store.ServiceKeys(ctx, node.ID)
+	if err != nil {
+		return nil, err
+	}
+	routing, geo, err := s.nodeRouting(ctx, node)
+	if err != nil {
+		s.log.LogAttrs(ctx, slog.LevelError, "node_routing_failed", slog.Int64("node_id", node.ID), slog.String("error", err.Error()))
+		return nil, err
+	}
+	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers, Inbounds: inbounds, Routing: routing, ServiceKeys: serviceKeys, Geo: geo}, nil
 }

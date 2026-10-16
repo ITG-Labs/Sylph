@@ -266,10 +266,11 @@ func (s *Service) CreateNode(ctx context.Context, n *model.Node) error {
 }
 
 type NodePatch struct {
-	Name    *string         `json:"name"`
-	Address *string         `json:"address"`
-	GroupID Optional[int64] `json:"group_id"`
-	Enabled *bool           `json:"enabled"`
+	Name      *string         `json:"name"`
+	Address   *string         `json:"address"`
+	GroupID   Optional[int64] `json:"group_id"`
+	Enabled   *bool           `json:"enabled"`
+	ProfileID Optional[int64] `json:"profile_id"`
 }
 
 func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*model.Node, error) {
@@ -295,11 +296,32 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if patch.GroupID.Set {
 		n.GroupID = patch.GroupID.Value
 	}
+	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != n.Address)
 	if patch.Enabled != nil {
 		n.Enabled = *patch.Enabled
 	}
+	profileChanged := false
+	if patch.ProfileID.Set {
+		if patch.ProfileID.Value != nil {
+			if err := s.profileFitsNode(ctx, *patch.ProfileID.Value, id); err != nil {
+				return nil, err
+			}
+		}
+		profileChanged = !slices.Equal(ptrSlice(n.ProfileID), ptrSlice(patch.ProfileID.Value))
+		n.ProfileID = patch.ProfileID.Value
+	}
 	if err := s.store.UpdateNode(ctx, n); err != nil {
-		return nil, referenceOr(err, "group_id", "group not found")
+		return nil, referenceOr(err, "group_id", "group or profile not found")
+	}
+	if profileChanged || (patch.Enabled != nil && exitChanged) {
+		if err := s.store.RefreshLinks(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if exitChanged {
+		if err := s.store.BumpNodesCascadingTo(ctx, id); err != nil {
+			return nil, err
+		}
 	}
 	return s.GetNode(ctx, id)
 }

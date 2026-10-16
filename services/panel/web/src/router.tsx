@@ -13,6 +13,8 @@ import { PlansPage } from "./pages/PlansPage"
 import { PaymentPage } from "./pages/PaymentPage"
 import { PaymentsPage } from "./pages/PaymentsPage"
 import { PlaceholderPage } from "./pages/PlaceholderPage"
+import { ProfilePage } from "./pages/ProfilePage"
+import { RoutingPage } from "./pages/RoutingPage"
 import { SettingsPage } from "./pages/SettingsPage"
 import { UserPage } from "./pages/UserPage"
 import { UsersPage } from "./pages/UsersPage"
@@ -33,6 +35,8 @@ export const router = createBrowserRouter([
       { path: "payments/:paymentId", element: <PaymentPage /> },
       { path: "nodes", element: <NodesPage /> },
       { path: "nodes/:id", element: <NodePage /> },
+      { path: "routing", element: <RoutingPage /> },
+      { path: "routing/:id", element: <ProfilePage /> },
       { path: "plans", element: <PlansPage /> },
       { path: "plans/:id", element: <PlanPage /> },
       { path: "groups", element: <GroupsPage /> },

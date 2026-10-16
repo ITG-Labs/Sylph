@@ -2,10 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 type fakeXray struct {
@@ -23,6 +28,9 @@ type fakeXray struct {
 	uptimeErr   error
 	uptimeFail  int
 	uptimeHits  int
+	rules       []noderoute.TailRule
+	ruleErr     error
+	ruleCalls   int
 }
 
 func newFakeXray() *fakeXray {
@@ -141,4 +149,77 @@ func (f *fakeXray) uptimeCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.uptimeHits
+}
+
+func (f *fakeXray) AppendRules(ctx context.Context, rules []noderoute.TailRule) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ruleCalls++
+	if f.ruleErr != nil {
+		return f.ruleErr
+	}
+	for _, r := range rules {
+		if slices.ContainsFunc(f.rules, func(x noderoute.TailRule) bool { return x.Tag == r.Tag }) {
+			return fmt.Errorf("duplicate rule tag %s", r.Tag)
+		}
+	}
+	f.rules = append(f.rules, rules...)
+	return nil
+}
+
+func (f *fakeXray) RemoveRule(ctx context.Context, tag string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ruleCalls++
+	if f.ruleErr != nil {
+		return f.ruleErr
+	}
+	i := slices.IndexFunc(f.rules, func(x noderoute.TailRule) bool { return x.Tag == tag })
+	if i < 0 {
+		return fmt.Errorf("rule %s not found", tag)
+	}
+	f.rules = slices.Delete(f.rules, i, i+1)
+	return nil
+}
+
+func (f *fakeXray) RuleTags(ctx context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ruleCalls++
+	if f.ruleErr != nil {
+		return nil, f.ruleErr
+	}
+	tags := make([]string, 0, len(f.rules))
+	for _, r := range f.rules {
+		tags = append(tags, r.Tag)
+	}
+	return tags, nil
+}
+
+func (f *fakeXray) liveRules() []noderoute.TailRule {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.rules)
+}
+
+func (f *fakeXray) routingCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ruleCalls
+}
+
+func staticRules(config []byte) []noderoute.TailRule {
+	var cfg struct {
+		Routing struct {
+			Rules []struct {
+				RuleTag string `json:"ruleTag"`
+			} `json:"rules"`
+		} `json:"routing"`
+	}
+	_ = json.Unmarshal(config, &cfg)
+	var out []noderoute.TailRule
+	for _, r := range cfg.Routing.Rules {
+		out = append(out, noderoute.TailRule{Tag: r.RuleTag})
+	}
+	return out
 }

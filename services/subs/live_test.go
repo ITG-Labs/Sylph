@@ -189,6 +189,81 @@ rules:
 		liveEventually(t, 30*time.Second, "target reached through mihomo base64", func() error { return env.probe(proxy) })
 		env.waitTraffic(t, linksUser)
 	})
+
+	t.Run("a plan rule sends traffic out through the second node", func(t *testing.T) {
+		exitAddr := os.Getenv("SYLPH_E2E_NODE2")
+		var group, exit, profile, other struct {
+			ID int64 `json:"id"`
+		}
+		env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "Выход"}, &group)
+		env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "Exit", "address": exitAddr, "group_id": group.ID}, &exit)
+		env.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", exit.ID), map[string]any{
+			"tag": "reality", "port": 443, "reality": map[string]any{"dest": "mask.test:443", "server_names": []string{"mask.test"}},
+		}, nil)
+		env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Без выхода", "price_rub": 149, "period_days": 30}, &other)
+		cascaded := env.user(t, 1005, plan.ID)
+		direct := env.user(t, 1006, other.ID)
+		env.call(t, http.MethodPost, "/v1/admin/profiles", map[string]any{"name": "Через выход", "doc": map[string]any{
+			"outbounds": []any{
+				map[string]any{"tag": "direct", "kind": "direct", "direct": map[string]any{"ip": "auto"}},
+				map[string]any{"tag": "exit", "kind": "cascade", "cascade": map[string]any{"node_id": exit.ID}},
+			},
+			"rules":   []any{map[string]any{"plans": []int64{plan.ID}, "to": "exit"}},
+			"default": "direct",
+		}}, &profile)
+		env.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", node.ID), map[string]any{"profile_id": profile.ID}, nil)
+		viaCascade := startMihomo(t, []byte(base64Mihomo(env, cascaded, 7892)), 7892)
+		viaDirect := startMihomo(t, []byte(base64Mihomo(env, direct, 7893)), 7893)
+		liveEventually(t, 60*time.Second, "the plan user leaves through the second node", func() error {
+			return env.sourceIs(viaCascade, exitAddr)
+		})
+		liveEventually(t, 30*time.Second, "a user of another plan still leaves through the first node", func() error {
+			return env.sourceIs(viaDirect, env.node)
+		})
+		var nodes []struct {
+			ID           int64   `json:"id"`
+			ConfigError  *string `json:"config_error"`
+			RoutingError *string `json:"routing_error"`
+		}
+		env.call(t, http.MethodGet, "/v1/admin/nodes", nil, &nodes)
+		for _, n := range nodes {
+			if n.ConfigError != nil || n.RoutingError != nil {
+				t.Fatalf("node %d: config_error %v, routing_error %v", n.ID, n.ConfigError, n.RoutingError)
+			}
+		}
+	})
+}
+
+func base64Mihomo(e *liveEnv, u liveUser, port int) string {
+	return fmt.Sprintf(`mixed-port: %d
+mode: rule
+log-level: info
+proxy-providers:
+  subs:
+    type: http
+    url: %s/%s?format=base64
+    interval: 3600
+proxy-groups:
+  - name: e2e
+    type: select
+    use: [subs]
+rules:
+  - MATCH,e2e
+`, port, e.subs, u.SubToken)
+}
+
+func (e *liveEnv) sourceIs(proxy *url.URL, want string) error {
+	c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+	resp, err := c.Get(strings.TrimSuffix(e.target, "/") + "/ip")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != want {
+		return fmt.Errorf("target saw %q, want %q", body, want)
+	}
+	return nil
 }
 
 func (e *liveEnv) waitTraffic(t *testing.T, u liveUser) {
@@ -380,7 +455,14 @@ func serveLiveTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := &http.Server{
-		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, liveTargetBody) }),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ip" {
+				host, _, _ := net.SplitHostPort(r.RemoteAddr)
+				_, _ = io.WriteString(w, host)
+				return
+			}
+			_, _ = io.WriteString(w, liveTargetBody)
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()

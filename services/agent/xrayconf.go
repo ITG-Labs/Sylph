@@ -2,18 +2,23 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 const (
 	firstInternalPort = 20001
 	xrayAPITag        = "sylph_api"
 )
+
+var errRouting = errors.New("routing")
 
 var inboundTagPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
@@ -41,12 +46,14 @@ var privateNets = []netip.Prefix{
 var localZones = []string{".localhost", ".local", ".internal", ".lan", ".home.arpa", ".localdomain"}
 
 type xrayConfig struct {
-	Log       xrayLog        `json:"log"`
-	API       xrayAPI        `json:"api"`
-	Stats     struct{}       `json:"stats"`
-	Policy    xrayPolicy     `json:"policy"`
-	Inbounds  []xrayInbound  `json:"inbounds"`
-	Outbounds []xrayOutbound `json:"outbounds"`
+	Log         xrayLog       `json:"log"`
+	API         xrayAPI       `json:"api"`
+	Stats       struct{}      `json:"stats"`
+	Policy      xrayPolicy    `json:"policy"`
+	Inbounds    []xrayInbound `json:"inbounds"`
+	Outbounds   []any         `json:"outbounds"`
+	Routing     any           `json:"routing,omitempty"`
+	Observatory any           `json:"observatory,omitempty"`
 }
 
 type xrayLog struct {
@@ -70,12 +77,19 @@ type xrayLevel struct {
 }
 
 type xrayInbound struct {
-	Tag            string     `json:"tag"`
-	Listen         string     `json:"listen"`
-	Port           int        `json:"port"`
-	Protocol       string     `json:"protocol"`
-	Settings       xrayVLESS  `json:"settings"`
-	StreamSettings xrayStream `json:"streamSettings"`
+	Tag            string        `json:"tag"`
+	Listen         string        `json:"listen"`
+	Port           int           `json:"port"`
+	Protocol       string        `json:"protocol"`
+	Settings       xrayVLESS     `json:"settings"`
+	StreamSettings xrayStream    `json:"streamSettings"`
+	Sniffing       *xraySniffing `json:"sniffing,omitempty"`
+}
+
+type xraySniffing struct {
+	Enabled      bool     `json:"enabled"`
+	DestOverride []string `json:"destOverride"`
+	RouteOnly    bool     `json:"routeOnly"`
 }
 
 type xrayVLESS struct {
@@ -106,17 +120,53 @@ type xrayOutbound struct {
 	Protocol string `json:"protocol"`
 }
 
+type XrayInput struct {
+	Inbounds    []Inbound
+	APIListen   string
+	Routing     *noderoute.Profile
+	ServiceKeys []string
+	GeoPrefix   string
+}
+
 func BuildXray(inbounds []Inbound, apiListen string) ([]byte, error) {
-	sorted, err := sortedInbounds(inbounds)
+	return BuildXrayRouted(XrayInput{Inbounds: inbounds, APIListen: apiListen})
+}
+
+func geoFile(prefix string) func(string) string {
+	return func(source string) string { return prefix + "/" + source + ".dat" }
+}
+
+func BuildXrayRouted(in XrayInput) ([]byte, error) {
+	sorted, err := sortedInbounds(in.Inbounds)
 	if err != nil {
 		return nil, err
 	}
 	cfg := xrayConfig{
 		Log:       xrayLog{LogLevel: "warning", Access: "none"},
-		API:       xrayAPI{Tag: xrayAPITag, Listen: apiListen, Services: []string{"HandlerService", "StatsService"}},
+		API:       xrayAPI{Tag: xrayAPITag, Listen: in.APIListen, Services: []string{"HandlerService", "StatsService"}},
 		Policy:    xrayPolicy{Levels: map[string]xrayLevel{"0": {StatsUserUplink: true, StatsUserDownlink: true}}},
 		Inbounds:  make([]xrayInbound, 0, len(sorted)),
-		Outbounds: []xrayOutbound{{Tag: "direct", Protocol: "freedom"}},
+		Outbounds: []any{xrayOutbound{Tag: "direct", Protocol: "freedom"}},
+	}
+	var sniffing *xraySniffing
+	if in.Routing != nil {
+		profile := *in.Routing
+		static, err := noderoute.Render(noderoute.RenderInput{Profile: &profile, ServiceKeys: in.ServiceKeys, GeoFile: geoFile(in.GeoPrefix)})
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errRouting, err)
+		}
+		if noderoute.HasPlanRules(&profile) {
+			cfg.API.Services = append(cfg.API.Services, "RoutingService")
+		}
+		cfg.Outbounds = make([]any, 0, len(static.Outbounds))
+		for _, o := range static.Outbounds {
+			cfg.Outbounds = append(cfg.Outbounds, o)
+		}
+		cfg.Routing = static.Routing
+		if static.Observatory != nil {
+			cfg.Observatory = static.Observatory
+		}
+		sniffing = &xraySniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}, RouteOnly: true}
 	}
 	for i, in := range sorted {
 		cfg.Inbounds = append(cfg.Inbounds, xrayInbound{
@@ -136,6 +186,7 @@ func BuildXray(inbounds []Inbound, apiListen string) ([]byte, error) {
 					ShortIDs:    in.Reality.ShortIDs,
 				},
 			},
+			Sniffing: sniffing,
 		})
 	}
 	return marshalConfig(cfg)

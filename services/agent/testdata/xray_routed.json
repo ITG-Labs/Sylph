@@ -1,0 +1,234 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "api": {
+    "tag": "sylph_api",
+    "listen": "127.0.0.1:10085",
+    "services": [
+      "HandlerService",
+      "StatsService",
+      "RoutingService"
+    ]
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "alpha",
+      "listen": "127.0.0.1",
+      "port": 20001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "sockopt": {
+          "acceptProxyProtocol": true
+        },
+        "realitySettings": {
+          "target": "www.alpha.example:443",
+          "serverNames": [
+            "www.alpha.example",
+            "alpha.example"
+          ],
+          "privateKey": "8F0ET9EsN7sZiyXEsjQ2FnD1ew8BagsJ-BMWKb_s1nk",
+          "shortIds": [
+            "a1b2c3d4e5f60718"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    },
+    {
+      "tag": "beta",
+      "listen": "127.0.0.1",
+      "port": 20002,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "sockopt": {
+          "acceptProxyProtocol": true
+        },
+        "realitySettings": {
+          "target": "beta.example:8443",
+          "serverNames": [
+            "beta.example"
+          ],
+          "privateKey": "MDHqaJPhoMxwOUVfWKd2y8WK8XFd8mmQr0LHNlU2ZVE",
+          "shortIds": [
+            "0a1b",
+            "c2d3e4f5"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "targetStrategy": "UseIPv4v6"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "address": "nl.example.com",
+        "encryption": "none",
+        "flow": "xtls-rprx-vision",
+        "id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "port": 443
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "publicKey": "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw",
+          "serverName": "www.microsoft.com",
+          "shortId": "ab12"
+        },
+        "security": "reality"
+      },
+      "tag": "nl"
+    },
+    {
+      "protocol": "socks",
+      "settings": {
+        "address": "fi.example.com",
+        "port": 1080
+      },
+      "tag": "fi"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "sylph_direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "sylph_block"
+    }
+  ],
+  "routing": {
+    "balancers": [
+      {
+        "fallbackTag": "direct",
+        "selector": [
+          "nl",
+          "fi"
+        ],
+        "strategy": {
+          "type": "leastPing"
+        },
+        "tag": "best"
+      }
+    ],
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ip": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "224.0.0.0/3",
+          "::/127",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10",
+          "ff00::/8",
+          "64:ff9b::/96",
+          "64:ff9b:1::/48"
+        ],
+        "outboundTag": "sylph_block",
+        "ruleTag": "sylph-guard"
+      },
+      {
+        "domain": [
+          "full:localhost",
+          "domain:localhost",
+          "domain:local",
+          "domain:internal",
+          "domain:lan",
+          "domain:home.arpa",
+          "domain:localdomain"
+        ],
+        "outboundTag": "sylph_block",
+        "ruleTag": "sylph-guard-names"
+      },
+      {
+        "outboundTag": "sylph_direct",
+        "ruleTag": "sylph-service",
+        "user": [
+          "svc-key"
+        ]
+      },
+      {
+        "outboundTag": "block",
+        "protocol": [
+          "bittorrent"
+        ],
+        "ruleTag": "sylph-r1"
+      },
+      {
+        "balancerTag": "best",
+        "domain": [
+          "ext:sylph/ru-blocked.dat:ru"
+        ],
+        "ruleTag": "sylph-r2"
+      }
+    ]
+  },
+  "observatory": {
+    "enableConcurrency": true,
+    "probeInterval": "1m",
+    "probeUrl": "https://www.gstatic.com/generate_204",
+    "subjectSelector": [
+      "fi",
+      "nl"
+    ]
+  }
+}

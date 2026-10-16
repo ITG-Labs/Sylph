@@ -11,12 +11,12 @@ import (
 )
 
 const nodeColumns = `id, cert_cn, name, group_id, address, users_version, enabled, config_error, last_heartbeat, agent_version, xray_version,
-	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, created_at`
+	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, profile_id, geo_status, routing_error, created_at`
 
 func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 	n := &model.Node{}
 	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupID, &n.Address, &n.UsersVersion, &n.Enabled, &n.ConfigError, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
-		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.CreatedAt)
+		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -48,10 +48,10 @@ func (s *Store) CreateNode(ctx context.Context, n *model.Node) error {
 
 func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
 	err := s.pool.QueryRow(ctx,
-		`UPDATE nodes SET name = $2, group_id = $3, address = $4, enabled = $5
+		`UPDATE nodes SET name = $2, group_id = $3, address = $4, enabled = $5, profile_id = $6
 		 WHERE id = $1
 		 RETURNING users_version`,
-		n.ID, n.Name, n.GroupID, n.Address, n.Enabled,
+		n.ID, n.Name, n.GroupID, n.Address, n.Enabled, n.ProfileID,
 	).Scan(&n.UsersVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -87,9 +87,9 @@ func (s *Store) ListNodes(ctx context.Context) ([]model.Node, error) {
 func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.NodeHeartbeat) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
-		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7
+		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9
 		 WHERE id = $1`,
-		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError)
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError)
 	return err
 }
 
@@ -99,30 +99,15 @@ func (s *Store) TouchNodeSync(ctx context.Context, nodeID int64) error {
 }
 
 func (s *Store) ListNodeUserKeys(ctx context.Context, nodeID int64) ([]string, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT uk.uuid
-		 FROM user_keys uk
-		 JOIN users u ON u.id = uk.user_id
-		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
-		 JOIN plans p ON p.id = sub.plan_id
-		 JOIN nodes n ON n.id = $1
-		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
-		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes)
-		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)`,
-		nodeID)
+	keys, err := s.ListNodeKeys(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var keys []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, err
-		}
-		keys = append(keys, k)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k.UUID)
 	}
-	return keys, rows.Err()
+	return out, nil
 }
 
 func (s *Store) DBNow(ctx context.Context) (time.Time, error) {

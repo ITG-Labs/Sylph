@@ -1,0 +1,238 @@
+{
+  "observatory": {
+    "enableConcurrency": true,
+    "probeInterval": "1m",
+    "probeUrl": "https://www.gstatic.com/generate_204",
+    "subjectSelector": [
+      "fi",
+      "nl"
+    ]
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "targetStrategy": "AsIs"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "address": "nl.example.com",
+        "encryption": "none",
+        "flow": "xtls-rprx-vision",
+        "id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "port": 443
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "publicKey": "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw",
+          "serverName": "www.microsoft.com",
+          "shortId": "ab12"
+        },
+        "security": "reality"
+      },
+      "tag": "nl"
+    },
+    {
+      "protocol": "trojan",
+      "settings": {
+        "address": "1.2.3.4",
+        "password": "secret",
+        "port": 8443
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "tls",
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "serverName": "fi.example.com"
+        }
+      },
+      "tag": "fi"
+    },
+    {
+      "protocol": "shadowsocks",
+      "settings": {
+        "address": "ss.example.com",
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "c2VjcmV0c2VjcmV0c2VjcmV0",
+        "port": 8388
+      },
+      "tag": "ss"
+    },
+    {
+      "protocol": "socks",
+      "settings": {
+        "address": "socks.example.com",
+        "pass": "p",
+        "port": 1080,
+        "user": "u"
+      },
+      "tag": "sock"
+    },
+    {
+      "protocol": "http",
+      "settings": {
+        "address": "proxy.example.com",
+        "port": 3128
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "proxy.example.com"
+        }
+      },
+      "tag": "web"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "address": "de1.example.com",
+        "encryption": "none",
+        "flow": "xtls-rprx-vision",
+        "id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "port": 443
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "publicKey": "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw",
+          "serverName": "www.apple.com",
+          "shortId": "cd34"
+        },
+        "security": "reality"
+      },
+      "tag": "to-de"
+    },
+    {
+      "protocol": "wireguard",
+      "settings": {
+        "address": [
+          "172.16.0.2/32"
+        ],
+        "peers": [
+          {
+            "endpoint": "engage.cloudflareclient.com:2408",
+            "publicKey": "y"
+          }
+        ],
+        "secretKey": "x"
+      },
+      "tag": "warp"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "sylph_direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "sylph_block"
+    }
+  ],
+  "routing": {
+    "balancers": [
+      {
+        "fallbackTag": "direct",
+        "selector": [
+          "nl",
+          "fi"
+        ],
+        "strategy": {
+          "type": "leastPing"
+        },
+        "tag": "best"
+      }
+    ],
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "ip": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "224.0.0.0/3",
+          "::/127",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10",
+          "ff00::/8",
+          "64:ff9b::/96",
+          "64:ff9b:1::/48"
+        ],
+        "outboundTag": "sylph_block",
+        "ruleTag": "sylph-guard"
+      },
+      {
+        "domain": [
+          "full:localhost",
+          "domain:localhost",
+          "domain:local",
+          "domain:internal",
+          "domain:lan",
+          "domain:home.arpa",
+          "domain:localdomain"
+        ],
+        "outboundTag": "sylph_block",
+        "ruleTag": "sylph-guard-names"
+      },
+      {
+        "outboundTag": "sylph_direct",
+        "ruleTag": "sylph-service",
+        "user": [
+          "svc-1"
+        ]
+      },
+      {
+        "outboundTag": "block",
+        "protocol": [
+          "bittorrent"
+        ],
+        "ruleTag": "sylph-r1"
+      },
+      {
+        "domain": [
+          "geosite:category-ads-all",
+          "domain:example.org",
+          "full:a.b.com",
+          "keyword:ads",
+          "regexp:^x\\.y$",
+          "ext:sylph/ru-blocked.dat:ru"
+        ],
+        "outboundTag": "block",
+        "ruleTag": "sylph-r2"
+      },
+      {
+        "inboundTag": [
+          "main"
+        ],
+        "ip": [
+          "geoip:ru",
+          "10.0.0.0/8",
+          "1.1.1.1",
+          "2001:db8::/32",
+          "ext:sylph/ru-ips.dat:ru"
+        ],
+        "network": "tcp",
+        "outboundTag": "direct",
+        "port": "443,1000-2000",
+        "ruleTag": "sylph-r3"
+      }
+    ]
+  }
+}

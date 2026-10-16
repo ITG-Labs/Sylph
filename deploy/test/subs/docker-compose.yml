@@ -63,6 +63,7 @@ services:
     command: ["run", "-c", "/etc/xray/config.json"]
     volumes:
       - xray-config:/etc/xray:ro
+      - xray-geo:/usr/local/share/xray/sylph:ro
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -81,13 +82,75 @@ services:
       SYLPH_CACHE_PATH: /tmp/state/cache.json
       SYLPH_STATS_PATH: /tmp/state/stats.json
       SYLPH_NODE_STATE_PATH: /tmp/state/node.json
+      SYLPH_GEO_STATE_PATH: /tmp/state/geo.json
       SYLPH_SYNC_INTERVAL: 2s
     volumes:
       - xray-config:/etc/xray
+      - xray-geo:/usr/local/share/xray/sylph
       - caddy-admin:/run/caddy-admin
       - ./bin/ca:/ca:ro
     depends_on:
       xray:
+        condition: service_started
+      core:
+        condition: service_started
+  caddy-2:
+    image: sylph-caddy:test
+    extra_hosts:
+      - "mask.test:11.73.0.100"
+    volumes:
+      - caddy-admin-2:/run/caddy-admin
+    networks:
+      e2e:
+        ipv4_address: 11.73.0.11
+    depends_on:
+      caddy:
+        condition: service_started
+  bootstrap-2:
+    image: sylph-test-node-agent
+    entrypoint: ["/sylph/sylph-agent", "bootstrap"]
+    network_mode: none
+    volumes:
+      - xray-config-2:/etc/xray
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+  xray-2:
+    image: ghcr.io/xtls/xray-core:26.10.10
+    network_mode: service:caddy-2
+    pid: service:caddy-2
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - xray-config-2:/etc/xray:ro
+      - xray-geo-2:/usr/local/share/xray/sylph:ro
+    depends_on:
+      bootstrap-2:
+        condition: service_completed_successfully
+      caddy-2:
+        condition: service_started
+  agent-2:
+    image: sylph-test-node-agent
+    network_mode: service:caddy-2
+    pid: service:caddy-2
+    entrypoint: ["/sylph/sylph-agent"]
+    environment:
+      SYLPH_CORE_URL: https://core.sylph.internal:8443
+      SYLPH_TLS_CERT: /ca/certs/node-2/cert.pem
+      SYLPH_TLS_KEY: /ca/certs/node-2/key.pem
+      SYLPH_CA_CERT: /ca/ca.pem
+      SYLPH_CACHE_PATH: /tmp/state/cache.json
+      SYLPH_STATS_PATH: /tmp/state/stats.json
+      SYLPH_NODE_STATE_PATH: /tmp/state/node.json
+      SYLPH_GEO_STATE_PATH: /tmp/state/geo.json
+      SYLPH_SYNC_INTERVAL: 2s
+    volumes:
+      - xray-config-2:/etc/xray
+      - xray-geo-2:/usr/local/share/xray/sylph
+      - caddy-admin-2:/run/caddy-admin
+      - ./bin/ca:/ca:ro
+    depends_on:
+      xray-2:
         condition: service_started
       core:
         condition: service_started
@@ -113,6 +176,7 @@ services:
       SYLPH_E2E_CORE: https://core.sylph.internal:8443
       SYLPH_E2E_SUBS: http://subs:8080
       SYLPH_E2E_NODE: 11.73.0.10
+      SYLPH_E2E_NODE2: 11.73.0.11
       SYLPH_E2E_TARGET: 11.73.0.100
       SYLPH_E2E_CA: /ca/ca.pem
       SYLPH_E2E_PANEL_CERT: /ca/certs/panel/cert.pem
@@ -125,9 +189,15 @@ services:
     depends_on:
       agent:
         condition: service_started
+      agent-2:
+        condition: service_started
       subs:
         condition: service_started
     profiles: ["test"]
 volumes:
   xray-config:
+  xray-geo:
   caddy-admin:
+  xray-config-2:
+  xray-geo-2:
+  caddy-admin-2:

@@ -62,6 +62,7 @@ test("every screen renders without console errors under the real CSP", async () 
     ["/users", "Юзеры"],
     ["/payments", "Платежи"],
     ["/nodes", "Ноды"],
+    ["/routing", "Маршрутизация"],
     ["/plans", "Тарифы"],
     ["/groups", "Группы локаций"],
     ["/audit", "Аудит"],
@@ -94,9 +95,9 @@ test("a group is created, renamed and deleted while empty", async () => {
   await shared.locator("#gname").fill(`${name}-x`)
   await shared.getByRole("dialog").getByRole("button", { name: "Сохранить" }).click()
   await expect(shared.getByRole("heading", { name: `${name}-x`, exact: true })).toBeVisible()
-  await shared.getByRole("button", { name: "Удалить" }).click()
+  await shared.getByRole("button", { name: "Удалить", exact: true }).click()
   await expect(shared.getByRole("dialog")).toContainText("Группа пустая")
-  await shared.getByRole("dialog").getByRole("button", { name: "Удалить" }).click()
+  await shared.getByRole("dialog").getByRole("button", { name: "Удалить", exact: true }).click()
   await expect(shared).toHaveURL(/\/groups$/)
   await expect(shared.getByText(`${name}-x`)).toHaveCount(0)
 })
@@ -107,7 +108,7 @@ test("a group with members cannot be deleted", async () => {
   const busy = groups.find((g) => nodes.some((n) => n.group_id === g.id))
   test.skip(!busy, "no group with nodes on this stand")
   await shared.goto(`/groups/${busy!.id}`)
-  await shared.getByRole("button", { name: "Удалить" }).click()
+  await shared.getByRole("button", { name: "Удалить", exact: true }).click()
   await expect(shared.getByRole("dialog")).toContainText("Удалить можно только пустую группу")
   await expect(shared.getByRole("dialog").getByRole("button", { name: "Удалить" })).toBeDisabled()
   await shared.keyboard.press("Escape")
@@ -124,6 +125,67 @@ test("a node card shows its traffic", async () => {
     await shared.getByRole("tab", { name: "7 дней" }).click()
     await expect(shared.getByText("за 7 дней")).toBeVisible()
   }
+})
+
+test("a routing profile is built, saved, assigned to a node and removed", async () => {
+  const name = `e2e-${Date.now() % 1_000_000}`
+  await shared.goto("/routing")
+  await shared.getByRole("button", { name: "Новый профиль" }).click()
+  await shared.locator("#pf-name").fill(name)
+  await shared.getByRole("dialog").getByRole("button", { name: "Создать" }).click()
+  await expect(shared.getByRole("heading", { name, exact: true })).toBeVisible()
+  const url = shared.url()
+
+  await shared.getByRole("button", { name: "Выход", exact: true }).click()
+  await shared.getByLabel("Ссылка прокси").fill("socks://u:p@proxy.example.com:1080#E2E")
+  await shared.getByRole("button", { name: "Разобрать" }).click()
+  await expect(shared.locator("#ob-tag")).toHaveValue("e2e")
+  await shared.getByRole("dialog").getByRole("button", { name: "Добавить" }).click()
+
+  await shared.getByRole("button", { name: "Шаблон" }).click()
+  await shared.getByRole("menuitem", { name: /Блок торрентов/ }).click()
+  await shared.getByRole("button", { name: "Правило", exact: true }).click()
+  await shared.getByLabel("Домены").fill("example.org")
+  await shared.getByRole("dialog").getByRole("combobox").last().click()
+  await shared.getByRole("option", { name: /^e2e/ }).click()
+  await shared.getByRole("dialog").getByRole("button", { name: "Добавить" }).click()
+
+  await expect(shared.getByText("Есть несохранённые изменения")).toBeVisible()
+  await shared.getByRole("button", { name: "Сохранить", exact: true }).click()
+  await shared.getByRole("dialog").getByRole("button", { name: "Сохранить" }).click()
+  await expect(shared.getByText("Есть несохранённые изменения")).toHaveCount(0)
+  await shared.reload()
+  await expect(shared.getByText("domain:example.org")).toBeVisible()
+  await expect(shared.getByText("секрет сохранён")).toBeVisible()
+  await shared.getByRole("tab", { name: "JSON" }).click()
+  await expect(shared.getByText('"sylph-guard"')).toBeVisible()
+  await expect(shared.getByText('"pass": "***"')).toBeVisible()
+
+  const nodes = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/nodes")).json()) as { id: number; profile_id: number | null }[])
+  const free = nodes.find((n) => n.profile_id === null)
+  if (free) {
+    await shared.goto(`/nodes/${free.id}`)
+    await shared.getByRole("combobox", { name: "Профиль маршрутизации" }).click()
+    await shared.getByRole("option", { name }).click()
+    await expect(shared.getByRole("dialog")).toContainText("перезапустит xray")
+    await shared.getByRole("dialog").getByRole("button", { name: "Назначить" }).click()
+    await expect(shared.getByRole("link", { name: "открыть профиль" })).toBeVisible()
+    await shared.goto(url)
+    await shared.getByRole("button", { name: "Удалить", exact: true }).click()
+    await expect(shared.getByRole("dialog").getByRole("button", { name: "Удалить" })).toBeDisabled()
+    await shared.keyboard.press("Escape")
+    await shared.goto(`/nodes/${free.id}`)
+    await shared.getByRole("combobox", { name: "Профиль маршрутизации" }).click()
+    await shared.getByRole("option", { name: /без профиля/ }).click()
+    await shared.getByRole("dialog").getByRole("button", { name: "Снять" }).click()
+    await expect(shared.getByRole("link", { name: "открыть профиль" })).toHaveCount(0)
+  }
+
+  await shared.goto(url)
+  await shared.getByRole("button", { name: "Удалить", exact: true }).click()
+  await shared.getByRole("dialog").getByRole("button", { name: "Удалить", exact: true }).click()
+  await expect(shared).toHaveURL(/\/routing$/)
+  await expect(shared.getByText(name)).toHaveCount(0)
 })
 
 test("users are found by nick", async () => {

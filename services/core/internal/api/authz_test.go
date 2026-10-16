@@ -82,6 +82,17 @@ var routeMatrix = []routeCase{
 	{http.MethodGet, "/v1/admin/nodes/1/stats", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/settings", []string{mtls.RolePanel}},
 	{http.MethodPatch, "/v1/admin/settings", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/profiles", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/profiles", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/profiles/1", []string{mtls.RolePanel}},
+	{http.MethodPut, "/v1/admin/profiles/1", []string{mtls.RolePanel}},
+	{http.MethodDelete, "/v1/admin/profiles/1", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/profiles/1/preview", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/geo-sources", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/geo-sources", []string{mtls.RolePanel}},
+	{http.MethodPatch, "/v1/admin/geo-sources/1", []string{mtls.RolePanel}},
+	{http.MethodDelete, "/v1/admin/geo-sources/1", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/admin/geo-sources/refresh", []string{mtls.RolePanel}},
 }
 
 type caller struct {
@@ -107,7 +118,7 @@ func matrixCallers(t *testing.T, e *apiEnv) []caller {
 func callRoute(t *testing.T, c *http.Client, base string, rc routeCase) (int, string) {
 	t.Helper()
 	var body *bytes.Reader
-	if rc.method == http.MethodPost || rc.method == http.MethodPatch {
+	if rc.method == http.MethodPost || rc.method == http.MethodPatch || rc.method == http.MethodPut {
 		body = bytes.NewReader([]byte(`{}`))
 	} else {
 		body = bytes.NewReader(nil)

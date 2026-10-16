@@ -8,6 +8,7 @@ import (
 type Settings struct {
 	SubsTitle      string    `json:"subs_title"`
 	SubsSupportURL string    `json:"subs_support_url"`
+	GeoGeneration  int64     `json:"geo_generation"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
@@ -16,11 +17,11 @@ type SettingsPatch struct {
 	SubsSupportURL *string
 }
 
-const settingsColumns = `subs_title, subs_support_url, updated_at`
+const settingsColumns = `subs_title, subs_support_url, geo_generation, updated_at`
 
 func scanSettings(row pgxRow) (Settings, error) {
 	var st Settings
-	err := row.Scan(&st.SubsTitle, &st.SubsSupportURL, &st.UpdatedAt)
+	err := row.Scan(&st.SubsTitle, &st.SubsSupportURL, &st.GeoGeneration, &st.UpdatedAt)
 	return st, err
 }
 

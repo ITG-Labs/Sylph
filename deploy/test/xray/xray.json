@@ -1,6 +1,6 @@
 {
   "log": {"loglevel": "warning", "access": "none"},
-  "api": {"tag": "api", "listen": "127.0.0.1:55085", "services": ["HandlerService", "StatsService"]},
+  "api": {"tag": "api", "listen": "127.0.0.1:55085", "services": ["HandlerService", "StatsService", "RoutingService"]},
   "stats": {},
   "policy": {"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}}},
   "inbounds": [
@@ -22,6 +22,8 @@
     }
   ],
   "outbounds": [
-    {"tag": "direct", "protocol": "freedom", "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.1/32"]}]}}
-  ]
+    {"tag": "direct", "protocol": "freedom", "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.1/32"]}]}},
+    {"tag": "blocked", "protocol": "blackhole"}
+  ],
+  "routing": {"rules": [{"ruleTag": "static-1", "inboundTag": ["nowhere"], "outboundTag": "blocked"}]}
 }

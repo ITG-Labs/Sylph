@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 type Cache struct {
-	Version  int64      `json:"version"`
-	Users    []SyncUser `json:"users"`
-	Inbounds []Inbound  `json:"inbounds"`
+	Version     int64              `json:"version"`
+	Users       []SyncUser         `json:"users"`
+	Inbounds    []Inbound          `json:"inbounds"`
+	Routing     *noderoute.Profile `json:"routing,omitempty"`
+	ServiceKeys []string           `json:"service_keys,omitempty"`
+	Geo         *SyncGeo           `json:"geo,omitempty"`
 }
 
 func LoadCache(path string) (*Cache, error) {

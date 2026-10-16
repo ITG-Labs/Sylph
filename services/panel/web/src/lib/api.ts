@@ -44,7 +44,7 @@ export const core = {
   get: <T>(path: string) => request<T>("GET", `/api/core${path}`),
   post: <T>(path: string, body?: unknown) => request<T>("POST", `/api/core${path}`, body ?? {}),
   patch: <T>(path: string, body: unknown) => request<T>("PATCH", `/api/core${path}`, body),
-  put: <T>(path: string) => request<T>("PUT", `/api/core${path}`),
+  put: <T>(path: string, body?: unknown) => request<T>("PUT", `/api/core${path}`, body),
   del: <T>(path: string) => request<T>("DELETE", `/api/core${path}`),
 }
 
