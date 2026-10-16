@@ -1,4 +1,4 @@
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.2-alpine AS build
 ARG SERVICE
 ARG VERSION=dev
 WORKDIR /src

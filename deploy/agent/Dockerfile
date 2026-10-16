@@ -1,4 +1,4 @@
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.2-alpine AS build
 ARG VERSION=dev
 RUN apk add --no-cache libcap
 WORKDIR /src
