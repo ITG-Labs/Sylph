@@ -50,6 +50,7 @@ type NodeConfig struct {
 	restartWait time.Duration
 	poll        time.Duration
 	state       nodeState
+	geoNames    []string
 	settled     bool
 	xrayErr     string
 	caddyErr    string
@@ -191,6 +192,7 @@ func (n *NodeConfig) ensureRouted(ctx context.Context, d NodeDesired, want []byt
 		slices.Sort(names)
 		names = slices.Compact(names)
 	}
+	n.geoNames = names
 	if len(names) == 0 {
 		n.ensureXray(ctx, d, want, configHash(want), time.Time{})
 		return
@@ -362,6 +364,9 @@ func (n *NodeConfig) restartXray(ctx context.Context, desired NodeDesired, want 
 func (n *NodeConfig) rollbackXray(ctx context.Context, sum string) {
 	msg := fmt.Sprintf("xray_config_rejected: xray did not come up with the new config within %s", n.restartWait)
 	n.restorePrevious()
+	if n.geo != nil && n.geo.Restore(n.geoNames, "xray did not come up with this file, the previous one is back") {
+		msg += "; new geo bases were rolled back"
+	}
 	started := time.Now()
 	if pid, err := n.proc.Find(); err == nil {
 		_ = n.proc.Terminate(pid)
@@ -418,6 +423,9 @@ func (n *NodeConfig) waitRestarted(ctx context.Context, since time.Time) bool {
 func (n *NodeConfig) acceptXray(desired NodeDesired) {
 	n.xrayErr = ""
 	n.settled = true
+	if n.geo != nil {
+		n.geo.Commit(n.geoNames)
+	}
 	desired.Geo = nil
 	if reflect.DeepEqual(n.applied(), desired) && n.state.XrayRejected == nil {
 		return

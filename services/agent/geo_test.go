@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -89,7 +91,7 @@ func TestGeoDownloadsOnceAndAgainOnRequest(t *testing.T) {
 		{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat", SHA256URL: srv.URL + "/ru.dat.sha256sum"},
 		{Name: "ips", Kind: "ip", URL: srv.URL + "/ip.dat"},
 	}}
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	got, err := os.ReadFile(filepath.Join(g.dir, "ru.dat"))
 	if err != nil || string(got) != string(site) {
 		t.Fatalf("file = %v", err)
@@ -98,12 +100,12 @@ func TestGeoDownloadsOnceAndAgainOnRequest(t *testing.T) {
 	if st["ru"].SHA256 != sumOf(site) || st["ru"].Size != int64(len(site)) || st["ru"].Error != "" || st["ips"].Error != "" {
 		t.Fatalf("status = %+v", st)
 	}
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	if srv.hits["ru.dat"].Load() != 1 {
 		t.Fatal("unchanged source downloaded again")
 	}
 	geo.Generation = 2
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	if srv.hits["ru.dat"].Load() != 2 || srv.hits["ip.dat"].Load() != 2 {
 		t.Fatal("the refresh button did not download again")
 	}
@@ -112,7 +114,7 @@ func TestGeoDownloadsOnceAndAgainOnRequest(t *testing.T) {
 	if err := reloaded.Load(); err != nil {
 		t.Fatal(err)
 	}
-	reloaded.Ensure(ctx, geo)
+	reloaded.Ensure(ctx, geo, nil)
 	if srv.hits["ru.dat"].Load() != 2 {
 		t.Fatal("state was not kept across restarts")
 	}
@@ -145,7 +147,7 @@ func TestGeoRejectsBadDownloads(t *testing.T) {
 	} {
 		g := testGeo(t, srv)
 		g.maxBytes = 1024
-		g.Ensure(ctx, &SyncGeo{Generation: 1, Sources: []GeoSource{c.src}})
+		g.Ensure(ctx, &SyncGeo{Generation: 1, Sources: []GeoSource{c.src}}, nil)
 		st := g.Status()[c.src.Name]
 		if !strings.Contains(st.Error, c.want) {
 			t.Errorf("%s: error %q, want %q", c.name, st.Error, c.want)
@@ -167,15 +169,15 @@ func TestGeoRetriesAMissingFileAfterAPause(t *testing.T) {
 	g.now = func() time.Time { return now }
 	ctx := context.Background()
 	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	srv.files["ru.dat"] = siteDat(t, "example.ru")
 	srv.hits["ru.dat"] = &atomic.Int32{}
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	if srv.hits["ru.dat"].Load() != 0 {
 		t.Fatal("retried a failed download without a pause")
 	}
 	now = now.Add(g.retry + time.Second)
-	g.Ensure(ctx, geo)
+	g.Ensure(ctx, geo, nil)
 	if missing, _, _ := g.Files([]string{"ru"}); len(missing) != 0 || g.Status()["ru"].Error != "" {
 		t.Fatalf("retry after the pause failed: %+v", g.Status())
 	}
@@ -187,13 +189,13 @@ func TestGeoRefusesNamesThatResolveToInternalAddresses(t *testing.T) {
 	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
 	g := testGeo(t, srv)
 	g.client = publicClient(tlsConfig, publicAddr)
-	g.Ensure(context.Background(), geo)
+	g.Ensure(context.Background(), geo, nil)
 	if st := g.Status()["ru"]; !strings.Contains(st.Error, "internal address") || srv.hits["ru.dat"].Load() != 0 {
 		t.Fatalf("a name that resolves to 127.0.0.1 was fetched: %+v", st)
 	}
 	g = testGeo(t, srv)
 	g.client = publicClient(tlsConfig, func(string) bool { return true })
-	g.Ensure(context.Background(), geo)
+	g.Ensure(context.Background(), geo, nil)
 	if st := g.Status()["ru"]; st.Error != "" || st.SHA256 == "" {
 		t.Fatalf("the guarded client cannot download at all: %+v", st)
 	}
@@ -207,5 +209,66 @@ func TestGeoRefusesNamesThatResolveToInternalAddresses(t *testing.T) {
 	}
 	if NewGeoManager(t.TempDir(), "", discardLogger()).client.Transport.(*http.Transport).Proxy != nil {
 		t.Error("downloads may go through a proxy from the environment")
+	}
+}
+
+func siteDatCode(t *testing.T, code, domain string) []byte {
+	t.Helper()
+	data, err := proto.Marshal(&geodata.GeoSiteList{Entry: []*geodata.GeoSite{{Code: code, Domain: []*geodata.Domain{{Type: geodata.Domain_Domain, Value: domain}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestGeoKeepsTheOldBaseWhenTagsOfTheRulesAreGone(t *testing.T) {
+	v1 := siteDat(t, "example.ru")
+	srv := newGeoServer(t, map[string][]byte{"ru.dat": v1})
+	g := testGeo(t, srv)
+	ctx := context.Background()
+	need := map[string][]string{"ru": {"RU"}}
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
+	g.Ensure(ctx, geo, need)
+	srv.files["ru.dat"] = siteDatCode(t, "CN", "example.cn")
+	geo.Generation = 2
+	g.Ensure(ctx, geo, need)
+	got, err := os.ReadFile(g.path("ru"))
+	st := g.Status()["ru"]
+	if err != nil || !bytes.Equal(got, v1) || st.SHA256 != sumOf(v1) || !strings.Contains(st.Error, "RU") {
+		t.Fatalf("a base without the tags the rules use replaced the old one: %+v", st)
+	}
+}
+
+func TestGeoRestoresThePreviousFile(t *testing.T) {
+	v1, v2 := siteDat(t, "one.example"), siteDat(t, "two.example")
+	srv := newGeoServer(t, map[string][]byte{"ru.dat": v1})
+	g := testGeo(t, srv)
+	ctx := context.Background()
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
+	g.Ensure(ctx, geo, nil)
+	srv.files["ru.dat"] = v2
+	geo.Generation = 2
+	g.Ensure(ctx, geo, nil)
+	if !g.Restore([]string{"ru"}, "xray did not start with it") {
+		t.Fatal("nothing restored")
+	}
+	got, _ := os.ReadFile(g.path("ru"))
+	st := g.Status()["ru"]
+	if !bytes.Equal(got, v1) || st.SHA256 != sumOf(v1) || !strings.Contains(st.Error, "xray did not start") {
+		t.Fatalf("restore: %+v", st)
+	}
+	hits := srv.hits["ru.dat"].Load()
+	g.Ensure(ctx, geo, nil)
+	if srv.hits["ru.dat"].Load() != hits {
+		t.Fatal("the rejected file is downloaded again without the button")
+	}
+	geo.Generation = 3
+	g.Ensure(ctx, geo, nil)
+	g.Commit([]string{"ru"})
+	if g.Restore([]string{"ru"}, "x") {
+		t.Fatal("a committed base was rolled back")
+	}
+	if _, err := os.Stat(g.path("ru") + ".previous"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup left after commit: %v", err)
 	}
 }

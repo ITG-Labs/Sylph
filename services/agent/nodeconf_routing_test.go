@@ -128,3 +128,44 @@ func TestARejectedConfigIsRetriedWithANewGeoBase(t *testing.T) {
 		t.Fatal("a rejected config was not retried after the geo base changed")
 	}
 }
+
+func TestABadGeoBaseIsRolledBackWithTheConfig(t *testing.T) {
+	good, bad := siteDat(t, "ru.example"), siteDat(t, "broken.example")
+	srv := newGeoServer(t, map[string][]byte{"ru.dat": good})
+	r := newNodeRig(t, newFakeXray())
+	g := r.withGeo()
+	g.client, g.allowHost = srv.Client(), func(string) bool { return true }
+	ctx := context.Background()
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
+	d := NodeDesired{Inbounds: mainIn, Routing: geoRoutedProfile(), Geo: geo}
+	g.Ensure(ctx, geo, nil)
+	r.node.ApplyDesired(ctx, d)
+	if !r.node.Settled() {
+		t.Fatalf("first apply: %v", r.node.ConfigError())
+	}
+	r.age(time.Hour)
+	r.fx.set(func(f *fakeXray) { f.uptime = 30 * time.Minute })
+	r.proc.broken = func() bool {
+		data, _ := os.ReadFile(g.path("ru"))
+		return bytes.Contains(data, []byte("broken.example"))
+	}
+	srv.files["ru.dat"] = bad
+	geo.Generation = 2
+	g.Ensure(ctx, geo, nil)
+	r.node.ApplyDesired(ctx, d)
+	data, _ := os.ReadFile(g.path("ru"))
+	if !bytes.Equal(data, good) {
+		t.Fatal("the bad geo base stayed on disk after the rollback")
+	}
+	if st := g.Status()["ru"]; st.SHA256 != sumOf(good) || st.Error == "" {
+		t.Fatalf("geo status = %+v", st)
+	}
+	if _, err := r.fx.Uptime(ctx); err != nil {
+		t.Fatal("xray is down after the rollback")
+	}
+	kills := r.proc.killCount()
+	r.node.ApplyDesired(ctx, d)
+	if r.proc.killCount() != kills || !r.node.Settled() || r.node.ConfigError() != nil {
+		t.Fatalf("after the rollback: kills %d, error %v", r.proc.killCount()-kills, r.node.ConfigError())
+	}
+}

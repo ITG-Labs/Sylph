@@ -88,7 +88,11 @@ func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) 
 func (l *Loop) apply(ctx context.Context) error {
 	d := l.engine.Desired()
 	if l.node.geo != nil {
-		l.node.geo.Start(ctx, d.Geo)
+		var need map[string][]string
+		if d.Routing != nil {
+			need = d.Routing.SourceCodes()
+		}
+		l.node.geo.Start(ctx, d.Geo, need)
 	}
 	l.applied = l.node.ApplyDesired(ctx, d)
 	if l.applied == nil {

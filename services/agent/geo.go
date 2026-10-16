@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ITG-Labs/sylph/pkg/netaddr"
@@ -35,6 +38,7 @@ const (
 	geoChecksumMax     = 4 << 10
 	geoDownloadTimeout = 5 * time.Minute
 	geoRetryPause      = 5 * time.Minute
+	geoMaxEntry        = 100 << 20
 )
 
 type geoEntry struct {
@@ -95,13 +99,13 @@ func (g *GeoManager) Load() error {
 	return nil
 }
 
-func (g *GeoManager) Start(ctx context.Context, geo *SyncGeo) {
+func (g *GeoManager) Start(ctx context.Context, geo *SyncGeo, need map[string][]string) {
 	if geo == nil || !g.busy.CompareAndSwap(false, true) {
 		return
 	}
 	go func() {
 		defer g.busy.Store(false)
-		g.Ensure(ctx, geo)
+		g.Ensure(ctx, geo, need)
 	}()
 }
 
@@ -158,7 +162,7 @@ func (g *GeoManager) path(name string) string {
 	return filepath.Join(g.dir, name+".dat")
 }
 
-func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo) {
+func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo, need map[string][]string) {
 	if geo == nil {
 		return
 	}
@@ -184,7 +188,7 @@ func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo) {
 		if !exists && sameSource && e.Error != "" && g.now().Sub(e.TriedAt) < g.retry {
 			continue
 		}
-		sum, size, err := g.download(ctx, src)
+		sum, size, err := g.download(ctx, src, need[src.Name])
 		next := geoEntry{URL: src.URL, SHA256URL: src.SHA256URL, Generation: geo.Generation, TriedAt: g.now()}
 		if err != nil {
 			next.Error = truncate(err.Error(), 300)
@@ -255,25 +259,59 @@ func (g *GeoManager) fetch(ctx context.Context, raw string, limit int64, w io.Wr
 	return n, nil
 }
 
-func validGeoFile(kind string, data []byte) error {
-	switch kind {
-	case "domain":
-		var list geodata.GeoSiteList
-		if err := proto.Unmarshal(data, &list); err != nil || !siteListOK(&list) {
-			return errors.New("the file is not a geosite list")
-		}
-	case "ip":
-		var list geodata.GeoIPList
-		if err := proto.Unmarshal(data, &list); err != nil || !ipListOK(&list) {
-			return errors.New("the file is not a geoip list")
-		}
-	default:
-		return fmt.Errorf("unknown kind %q", kind)
+func scanGeoFile(kind string, path string) (map[string]bool, error) {
+	if kind != "domain" && kind != "ip" {
+		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
-	return nil
+	bad := errors.New("the file is not a geosite list")
+	if kind == "ip" {
+		bad = errors.New("the file is not a geoip list")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 1<<16)
+	codes := map[string]bool{}
+	filled := false
+	var buf []byte
+	for {
+		key, err := binary.ReadUvarint(r)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, bad
+		}
+		if num, typ := protowire.DecodeTag(key); num != 1 || typ != protowire.BytesType {
+			return nil, bad
+		}
+		n, err := binary.ReadUvarint(r)
+		if err != nil || n > geoMaxEntry {
+			return nil, bad
+		}
+		if uint64(cap(buf)) < n {
+			buf = make([]byte, n)
+		}
+		buf = buf[:n]
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return nil, bad
+		}
+		code, ok, has := scanEntry(kind, buf)
+		if !ok {
+			return nil, bad
+		}
+		filled = filled || has
+		codes[strings.ToUpper(code)] = true
+	}
+	if !filled {
+		return nil, bad
+	}
+	return codes, nil
 }
 
-func (g *GeoManager) download(ctx context.Context, src GeoSource) (string, int64, error) {
+func (g *GeoManager) download(ctx context.Context, src GeoSource, need []string) (string, int64, error) {
 	if !noderoute.SourcePattern.MatchString(src.Name) {
 		return "", 0, errors.New("bad source name")
 	}
@@ -309,20 +347,73 @@ func (g *GeoManager) download(ctx context.Context, src GeoSource) (string, int64
 			return "", 0, fmt.Errorf("sha256 mismatch: the file is %s, the checksum says %s", sum[:12], truncate(want, 12))
 		}
 	}
-	data, err := os.ReadFile(tmp.Name())
+	codes, err := scanGeoFile(src.Kind, tmp.Name())
 	if err != nil {
 		return "", 0, err
 	}
-	if err := validGeoFile(src.Kind, data); err != nil {
-		return "", 0, err
+	var missing []string
+	for _, code := range need {
+		if !codes[strings.ToUpper(code)] {
+			missing = append(missing, code)
+		}
+	}
+	if len(missing) > 0 {
+		return "", 0, fmt.Errorf("the new file has no tags %s that the rules use: the old file is kept", strings.Join(missing, ", "))
 	}
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return "", 0, err
 	}
-	if err := os.Rename(tmp.Name(), g.path(src.Name)); err != nil {
+	now := time.Now()
+	if err := os.Chtimes(tmp.Name(), now, now); err != nil {
+		return "", 0, err
+	}
+	path := g.path(src.Name)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_ = os.Remove(path + ".previous")
+	if err := os.Link(path, path+".previous"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", 0, err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return "", 0, err
 	}
 	return sum, size, syncDir(g.dir)
+}
+
+func (g *GeoManager) Restore(names []string, reason string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	restored := false
+	for _, name := range names {
+		path := g.path(name)
+		if err := os.Rename(path+".previous", path); err != nil {
+			continue
+		}
+		restored = true
+		e := g.state[name]
+		e.Error = truncate(reason, 300)
+		if data, err := os.ReadFile(path); err == nil {
+			s := sha256.Sum256(data)
+			e.SHA256, e.Size = hex.EncodeToString(s[:]), int64(len(data))
+		}
+		g.state[name] = e
+		g.logger.Error("geo_restored", "source", name, "reason", e.Error)
+	}
+	if restored {
+		_ = syncDir(g.dir)
+		if err := writeJSONAtomic(g.statePath, g.state); err != nil {
+			g.logger.Error("geo_state_save_failed", "error", err.Error())
+		}
+	}
+	return restored
+}
+
+func (g *GeoManager) Commit(names []string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, name := range names {
+		_ = os.Remove(g.path(name) + ".previous")
+	}
 }
 
 func (g *GeoManager) Status() map[string]GeoStatus {
@@ -360,30 +451,27 @@ func (g *GeoManager) Files(names []string) (missing []string, sums []string, new
 	return missing, sums, newest
 }
 
-func siteListOK(list *geodata.GeoSiteList) bool {
-	for _, e := range list.GetEntry() {
-		if e.GetCode() == "" {
-			return false
+func scanEntry(kind string, buf []byte) (code string, ok bool, filled bool) {
+	if kind == "domain" {
+		var e geodata.GeoSite
+		if proto.Unmarshal(buf, &e) != nil || e.GetCode() == "" {
+			return "", false, false
 		}
 		for _, d := range e.GetDomain() {
 			if d.GetValue() != "" {
-				return true
+				return e.GetCode(), true, true
 			}
 		}
+		return e.GetCode(), true, false
 	}
-	return false
-}
-
-func ipListOK(list *geodata.GeoIPList) bool {
-	for _, e := range list.GetEntry() {
-		if e.GetCode() == "" {
-			return false
-		}
-		for _, c := range e.GetCidr() {
-			if n := len(c.GetIp()); n == 4 || n == 16 {
-				return true
-			}
+	var e geodata.GeoIP
+	if proto.Unmarshal(buf, &e) != nil || e.GetCode() == "" {
+		return "", false, false
+	}
+	for _, c := range e.GetCidr() {
+		if n := len(c.GetIp()); n == 4 || n == 16 {
+			return e.GetCode(), true, true
 		}
 	}
-	return false
+	return e.GetCode(), true, false
 }
