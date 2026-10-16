@@ -47,49 +47,42 @@ services:
       e2e:
         ipv4_address: 11.73.0.10
   bootstrap:
-    build:
-      context: ../node
-      dockerfile: agent.Dockerfile
-    image: sylph-test-node-agent
-    entrypoint: ["/sylph/sylph-agent", "bootstrap"]
-    network_mode: none
-    volumes:
+    extends:
+      file: ../../prod/node/compose.yml
+      service: bootstrap
+    image: sylph-agent:test
+    depends_on: !reset {}
+    volumes: !override
       - xray-config:/etc/xray
+      - xray-geo:/usr/local/share/xray/sylph
   xray:
-    image: ghcr.io/xtls/xray-core:26.10.10
-    network_mode: service:caddy
-    pid: service:caddy
-    restart: unless-stopped
-    command: ["run", "-c", "/etc/xray/config.json"]
-    volumes:
+    extends:
+      file: ../../prod/node/compose.yml
+      service: xray
+    volumes: !override
       - xray-config:/etc/xray:ro
       - xray-geo:/usr/local/share/xray/sylph:ro
-    depends_on:
+    depends_on: !override
       bootstrap:
         condition: service_completed_successfully
       caddy:
         condition: service_started
   agent:
-    image: sylph-test-node-agent
-    network_mode: service:caddy
-    pid: service:caddy
-    entrypoint: ["/sylph/sylph-agent"]
+    extends:
+      file: ../../prod/node/compose.yml
+      service: agent
+    image: sylph-agent:test
     environment:
-      SYLPH_CORE_URL: https://core.sylph.internal:8443
-      SYLPH_TLS_CERT: /ca/certs/node-1/cert.pem
-      SYLPH_TLS_KEY: /ca/certs/node-1/key.pem
       SYLPH_CA_CERT: /ca/ca.pem
-      SYLPH_CACHE_PATH: /tmp/state/cache.json
-      SYLPH_STATS_PATH: /tmp/state/stats.json
-      SYLPH_NODE_STATE_PATH: /tmp/state/node.json
-      SYLPH_GEO_STATE_PATH: /tmp/state/geo.json
       SYLPH_SYNC_INTERVAL: 2s
-    volumes:
+    volumes: !override
+      - agent-state:/var/lib/sylph-agent
       - xray-config:/etc/xray
       - xray-geo:/usr/local/share/xray/sylph
       - caddy-admin:/run/caddy-admin
+      - ./bin/ca/certs/node-1:/certs:ro
       - ./bin/ca:/ca:ro
-    depends_on:
+    depends_on: !override
       xray:
         condition: service_started
       core:
@@ -107,49 +100,48 @@ services:
       caddy:
         condition: service_started
   bootstrap-2:
-    image: sylph-test-node-agent
-    entrypoint: ["/sylph/sylph-agent", "bootstrap"]
-    network_mode: none
-    volumes:
-      - xray-config-2:/etc/xray
-    depends_on:
+    extends:
+      file: ../../prod/node/compose.yml
+      service: bootstrap
+    image: sylph-agent:test
+    depends_on: !override
       bootstrap:
         condition: service_completed_successfully
+    volumes: !override
+      - xray-config-2:/etc/xray
+      - xray-geo-2:/usr/local/share/xray/sylph
   xray-2:
-    image: ghcr.io/xtls/xray-core:26.10.10
+    extends:
+      file: ../../prod/node/compose.yml
+      service: xray
     network_mode: service:caddy-2
     pid: service:caddy-2
-    restart: unless-stopped
-    command: ["run", "-c", "/etc/xray/config.json"]
-    volumes:
+    volumes: !override
       - xray-config-2:/etc/xray:ro
       - xray-geo-2:/usr/local/share/xray/sylph:ro
-    depends_on:
+    depends_on: !override
       bootstrap-2:
         condition: service_completed_successfully
       caddy-2:
         condition: service_started
   agent-2:
-    image: sylph-test-node-agent
+    extends:
+      file: ../../prod/node/compose.yml
+      service: agent
+    image: sylph-agent:test
     network_mode: service:caddy-2
     pid: service:caddy-2
-    entrypoint: ["/sylph/sylph-agent"]
     environment:
-      SYLPH_CORE_URL: https://core.sylph.internal:8443
-      SYLPH_TLS_CERT: /ca/certs/node-2/cert.pem
-      SYLPH_TLS_KEY: /ca/certs/node-2/key.pem
       SYLPH_CA_CERT: /ca/ca.pem
-      SYLPH_CACHE_PATH: /tmp/state/cache.json
-      SYLPH_STATS_PATH: /tmp/state/stats.json
-      SYLPH_NODE_STATE_PATH: /tmp/state/node.json
-      SYLPH_GEO_STATE_PATH: /tmp/state/geo.json
       SYLPH_SYNC_INTERVAL: 2s
-    volumes:
+    volumes: !override
+      - agent-state-2:/var/lib/sylph-agent
       - xray-config-2:/etc/xray
       - xray-geo-2:/usr/local/share/xray/sylph
       - caddy-admin-2:/run/caddy-admin
+      - ./bin/ca/certs/node-2:/certs:ro
       - ./bin/ca:/ca:ro
-    depends_on:
+    depends_on: !override
       xray-2:
         condition: service_started
       core:
@@ -197,7 +189,9 @@ services:
 volumes:
   xray-config:
   xray-geo:
+  agent-state:
   caddy-admin:
   xray-config-2:
   xray-geo-2:
+  agent-state-2:
   caddy-admin-2:
