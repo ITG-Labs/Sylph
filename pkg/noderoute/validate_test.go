@@ -131,6 +131,9 @@ func TestValidateRejects(t *testing.T) {
 		{"raw capital port hides address", func(p *Profile) {
 			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"socks","settings":{"Address":"127.0.0.1","Port":10085}}`)
 		}, "outbounds[8].raw"},
+		{"raw address without a port", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"dns","settings":{"address":"127.0.0.1"}}`)
+		}, "outbounds[8].raw"},
 		{"raw final rules", func(p *Profile) {
 			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.0/8"]}]}}`)
 		}, "outbounds[8].raw"},

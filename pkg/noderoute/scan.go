@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	destinationKeys = []string{"endpoint", "redirect", "dest", "target", "server"}
+	destinationKeys = []string{"address", "endpoint", "redirect", "dest", "target", "server"}
 	forbiddenKeys   = []string{"finalRules", "ipsBlocked"}
 )
 
@@ -52,7 +52,6 @@ func keyIn(k string, names []string) bool {
 func ScanAddresses(v any) string {
 	switch x := v.(type) {
 	case map[string]any:
-		hasPort := false
 		for k := range x {
 			if !asciiKey(k) {
 				return "key " + k + " is not ASCII"
@@ -60,11 +59,10 @@ func ScanAddresses(v any) string {
 			if keyIn(k, forbiddenKeys) {
 				return "key " + k + " is not allowed"
 			}
-			hasPort = hasPort || strings.EqualFold(k, "port")
 		}
 		for k, val := range x {
 			s, isString := val.(string)
-			if isString && (keyIn(k, destinationKeys) || (strings.EqualFold(k, "address") && hasPort)) && badHost(s) {
+			if isString && keyIn(k, destinationKeys) && badHost(s) {
 				return "points to an internal address: " + s
 			}
 			if bad := ScanAddresses(val); bad != "" {
