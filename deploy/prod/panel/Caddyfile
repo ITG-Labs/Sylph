@@ -1,0 +1,20 @@
+{
+	cert_issuer acme {
+		disable_http_challenge
+	}
+	servers {
+		protocols h1 h2
+	}
+	log {
+		format filter {
+			wrap json
+			request>uri delete
+			request>headers delete
+		}
+	}
+}
+
+{$SYLPH_PANEL_DOMAIN} {
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy panel:8080
+}

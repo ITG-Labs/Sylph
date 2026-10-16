@@ -7,3 +7,7 @@ docs/
 .bin/
 deploy/test/node/bin/
 deploy/test/subs/bin/
+deploy/prod/*/certs/
+deploy/prod/*/data/
+deploy/prod/*/admins.json
+deploy/prod/*/compose.override.yml

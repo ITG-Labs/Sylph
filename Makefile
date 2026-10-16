@@ -53,14 +53,13 @@ test-node:
 	$(NODE_COMPOSE) run --rm agent; \
 	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
 
-SUBS_COMPOSE := docker compose -f deploy/test/subs/docker-compose.yml
+SUBS_COMPOSE := SYLPH_VERSION=test XRAY_VERSION=26.10.10 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
 SUBS_BIN := deploy/test/subs/bin
 SUBS_CA := go run ./tools/sylphca issue --dir $(SUBS_BIN)/ca
 
 test-subs:
-	mkdir -p deploy/test/node/bin/xray $(SUBS_BIN)
-	CGO_ENABLED=0 go build -o deploy/test/node/bin/sylph-agent ./services/agent/cmd/agent
-	CGO_ENABLED=0 go test -c -o deploy/test/node/bin/agent.test ./services/agent
+	mkdir -p $(SUBS_BIN)
+	docker build -q -f deploy/agent/Dockerfile -t sylph-agent:test .
 	CGO_ENABLED=0 go build -o $(SUBS_BIN)/sylph-core ./services/core/cmd/core
 	CGO_ENABLED=0 go build -o $(SUBS_BIN)/sylph-subs ./services/subs/cmd/subs
 	CGO_ENABLED=0 go test -c -o $(SUBS_BIN)/subs.test ./services/subs

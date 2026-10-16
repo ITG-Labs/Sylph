@@ -1,0 +1,92 @@
+name: sylph-panel
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-locked: &locked
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SYLPH_SUBNET:-172.30.10.0/24}
+
+services:
+  perms:
+    <<: *locked
+    image: alpine:3.24.2
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    network_mode: none
+    volumes:
+      - ./certs:/certs
+      - ./data:/data
+      - type: bind
+        source: ./admins.json
+        target: /admins.json
+        bind:
+          create_host_path: false
+    command:
+      - sh
+      - -euc
+      - |
+        mkdir -p /data/caddy
+        chown -R 0:0 /data/caddy
+        chown -R 65532:65532 /certs /admins.json
+        chmod -R u=rX,go= /certs
+        chmod 0400 /admins.json
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    networks:
+      default:
+        ipv4_address: ${SYLPH_CADDY_IP:-172.30.10.10}
+    ports:
+      - "0.0.0.0:${SYLPH_HTTPS_PORT:-443}:443"
+    environment:
+      SYLPH_PANEL_DOMAIN: ${SYLPH_PANEL_DOMAIN:?set SYLPH_PANEL_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+    depends_on:
+      perms:
+        condition: service_completed_successfully
+
+  panel:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-panel:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      SYLPH_CORE_URL: ${SYLPH_CORE_URL:?set SYLPH_CORE_URL in .env}
+      SYLPH_CORE_NAME: ${SYLPH_CORE_NAME:-core.sylph.internal}
+      SYLPH_TLS_CERT: /certs/cert.pem
+      SYLPH_TLS_KEY: /certs/key.pem
+      SYLPH_CA_CERT: /certs/ca.pem
+      SYLPH_LISTEN: ":8080"
+      SYLPH_PANEL_ADMINS_FILE: /admins.json
+      SYLPH_PANEL_SESSION_HOURS: ${SYLPH_PANEL_SESSION_HOURS:-12}
+      SYLPH_PANEL_TRUSTED_PROXIES: ${SYLPH_CADDY_IP:-172.30.10.10}/32
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+      - type: bind
+        source: ./admins.json
+        target: /admins.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      perms:
+        condition: service_completed_successfully

@@ -1,0 +1,19 @@
+{
+	cert_issuer acme {
+		disable_http_challenge
+	}
+	servers {
+		protocols h1 h2
+	}
+	log {
+		format filter {
+			wrap json
+			request>uri delete
+			request>headers delete
+		}
+	}
+}
+
+{$SYLPH_SUBS_DOMAIN} {
+	reverse_proxy subs:8080
+}

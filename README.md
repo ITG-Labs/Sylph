@@ -38,3 +38,39 @@ test-db и test-xray поднимают в docker Postgres и xray, прогон
 core.sylph.internal, переопределяется SYLPH_CORE_NAME).
 
 Каталог ca/ содержит приватный ключ корневого сертификата и не попадает в git.
+
+## Деплой
+
+Образы собирает CI после зелёных тестов и публикует в GHCR:
+ghcr.io/itg-labs/sylph-{core,cron,subs,bot,panel,agent,caddy}. Пуш в main даёт теги edge и
+sha-<коммит>, git-тег vX.Y.Z — тег X.Y.Z (и sha-<коммит>). Тега latest нет: в проде указывайте
+конкретную версию.
+
+Каждой машине — своя папка из deploy/prod:
+
+- core — ядро, Postgres и крон;
+- panel — панель за Caddy;
+- bot — бот, наружу через Caddy только вебхук ЮKassa;
+- subs — подписки за Caddy;
+- node — нода: Caddy с layer4, xray и агент.
+
+Папку роли кладут на машину, рядом создают .env по .env.example и certs/ с сертификатами (панели
+ещё нужен admins.json от sylph-panel new-admin) — всё это до первого запуска — и делают
+docker compose up -d. При каждом up служебный контейнер perms отдаёт data/ и certs/ пользователям
+сервисов и закрывает их от остальных, поэтому дальше с ними работают через sudo: положить новый
+сертификат или revoked.json, затем docker compose up -d (perms выставит права заново) и
+docker compose restart <сервис>.
+
+Всё состояние роли лежит в её папке: база, кэш и учёт трафика агента, geo-базы, сертификаты Caddy.
+Чтобы перенести машину, остановите compose и скопируйте папку от root с сохранением владельцев:
+sudo tar -czpf role.tgz <папка>, на новой машине sudo tar -xzpf role.tgz и docker compose up -d.
+Копия обычным пользователем не прочитает закрытые каталоги и молча потеряет, например, базу
+Postgres.
+
+Сертификаты в certs/:
+
+- core: ca.pem, revoked.json (если что-то отозвано), core/cert.pem и core/key.pem (серверный
+  core.sylph.internal), cron/cert.pem и cron/key.pem;
+- panel, bot, subs, node: ca.pem, cert.pem и key.pem своей роли.
+
+Порядок выкатки: ядро, ноды, панель, затем бот и subs.

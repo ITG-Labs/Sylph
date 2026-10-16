@@ -1,0 +1,79 @@
+name: sylph-subs
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-locked: &locked
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SYLPH_SUBNET:-172.30.12.0/24}
+
+services:
+  perms:
+    <<: *locked
+    image: alpine:3.24.2
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    network_mode: none
+    volumes:
+      - ./certs:/certs
+      - ./data:/data
+    command:
+      - sh
+      - -euc
+      - |
+        mkdir -p /data/caddy
+        chown -R 0:0 /data/caddy
+        chown -R 65532:65532 /certs
+        chmod -R u=rX,go= /certs
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    networks:
+      default:
+        ipv4_address: ${SYLPH_CADDY_IP:-172.30.12.10}
+    ports:
+      - "${SYLPH_HTTPS_PORT:-443}:443"
+    environment:
+      SYLPH_SUBS_DOMAIN: ${SYLPH_SUBS_DOMAIN:?set SYLPH_SUBS_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+    depends_on:
+      perms:
+        condition: service_completed_successfully
+
+  subs:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-subs:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      SYLPH_CORE_URL: ${SYLPH_CORE_URL:?set SYLPH_CORE_URL in .env}
+      SYLPH_CORE_NAME: ${SYLPH_CORE_NAME:-core.sylph.internal}
+      SYLPH_TLS_CERT: /certs/cert.pem
+      SYLPH_TLS_KEY: /certs/key.pem
+      SYLPH_CA_CERT: /certs/ca.pem
+      SYLPH_LISTEN: ":8080"
+      SYLPH_SUBS_UPDATE_HOURS: ${SYLPH_SUBS_UPDATE_HOURS:-12}
+      SYLPH_SUBS_TZ: ${SYLPH_SUBS_TZ:-Europe/Moscow}
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      perms:
+        condition: service_completed_successfully

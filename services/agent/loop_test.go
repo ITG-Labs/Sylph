@@ -31,7 +31,7 @@ func preapply(t *testing.T, loop *Loop, inbounds []Inbound) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(loop.cfg.XrayConfig, data); err != nil {
+	if err := writeFileAtomic(loop.cfg.XrayConfig, data, xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-time.Hour)
@@ -352,7 +352,7 @@ func TestRevokedUserLosesAccessWhileRunningInboundsAreUnknown(t *testing.T) {
 	bad.Reality.Dest = "127.0.0.1:2019"
 	fc := &fakeCore{syncVersion: 1, syncUsers: users("keep"), syncInbounds: []Inbound{bad}}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
-	if err := writeFileAtomic(loop.cfg.XrayConfig, []byte(`{"inbounds":[{"tag":"vless-in","protocol":"vless"}]}`)); err != nil {
+	if err := writeFileAtomic(loop.cfg.XrayConfig, []byte(`{"inbounds":[{"tag":"vless-in","protocol":"vless"}]}`), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	_ = loop.RunOnce(context.Background())
