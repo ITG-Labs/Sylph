@@ -313,7 +313,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if err := s.store.UpdateNode(ctx, n); err != nil {
 		return nil, referenceOr(err, "group_id", "group or profile not found")
 	}
-	if profileChanged {
+	if profileChanged || (patch.Enabled != nil && exitChanged) {
 		if err := s.store.RefreshLinks(ctx); err != nil {
 			return nil, err
 		}

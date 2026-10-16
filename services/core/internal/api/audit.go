@@ -25,7 +25,7 @@ const (
 	operatorKey
 )
 
-var redactedKeys = []string{"private_key", "sub_token", "hwid"}
+var redactedKeys = []string{"private_key", "sub_token", "hwid", "uuid", "password", "raw"}
 
 func redactedKey(k string) bool {
 	for _, r := range redactedKeys {

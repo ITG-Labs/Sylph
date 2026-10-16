@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/netaddr"
@@ -71,7 +72,7 @@ func mergeSecrets(p, prev *noderoute.Profile) {
 		}
 		o.Proxy.HasSecret = false
 		j := slices.IndexFunc(prev.Outbounds, func(old noderoute.Outbound) bool {
-			return old.Tag == o.Tag && old.Kind == noderoute.KindProxy && old.Proxy != nil && old.Proxy.Protocol == o.Proxy.Protocol
+			return old.Tag == o.Tag && old.Kind == noderoute.KindProxy && old.Proxy != nil && sameDestination(old.Proxy, o.Proxy)
 		})
 		if j < 0 {
 			continue
@@ -83,6 +84,10 @@ func mergeSecrets(p, prev *noderoute.Profile) {
 			o.Proxy.Password = prev.Outbounds[j].Proxy.Password
 		}
 	}
+}
+
+func sameDestination(a, b *noderoute.Proxy) bool {
+	return a.Protocol == b.Protocol && strings.EqualFold(a.Address, b.Address) && a.Port == b.Port && a.Username == b.Username
 }
 
 func maskSecrets(p *noderoute.Profile) {
@@ -601,4 +606,8 @@ func (s *Service) profileFitsNode(ctx context.Context, profileID, nodeID int64) 
 		return fieldErr("profile_id", "the profile cascades to this node: a node cannot cascade to itself")
 	}
 	return nil
+}
+
+func (s *Service) GetGeoSource(ctx context.Context, id int64) (*store.GeoSource, error) {
+	return s.store.GetGeoSource(ctx, id)
 }

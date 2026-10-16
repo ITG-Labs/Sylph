@@ -165,7 +165,7 @@ func (s *Store) RefreshLinks(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('sylph_node_links'))`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT n.id, p.doc FROM nodes n JOIN routing_profiles p ON p.id = n.profile_id`)
+	rows, err := tx.Query(ctx, `SELECT n.id, p.doc FROM nodes n JOIN routing_profiles p ON p.id = n.profile_id WHERE n.enabled`)
 	if err != nil {
 		return err
 	}

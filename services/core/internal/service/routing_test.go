@@ -401,3 +401,48 @@ func TestPreviewHidesSecrets(t *testing.T) {
 		t.Fatalf("preview without a node = %s %v", raw, err)
 	}
 }
+
+func TestSecretIsNotKeptForANewDestination(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	d := basicDoc()
+	proxy := map[string]any{"protocol": "socks", "address": "socks.example.com", "port": 1080, "username": "u", "password": "hunter2"}
+	d["outbounds"] = append(d["outbounds"].([]any), map[string]any{"tag": "s", "kind": "proxy", "proxy": proxy})
+	v, err := svc.CreateProfile(ctx, "p", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy["password"] = ""
+	for _, change := range []func(){
+		func() { proxy["address"] = "evil.example.net" },
+		func() { proxy["address"] = "socks.example.com"; proxy["port"] = 2080 },
+		func() { proxy["port"] = 1080; proxy["username"] = "other" },
+	} {
+		change()
+		_, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision)
+		mustField(t, err, "doc.outbounds[2].proxy.password")
+	}
+	proxy["username"] = "u"
+	if _, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision); err != nil {
+		t.Fatalf("same destination must keep the secret: %v", err)
+	}
+}
+
+func TestDisabledEntryNodeLosesItsServiceKey(t *testing.T) {
+	f := setupCascade(t)
+	ctx := context.Background()
+	off, on := false, true
+	if _, err := f.svc.UpdateNode(ctx, f.x.ID, NodePatch{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if keys, _ := f.svc.store.ServiceKeys(ctx, f.y.ID); len(keys) != 0 {
+		t.Fatalf("disabled entry node keeps its key on the exit: %v", keys)
+	}
+	if _, err := f.svc.UpdateNode(ctx, f.x.ID, NodePatch{Enabled: &on}); err != nil {
+		t.Fatal(err)
+	}
+	keys, _ := f.svc.store.ServiceKeys(ctx, f.y.ID)
+	if len(keys) != 1 || keys[0] == f.key {
+		t.Fatalf("re-enabled node must get a fresh key: %v (old %s)", keys, f.key)
+	}
+}
