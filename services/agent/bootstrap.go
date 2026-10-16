@@ -13,7 +13,7 @@ func Bootstrap(cfg *Config) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := writeFileAtomic(cfg.XrayConfig, frame); err != nil {
+	if err := writeFileAtomic(cfg.XrayConfig, frame, xrayFileMode); err != nil {
 		return false, err
 	}
 	return true, nil

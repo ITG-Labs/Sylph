@@ -222,6 +222,8 @@ func TestApplyWritesConfigAndRestartsXray(t *testing.T) {
 		t.Fatalf("config_error = %q", *e)
 	}
 	r.noPrevious()
+	assertMode(t, r.cfg.XrayConfig, 0o640)
+	assertMode(t, r.cfg.NodeStatePath, 0o600)
 	var st nodeState
 	raw, err := os.ReadFile(r.cfg.NodeStatePath)
 	if err != nil || json.Unmarshal(raw, &st) != nil || !reflect.DeepEqual(st.Applied, mainIn) {
@@ -231,7 +233,7 @@ func TestApplyWritesConfigAndRestartsXray(t *testing.T) {
 
 func TestApplySameConfigAlreadyRunningDoesNotTouchXray(t *testing.T) {
 	r := newNodeRig(t, newFakeXray())
-	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(mainIn)); err != nil {
+	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(mainIn), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	r.age(time.Hour)
@@ -254,7 +256,7 @@ func TestApplySameConfigAlreadyRunningDoesNotTouchXray(t *testing.T) {
 
 func TestApplyRestartsXrayThatHasNotReadTheFile(t *testing.T) {
 	r := newNodeRig(t, newFakeXray())
-	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(mainIn)); err != nil {
+	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(mainIn), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	r.node.Apply(context.Background(), mainIn)
@@ -301,6 +303,7 @@ func TestApplyRollsBackConfigXrayRejects(t *testing.T) {
 		t.Fatalf("disk after rollback = %s", r.disk())
 	}
 	r.noPrevious()
+	assertMode(t, r.cfg.XrayConfig, 0o640)
 	if r.proc.killCount() != 3 {
 		t.Fatalf("kills = %d, want apply, try new, roll back", r.proc.killCount())
 	}
@@ -454,10 +457,10 @@ func TestApplySignalFailureKeepsOldConfig(t *testing.T) {
 func TestApplyUndoesInterruptedApply(t *testing.T) {
 	r := newNodeRig(t, newFakeXray())
 	frame := r.disk()
-	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), frame); err != nil {
+	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), frame, xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(brokenInbounds())); err != nil {
+	if err := writeFileAtomic(r.cfg.XrayConfig, r.built(brokenInbounds()), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	r.fx.set(func(f *fakeXray) { f.uptimeErr = errors.New("xray is down") })
@@ -479,7 +482,7 @@ func TestApplyUndoesInterruptedApply(t *testing.T) {
 func TestApplyUndoForcesRestartEvenForSameContent(t *testing.T) {
 	r := newNodeRig(t, newFakeXray())
 	want := r.built(mainIn)
-	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), want); err != nil {
+	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), want, xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	r.node.Apply(context.Background(), mainIn)
@@ -533,16 +536,16 @@ func TestRunningTagsReadsConfigAndPrevious(t *testing.T) {
 	if tags := r.node.RunningTags(); len(tags) != 0 {
 		t.Fatalf("frame has no inbounds, got %v", tags)
 	}
-	if err := writeFileAtomic(r.cfg.XrayConfig, []byte(`{"inbounds":[{"tag":"vless-in"},{"port":1},{"tag":"alpha"}]}`)); err != nil {
+	if err := writeFileAtomic(r.cfg.XrayConfig, []byte(`{"inbounds":[{"tag":"vless-in"},{"port":1},{"tag":"alpha"}]}`), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), []byte(`{"inbounds":[{"tag":"alpha"},{"tag":"old"}]}`)); err != nil {
+	if err := writeFileAtomic(previousPath(r.cfg.XrayConfig), []byte(`{"inbounds":[{"tag":"alpha"},{"tag":"old"}]}`), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	if tags := r.node.RunningTags(); !reflect.DeepEqual(tags, []string{"vless-in", "alpha", "old"}) {
 		t.Fatalf("tags = %v", tags)
 	}
-	if err := writeFileAtomic(r.cfg.XrayConfig, []byte(`{"inbounds": [ // jsonc`)); err != nil {
+	if err := writeFileAtomic(r.cfg.XrayConfig, []byte(`{"inbounds": [ // jsonc`), xrayFileMode); err != nil {
 		t.Fatal(err)
 	}
 	if tags := r.node.RunningTags(); !reflect.DeepEqual(tags, []string{"alpha", "old"}) {

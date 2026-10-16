@@ -21,10 +21,7 @@ func TestBootstrapWritesFrameOnlyOnce(t *testing.T) {
 	if err != nil || !bytes.Equal(data, frame) {
 		t.Fatalf("bootstrap wrote %s", data)
 	}
-	info, err := os.Stat(cfg.XrayConfig)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v, want 0600: the file will hold REALITY private keys", info.Mode())
-	}
+	assertMode(t, cfg.XrayConfig, 0o640)
 	if err := os.WriteFile(cfg.XrayConfig, []byte(`{"applied":"by agent"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +31,14 @@ func TestBootstrapWritesFrameOnlyOnce(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(cfg.XrayConfig); string(data) != `{"applied":"by agent"}` {
 		t.Fatalf("bootstrap overwrote an existing config: %s", data)
+	}
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != want {
+		t.Fatalf("%s: mode = %v (%v), want %v", filepath.Base(path), info.Mode().Perm(), err, want)
 	}
 }
 

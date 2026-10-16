@@ -333,11 +333,11 @@ func (n *NodeConfig) restartXray(ctx context.Context, desired NodeDesired, want 
 		}
 		prev = frame
 	}
-	if err := writeFileAtomic(previousPath(path), prev); err != nil {
+	if err := writeFileAtomic(previousPath(path), prev, xrayFileMode); err != nil {
 		n.failXray("xray_config_unwritable", err)
 		return
 	}
-	if err := writeFileAtomic(path, want); err != nil {
+	if err := writeFileAtomic(path, want, xrayFileMode); err != nil {
 		_ = os.Remove(previousPath(path))
 		n.failXray("xray_config_unwritable", err)
 		return

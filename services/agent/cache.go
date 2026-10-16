@@ -40,21 +40,26 @@ func SaveCache(path string, c *Cache) error {
 
 var fsync = func(f *os.File) error { return f.Sync() }
 
+const (
+	stateFileMode os.FileMode = 0o600
+	xrayFileMode  os.FileMode = 0o640
+)
+
 func writeJSONAtomic(path string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}
-	return writeFileAtomic(path, data)
+	return writeFileAtomic(path, data, stateFileMode)
 }
 
-func writeFileAtomic(path string, data []byte) error {
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := writeSynced(tmp, data); err != nil {
+	if err := writeSynced(tmp, data, mode); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -63,8 +68,8 @@ func writeFileAtomic(path string, data []byte) error {
 	return syncDir(dir)
 }
 
-func writeSynced(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+func writeSynced(path string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("write tmp: %w", err)
 	}
