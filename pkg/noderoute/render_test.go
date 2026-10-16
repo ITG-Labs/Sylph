@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -128,8 +129,15 @@ func TestRenderGuardsInternalNetworksFirst(t *testing.T) {
 			t.Fatalf("first rule = %v", first)
 		}
 		ips, _ := first["ip"].([]string)
-		if len(ips) != 1 || ips[0] != "geoip:private" {
-			t.Fatalf("guard ips = %v", first["ip"])
+		for _, want := range []string{"127.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10", "::1/128", "fc00::/7", "64:ff9b::/96"} {
+			if !slices.Contains(ips, want) {
+				t.Fatalf("guard misses %s: %v", want, ips)
+			}
+		}
+		names := s.Routing["rules"].([]any)[1].(map[string]any)
+		domains, _ := names["domain"].([]string)
+		if names["ruleTag"] != GuardNamesRuleTag || names["outboundTag"] != GuardOutboundTag || !slices.Contains(domains, "full:localhost") || !slices.Contains(domains, "domain:internal") {
+			t.Fatalf("name guard = %v", names)
 		}
 		last := s.Outbounds[len(s.Outbounds)-1]
 		if last["tag"] != GuardOutboundTag || last["protocol"] != "blackhole" {

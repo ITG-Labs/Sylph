@@ -14,7 +14,16 @@ const (
 	DefaultRuleTag     = "sylph-default"
 	GuardOutboundTag   = "sylph_block"
 	GuardRuleTag       = "sylph-guard"
+	GuardNamesRuleTag  = "sylph-guard-names"
 )
+
+var guardNets = []string{
+	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24",
+	"192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/3",
+	"::/127", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8", "64:ff9b::/96", "64:ff9b:1::/48",
+}
+
+var guardNames = []string{"full:localhost", "domain:localhost", "domain:local", "domain:internal", "domain:lan", "domain:home.arpa", "domain:localdomain"}
 
 var directStrategies = map[string]string{
 	"auto":        "AsIs",
@@ -74,7 +83,10 @@ func Render(in RenderInput) (Static, error) {
 		}
 		out.Outbounds = append(out.Outbounds, rendered)
 	}
-	rules := []any{map[string]any{"ruleTag": GuardRuleTag, "ip": []string{"geoip:private"}, "outboundTag": GuardOutboundTag}}
+	rules := []any{
+		map[string]any{"ruleTag": GuardRuleTag, "ip": guardNets, "outboundTag": GuardOutboundTag},
+		map[string]any{"ruleTag": GuardNamesRuleTag, "domain": guardNames, "outboundTag": GuardOutboundTag},
+	}
 	if len(in.ServiceKeys) > 0 {
 		out.Outbounds = append(out.Outbounds, map[string]any{"tag": ServiceOutboundTag, "protocol": "freedom"})
 		rules = append(rules, map[string]any{"ruleTag": ServiceRuleTag, "user": in.ServiceKeys, "outboundTag": ServiceOutboundTag})
