@@ -271,7 +271,7 @@ func Tail(p *Profile, planUsers map[int64][]string, generation int64) []TailRule
 		}
 		out = append(out, rule)
 	}
-	if len(out) > 0 && p.isBalancer(p.Default) {
+	if HasPlanRules(p) && p.isBalancer(p.Default) {
 		out = append(out, TailRule{Tag: fmt.Sprintf("sylph-p%d-default", generation), CatchAll: true, BalancerTag: p.Default})
 	}
 	return out

@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,5 +49,25 @@ func TestLoopDownloadsTheGeoBaseThenAppliesRouting(t *testing.T) {
 	ru, _ := st["ru"].(map[string]any)
 	if ru["sha256"] != sumOf(site) || hb["config_error"] != nil {
 		t.Fatalf("heartbeat = %v", hb)
+	}
+}
+
+func TestLoopKeepsPlanRulesAndReportsTheirErrors(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1", PlanID: 3}, {UUID: "u-2"}}, syncInbounds: mainIn, syncExtra: routingSyncExtra()}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	tick(t, loop)
+	rule := ruleByTag(fx.liveRules(), "sylph-p1-r1")
+	if !slices.Equal(rule.Users, []string{"u-1"}) || rule.OutboundTag != "block" {
+		t.Fatalf("live rules = %+v", fx.liveRules())
+	}
+	if hb, _ := lastHeartbeat(fc); hb["routing_error"] != nil {
+		t.Fatalf("routing_error = %v", hb["routing_error"])
+	}
+	fx.set(func(f *fakeXray) { f.ruleErr = errors.New("no routing service") })
+	tick(t, loop)
+	hb, _ := lastHeartbeat(fc)
+	if msg, _ := hb["routing_error"].(string); !strings.Contains(msg, "no routing service") {
+		t.Fatalf("routing_error = %v", hb["routing_error"])
 	}
 }

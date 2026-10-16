@@ -52,6 +52,7 @@ func (p *fakeProc) Terminate(pid int) error {
 	restart := func() {
 		p.fx.set(func(f *fakeXray) {
 			f.users = map[string]bool{}
+			f.rules = staticRules(data)
 			f.uptime = 0
 			f.uptimeErr = nil
 			if bytes.Contains(data, []byte(brokenKey)) {

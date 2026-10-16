@@ -100,6 +100,9 @@ func TestTail(t *testing.T) {
 		t.Fatalf("tail = %+v", got)
 	}
 	p.Default = "best"
+	if got := Tail(&p, map[int64][]string{}, 2); len(got) != 1 || !got[0].CatchAll || got[0].Tag != "sylph-p2-default" {
+		t.Fatalf("tail without users loses the balancer default = %+v", got)
+	}
 	got = Tail(&p, map[int64][]string{3: {"u1"}}, 8)
 	if len(got) != 2 || !got[1].CatchAll || got[1].BalancerTag != "best" || got[1].Tag != "sylph-p8-default" {
 		t.Fatalf("tail with a balancer default = %+v", got)

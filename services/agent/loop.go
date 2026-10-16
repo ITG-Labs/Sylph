@@ -15,6 +15,7 @@ type Loop struct {
 	core    *CoreClient
 	xray    XrayClient
 	node    *NodeConfig
+	rules   *PlanRules
 	cfg     *Config
 	logger  *slog.Logger
 	started time.Time
@@ -22,7 +23,7 @@ type Loop struct {
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
-	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, cfg: cfg, logger: logger, started: time.Now()}
+	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, rules: NewPlanRules(xray, logger), cfg: cfg, logger: logger, started: time.Now()}
 }
 
 func (l *Loop) RunOnce(ctx context.Context) error {
@@ -47,6 +48,7 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		XrayVersion:    l.cfg.XrayVersion,
 		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
 		ConfigError:    l.node.ConfigError(),
+		RoutingError:   l.rules.Error(),
 	}
 	if l.node.geo != nil {
 		if st := l.node.geo.Status(); len(st) > 0 {
@@ -92,7 +94,11 @@ func (l *Loop) apply(ctx context.Context) error {
 	if l.applied == nil {
 		return l.engine.Revoke(ctx, l.node.RunningTags())
 	}
-	return l.engine.Reconcile(ctx, l.applied)
+	err := l.engine.Reconcile(ctx, l.applied)
+	if ctx.Err() == nil {
+		l.rules.Keep(ctx, l.node.AppliedRouting(), l.engine.PlanUsers())
+	}
+	return err
 }
 
 func (l *Loop) ApplyCached(ctx context.Context) {

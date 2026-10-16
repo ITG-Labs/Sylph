@@ -5,18 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/router"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/routercmd"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xrayapi/xnet"
 )
 
-type RouteRule struct {
-	Tag         string
-	Users       []string
-	CatchAll    bool
-	OutboundTag string
-	BalancerTag string
-}
+type RouteRule = noderoute.TailRule
 
 func (c *Client) AppendRules(ctx context.Context, rules []RouteRule) error {
 	if len(rules) == 0 {

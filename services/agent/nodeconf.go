@@ -179,8 +179,8 @@ func (n *NodeConfig) Settled() bool {
 	return n.settled
 }
 
-func (n *NodeConfig) AppliedRouting() (*noderoute.Profile, bool) {
-	return n.state.AppliedRouting, n.settled
+func (n *NodeConfig) AppliedRouting() *noderoute.Profile {
+	return n.state.AppliedRouting
 }
 
 func (n *NodeConfig) ensureRouted(ctx context.Context, d NodeDesired, want []byte) {
