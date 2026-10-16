@@ -23,6 +23,7 @@ import { describeError } from "@/lib/errors"
 import { fmtDateTime, plural } from "@/lib/format"
 import { useGeoSources, useInvalidate, useNodes, usePlans } from "@/lib/queries"
 import {
+  changedCascades,
   describeRoutingError,
   docProblems,
   isPlanRule,
@@ -112,11 +113,13 @@ export function ProfilePage() {
   const planName = (pid: number) => plans.data?.find((p) => p.id === pid)?.name ?? `тариф ${pid}`
   const close = (v: boolean) => !v && setDialog(null)
   const update = (fn: (d: RoutingDoc) => RoutingDoc) => setDraft((d) => (d ? fn(structuredClone(d)) : d))
-  const problems = docProblems(doc)
+  const stale = dirty && seen.current !== null && seen.current !== saved.revision
+  const problems = stale ? ["Профиль уже сохранил кто-то другой — «Отменить» загрузит новую версию"] : docProblems(doc)
   const general = doc.rules.map((r, i) => ({ r, i })).filter(({ r }) => !isPlanRule(r))
   const byPlan = doc.rules.map((r, i) => ({ r, i })).filter(({ r }) => isPlanRule(r))
   const leastPing = doc.balancers.some((b) => b.strategy === "leastPing")
   const restart = restartsXray(saved.doc, doc)
+  const exits = saved.nodes > 0 ? changedCascades(saved.doc, doc) : []
 
   const move = (i: number, d: -1 | 1) =>
     update((x) => {
@@ -498,6 +501,7 @@ export function ProfilePage() {
                 {saved.nodes} {plural(saved.nodes, "нода перезапустит", "ноды перезапустят", "нод перезапустят")} xray — открытые соединения на {saved.nodes === 1 ? "ней" : "них"} оборвутся.
               </p>
               <p>Если нужной geo-базы на ноде ещё нет, нода подождёт её и применит профиль, когда скачает.</p>
+              {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} тоже перезапустят xray, если на них самих стоит профиль: у них меняется список служебных ключей.</p>}
             </>
           ) : (
             <p>Меняются только правила по тарифу — ноды подхватят их без перезапуска.</p>
@@ -508,7 +512,7 @@ export function ProfilePage() {
         success="Профиль сохранён"
         onConfirm={async () => {
           try {
-            const next = await core.put<Profile>(`/v1/admin/profiles/${saved.id}`, { name: name.trim(), doc, revision: saved.revision })
+            const next = await core.put<Profile>(`/v1/admin/profiles/${saved.id}`, { name: name.trim(), doc, revision: seen.current ?? saved.revision })
             const fresh = { ...next, doc: normalizeDoc(next.doc) }
             seen.current = fresh.revision
             setDraft(structuredClone(fresh.doc))

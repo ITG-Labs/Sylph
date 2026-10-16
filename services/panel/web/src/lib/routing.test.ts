@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { ApiError } from "./errors"
 import {
+  changedCascades,
   describeRoutingError,
   docProblems,
   freeTag,
@@ -93,12 +94,25 @@ describe("routing", () => {
     expect(restartsXray(a, c)).toBe(true)
   })
 
+  it("finds exit nodes whose service keys change", () => {
+    const a = doc()
+    const b = doc()
+    expect(changedCascades(a, b)).toEqual([])
+    b.outbounds.push({ tag: "de", kind: "cascade", cascade: { node_id: 5 } })
+    b.outbounds = b.outbounds.filter((o) => o.tag !== "fi")
+    expect(changedCascades(a, b)).toEqual([2, 5])
+    expect(changedCascades(null, a)).toEqual([2])
+    expect(changedCascades(a, null)).toEqual([2])
+  })
+
   it("explains core errors in place", () => {
     const d = doc()
     expect(describeRoutingError(new ApiError(400, "invalid", "doc.outbounds[2].proxy.address", "must be a public hostname or IP"), d)).toBe("Выход nl, адрес: нужен публичный домен или IP")
     expect(describeRoutingError(new ApiError(400, "invalid", "doc.rules[0].domain", `"ru:x" is not a geo source of domains`), d)).toContain("Правило 1 «Торренты», домены: нет такого источника доменов")
     expect(describeRoutingError(new ApiError(400, "invalid", "doc.balancers[0].outbounds", "needs at least two outbounds"), d)).toBe("Балансировщик best, выходы: нужно хотя бы два выхода")
     expect(describeRoutingError(new ApiError(409, "conflict", "revision", "the profile was changed by someone else: reload it"), d)).toContain("обнови страницу")
+    expect(describeRoutingError(new ApiError(400, "invalid", "doc.balancers[0].outbounds", `tag "s" is the beginning of the system outbound "sylph_block": xray would pick it too, rename the outbound`), d)).toContain("системного выхода")
+    expect(describeRoutingError(new ApiError(400, "invalid", "doc.outbounds[3].raw", `write "PROTOCOL" in lowercase: xray reads keys in any case`), d)).toContain("строчными")
     expect(describeRoutingError(new ApiError(400, "invalid", "name", "x"), d)).toBeNull()
   })
 })

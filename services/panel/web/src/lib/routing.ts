@@ -300,6 +300,16 @@ export function docProblems(doc: RoutingDoc): string[] {
   return out
 }
 
+export function cascadeTargets(d: RoutingDoc): number[] {
+  return [...new Set(d.outbounds.flatMap((o) => (o.kind === "cascade" && o.cascade ? [o.cascade.node_id] : [])))].sort((x, y) => x - y)
+}
+
+export function changedCascades(a: RoutingDoc | null, b: RoutingDoc | null): number[] {
+  const x = a ? cascadeTargets(a) : []
+  const y = b ? cascadeTargets(b) : []
+  return [...x.filter((id) => !y.includes(id)), ...y.filter((id) => !x.includes(id))].sort((p, q) => p - q)
+}
+
 export function restartsXray(a: RoutingDoc, b: RoutingDoc): boolean {
   const fileOf = (d: RoutingDoc) => JSON.stringify({ ...d, rules: d.rules.filter((r) => !isPlanRule(r)), byPlan: d.rules.some(isPlanRule) })
   return fileOf(a) !== fileOf(b)
@@ -334,6 +344,9 @@ const messages: [RegExp, string][] = [
   [/a rule by plan has no other conditions/, "у правила по тарифу не бывает других условий"],
   [/needs at least one condition/, "нужно хотя бы одно условие"],
   [/needs at least two outbounds/, "нужно хотя бы два выхода"],
+  [/is the beginning of the system outbound/, "тег — начало системного выхода, xray захватит и его; переименуй выход"],
+  [/is the beginning of .*xray would pick both/, "один тег — начало другого, xray возьмёт оба; переименуй один"],
+  [/in lowercase: xray reads keys in any case/, "ключи protocol и tag пиши строчными — xray читает ключи без учёта регистра"],
   [/tags starting with sylph are reserved/, "теги на sylph заняты системой"],
   [/is used twice/, "тег повторяется"],
   [/must be a public https URL/, "нужна публичная ссылка https"],

@@ -21,7 +21,10 @@ export function BalancerDialog({ open, onOpenChange, doc, balancer, onSave }: { 
 
   const tagErr = tagProblem(doc, tag.trim(), balancer?.tag)
   const outbounds = doc.outbounds.map((o) => o.tag)
-  const prefix = picked.flatMap((t) => outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» — начало «${o}»: xray возьмёт оба, переименуй один`))
+  const prefix = picked.flatMap((t) => [
+    ...outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» — начало «${o}»: xray возьмёт оба, переименуй один`),
+    ...["sylph_block", "sylph_direct"].filter((o) => o.startsWith(t)).map((o) => `«${t}» — начало системного выхода ${o}: xray захватит и его, переименуй выход`),
+  ])
   const problem = picked.length < 2 ? "отметь хотя бы два выхода" : (prefix[0] ?? null)
 
   return (

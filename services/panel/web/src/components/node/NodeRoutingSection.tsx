@@ -8,8 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { core } from "@/lib/api"
 import { describeError } from "@/lib/errors"
 import { fmtBytes, fmtDateTime, fmtRelative } from "@/lib/format"
-import { useInvalidate, useProfiles } from "@/lib/queries"
-import { describeRoutingError } from "@/lib/routing"
+import { useInvalidate, useNodes, useProfiles } from "@/lib/queries"
+import { changedCascades, describeRoutingError } from "@/lib/routing"
 import type { Node } from "@/lib/types"
 
 export function GeoStatusList({ status }: { status: Node["geo_status"] }) {
@@ -41,6 +41,9 @@ export function NodeRoutingSection({ node }: { node: Node }) {
   const current = node.profile_id === null ? "none" : String(node.profile_id)
   const profile = profiles.data?.find((p) => p.id === node.profile_id)
   const target = next === null ? null : next === "none" ? null : profiles.data?.find((p) => String(p.id) === next)
+  const exits = next === null ? [] : changedCascades(profile?.doc ?? null, target?.doc ?? null)
+  const nodes = useNodes()
+  const nodeName = (id: number) => nodes.data?.find((x) => x.id === id)?.name ?? `нода ${id}`
 
   return (
     <Section title="Маршрутизация" description="куда нода выпускает трафик юзеров">
@@ -89,6 +92,7 @@ export function NodeRoutingSection({ node }: { node: Node }) {
           <>
             <p>Агент перезапустит xray на ноде — открытые соединения оборвутся.</p>
             {target ? <p>Если профилю нужны свои geo-базы, нода сначала скачает их и только потом применит профиль.</p> : <p>Весь трафик ноды пойдёт напрямую.</p>}
+            {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} тоже перезапустят xray, если на них самих стоит профиль: у них меняется список служебных ключей.</p>}
           </>
         }
         destructive

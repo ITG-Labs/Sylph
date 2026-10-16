@@ -123,7 +123,8 @@ export function OutboundDialog({
 
   const kept = !!outbound?.proxy?.has_secret && outbound.kind === "proxy"
   const bare = (p: ProxySpec) => JSON.stringify({ ...cleanProxy(p), uuid: undefined, password: undefined })
-  const moved = kept && kind === "proxy" && bare(proxy) !== bare({ ...blankProxy(), flow: "", fingerprint: "", ...outbound!.proxy! })
+  const moved = kept && kind === "proxy" && (tag.trim() !== outbound!.tag || bare(proxy) !== bare({ ...blankProxy(), flow: "", fingerprint: "", ...outbound!.proxy! }))
+  const rawRenamed = !!outbound && outbound.kind === "raw" && kind === "raw" && tag.trim() !== outbound.tag && raw.includes('"***"')
   const hasSecret = kept && !moved
   const set = (patch: Partial<ProxySpec>) => setProxy((p) => ({ ...p, ...patch }))
   const tagErr = tagProblem(doc, tag.trim(), outbound?.tag)
@@ -138,7 +139,16 @@ export function OutboundDialog({
       rawErr = raw.trim() ? "JSON не разбирается" : "вставь outbound xray"
     }
   }
-  const missing = kind === "proxy" ? (moved && !proxy.uuid?.trim() && !proxy.password?.trim() ? `параметры выхода поменялись — введи ${proxy.protocol === "vless" ? "UUID" : "пароль"} заново, старый к другим параметрам не подставляется` : proxyMissing(proxy, hasSecret)) : kind === "cascade" && !nodeId ? "выбери ноду" : kind === "raw" ? rawErr : null
+  const missing =
+    kind === "proxy"
+      ? moved && !proxy.uuid?.trim() && !proxy.password?.trim()
+        ? `параметры или тег выхода поменялись — введи ${proxy.protocol === "vless" ? "UUID" : "пароль"} заново, старый к другим параметрам не подставляется`
+        : proxyMissing(proxy, hasSecret)
+      : kind === "cascade" && !nodeId
+        ? "выбери ноду"
+        : kind === "raw"
+          ? (rawErr ?? (rawRenamed ? "у переименованного выхода замени *** настоящими значениями — старые секреты подставляются только к тому же тегу" : null))
+          : null
   const candidates = nodes.filter((n) => !profileNodes.includes(n.id))
 
   const pasteLink = () => {
