@@ -73,6 +73,10 @@ func writeSynced(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("write tmp: %w", err)
 	}
+	if err := f.Chmod(mode); err != nil {
+		f.Close()
+		return fmt.Errorf("chmod tmp: %w", err)
+	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return fmt.Errorf("write tmp: %w", err)
