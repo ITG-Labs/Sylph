@@ -70,6 +70,7 @@ test-subs:
 	$(SUBS_CA) --name panel --type client --role panel
 	$(SUBS_CA) --name subs --type client --role subs
 	$(SUBS_CA) --name node-1 --type client --role node
+	$(SUBS_CA) --name node-2 --type client --role node
 	chmod -R a+rX $(SUBS_BIN)/ca
 	$(SUBS_COMPOSE) build
 	$(SUBS_COMPOSE) run --rm runner; \
