@@ -85,7 +85,12 @@ XRAY_PROTO_MAP := \
 	common/protocol/user.proto=$(AGENT_MODULE)/internal/xrayapi/protocol;protocol \
 	common/serial/typed_message.proto=$(AGENT_MODULE)/internal/xrayapi/serial;serial \
 	core/config.proto=$(AGENT_MODULE)/internal/xrayapi/core;core \
-	proxy/vless/account.proto=$(AGENT_MODULE)/internal/xrayapi/vless;vless
+	proxy/vless/account.proto=$(AGENT_MODULE)/internal/xrayapi/vless;vless \
+	app/router/command/command.proto=$(AGENT_MODULE)/internal/xrayapi/routercmd;routercmd \
+	app/router/config.proto=$(AGENT_MODULE)/internal/xrayapi/router;router \
+	common/geodata/geodat.proto=$(AGENT_MODULE)/internal/xrayapi/geodata;geodata \
+	common/net/port.proto=$(AGENT_MODULE)/internal/xrayapi/xnet;xnet \
+	common/net/network.proto=$(AGENT_MODULE)/internal/xrayapi/xnet;xnet
 
 proto:
 	GOBIN=$(CURDIR)/.bin go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO)
