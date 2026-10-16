@@ -417,12 +417,19 @@ func TestSecretIsNotKeptForANewDestination(t *testing.T) {
 		func() { proxy["address"] = "evil.example.net" },
 		func() { proxy["address"] = "socks.example.com"; proxy["port"] = 2080 },
 		func() { proxy["port"] = 1080; proxy["username"] = "other" },
+		func() {
+			proxy["username"] = "u"
+			proxy["security"] = ""
+			proxy["protocol"] = "http"
+			proxy["port"] = 1080
+		},
 	} {
 		change()
 		_, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision)
 		mustField(t, err, "doc.outbounds[2].proxy.password")
 	}
-	proxy["username"] = "u"
+	proxy["username"], proxy["protocol"] = "u", "socks"
+	delete(proxy, "security")
 	if _, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision); err != nil {
 		t.Fatalf("same destination must keep the secret: %v", err)
 	}
@@ -444,5 +451,75 @@ func TestDisabledEntryNodeLosesItsServiceKey(t *testing.T) {
 	keys, _ := f.svc.store.ServiceKeys(ctx, f.y.ID)
 	if len(keys) != 1 || keys[0] == f.key {
 		t.Fatalf("re-enabled node must get a fresh key: %v (old %s)", keys, f.key)
+	}
+}
+
+func TestSecretIsNotKeptWhenTLSIsDropped(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	d := basicDoc()
+	proxy := map[string]any{"protocol": "http", "address": "proxy.example.com", "port": 3128, "username": "u", "password": "hunter2", "security": "tls", "sni": "proxy.example.com"}
+	d["outbounds"] = append(d["outbounds"].([]any), map[string]any{"tag": "h", "kind": "proxy", "proxy": proxy})
+	v, err := svc.CreateProfile(ctx, "p", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy["password"] = ""
+	for _, change := range []func(){
+		func() { proxy["security"] = "" },
+		func() { proxy["security"] = "tls"; proxy["sni"] = "evil.example.net" },
+	} {
+		change()
+		_, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision)
+		mustField(t, err, "doc.outbounds[2].proxy.password")
+	}
+}
+
+func TestRawSecretsAreHiddenAndKeptOnlyUnchanged(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	d := basicDoc()
+	raw := map[string]any{"protocol": "wireguard", "settings": map[string]any{"secretKey": "wg-secret", "address": []string{"172.16.0.2/32"},
+		"peers": []any{map[string]any{"publicKey": "pub", "endpoint": "engage.cloudflareclient.com:2408"}}}}
+	d["outbounds"] = append(d["outbounds"].([]any), map[string]any{"tag": "warp", "kind": "raw", "raw": raw})
+	v, err := svc.CreateProfile(ctx, "p", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(v.Doc), "wg-secret") || !strings.Contains(string(v.Doc), `"secretKey":"***"`) || !strings.Contains(string(v.Doc), `"publicKey":"pub"`) {
+		t.Fatalf("view = %s", v.Doc)
+	}
+	n, _ := realityNode(t, svc, "node-w")
+	if _, err := svc.UpdateNode(ctx, n.ID, NodePatch{ProfileID: Optional[int64]{Set: true, Value: &v.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := svc.PreviewProfile(ctx, v.ID, &n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(preview), "wg-secret") {
+		t.Fatalf("preview leaks: %s", preview)
+	}
+	var masked map[string]any
+	if err := json.Unmarshal(v.Doc, &masked); err != nil {
+		t.Fatal(err)
+	}
+	if v, err = svc.UpdateProfile(ctx, v.ID, "p", docOf(t, masked), v.Revision); err != nil {
+		t.Fatalf("unchanged masked raw: %v", err)
+	}
+	stored, _ := svc.store.GetProfile(ctx, v.ID)
+	if !strings.Contains(string(stored.Doc), "wg-secret") {
+		t.Fatalf("secret lost: %s", stored.Doc)
+	}
+	peers := masked["outbounds"].([]any)[2].(map[string]any)["raw"].(map[string]any)["settings"].(map[string]any)["peers"].([]any)
+	peers[0].(map[string]any)["endpoint"] = "evil.example.net:2408"
+	_, err = svc.UpdateProfile(ctx, v.ID, "p", docOf(t, masked), v.Revision)
+	mustField(t, err, "doc.outbounds[2].raw")
+	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resp.Routing.Outbounds[2].Raw), "wg-secret") {
+		t.Fatalf("node did not get the real secret: %s", resp.Routing.Outbounds[2].Raw)
 	}
 }

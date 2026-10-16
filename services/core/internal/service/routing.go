@@ -64,12 +64,23 @@ func docField(err error) error {
 	return err
 }
 
-func mergeSecrets(p, prev *noderoute.Profile) {
+func mergeSecrets(p, prev *noderoute.Profile) error {
 	for i := range p.Outbounds {
 		o := &p.Outbounds[i]
+		if o.Kind == noderoute.KindRaw && noderoute.RawHasMasked(o.Raw) {
+			j := slices.IndexFunc(prev.Outbounds, func(old noderoute.Outbound) bool {
+				return old.Tag == o.Tag && old.Kind == noderoute.KindRaw && noderoute.SameJSON(noderoute.MaskRaw(old.Raw), o.Raw)
+			})
+			if j < 0 {
+				return fieldErr(fmt.Sprintf("doc.outbounds[%d].raw", i), "secrets are hidden as ***: enter them again or leave the outbound unchanged")
+			}
+			o.Raw = prev.Outbounds[j].Raw
+			continue
+		}
 		if o.Kind != noderoute.KindProxy || o.Proxy == nil {
 			continue
 		}
+		noderoute.NormalizeProxy(o.Proxy)
 		o.Proxy.HasSecret = false
 		j := slices.IndexFunc(prev.Outbounds, func(old noderoute.Outbound) bool {
 			return old.Tag == o.Tag && old.Kind == noderoute.KindProxy && old.Proxy != nil && sameDestination(old.Proxy, o.Proxy)
@@ -84,14 +95,19 @@ func mergeSecrets(p, prev *noderoute.Profile) {
 			o.Proxy.Password = prev.Outbounds[j].Proxy.Password
 		}
 	}
+	return nil
 }
 
 func sameDestination(a, b *noderoute.Proxy) bool {
-	return a.Protocol == b.Protocol && strings.EqualFold(a.Address, b.Address) && a.Port == b.Port && a.Username == b.Username
+	return a.Protocol == b.Protocol && strings.EqualFold(a.Address, b.Address) && a.Port == b.Port && a.Username == b.Username &&
+		strings.EqualFold(a.Security, b.Security) && strings.EqualFold(a.SNI, b.SNI) && a.Method == b.Method
 }
 
 func maskSecrets(p *noderoute.Profile) {
 	for i := range p.Outbounds {
+		if p.Outbounds[i].Kind == noderoute.KindRaw {
+			p.Outbounds[i].Raw = noderoute.MaskRaw(p.Outbounds[i].Raw)
+		}
 		x := p.Outbounds[i].Proxy
 		if x == nil {
 			continue
@@ -240,7 +256,9 @@ func (s *Service) UpdateProfile(ctx context.Context, id int64, name string, doc 
 	if err != nil {
 		return nil, err
 	}
-	mergeSecrets(p, prev)
+	if err := mergeSecrets(p, prev); err != nil {
+		return nil, err
+	}
 	if err := s.checkProfile(ctx, p, id); err != nil {
 		return nil, err
 	}
@@ -439,12 +457,7 @@ func (s *Service) PreviewProfile(ctx context.Context, id int64, nodeID *int64) (
 		return nil, docField(err)
 	}
 	for _, o := range static.Outbounds {
-		settings, _ := o["settings"].(map[string]any)
-		for _, k := range []string{"id", "password", "pass"} {
-			if _, ok := settings[k]; ok {
-				settings[k] = "***"
-			}
-		}
+		noderoute.MaskValue(o)
 	}
 	var tail []map[string]any
 	for _, r := range noderoute.Tail(resolved, planPlaceholders(resolved), 0) {

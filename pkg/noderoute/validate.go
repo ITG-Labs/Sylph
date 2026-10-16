@@ -221,9 +221,16 @@ func checkHostname(field, v string, required bool) error {
 	return nil
 }
 
-func checkProxy(field string, x *Proxy) error {
+func NormalizeProxy(x *Proxy) {
 	x.Protocol = strings.ToLower(x.Protocol)
 	x.Security = strings.ToLower(x.Security)
+	if x.Protocol == "trojan" && x.Security == "" {
+		x.Security = "tls"
+	}
+}
+
+func checkProxy(field string, x *Proxy) error {
+	NormalizeProxy(x)
 	if !netaddr.PublicHost(x.Address) {
 		return fieldErr(field+".address", "must be a public hostname or IP")
 	}
