@@ -3,13 +3,16 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -63,7 +67,7 @@ func NewGeoManager(dir, statePath string, logger *slog.Logger) *GeoManager {
 	return &GeoManager{
 		dir:       dir,
 		statePath: statePath,
-		client:    &http.Client{},
+		client:    publicClient(nil, publicAddr),
 		allowHost: netaddr.PublicHost,
 		logger:    logger,
 		maxBytes:  defaultGeoMaxBytes,
@@ -106,6 +110,41 @@ func (g *GeoManager) entry(name string) (geoEntry, bool) {
 	defer g.mu.Unlock()
 	e, ok := g.state[name]
 	return e, ok
+}
+
+func publicAddr(host string) bool {
+	addr, err := netip.ParseAddr(host)
+	if err != nil || netaddr.Internal(netaddr.CanonicalHost(host)) {
+		return false
+	}
+	addr = addr.WithZone("").Unmap()
+	for _, p := range privateNets {
+		if p.Contains(addr) {
+			return false
+		}
+	}
+	return true
+}
+
+func publicClient(tlsConfig *tls.Config, allow func(string) bool) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		if !allow(host) {
+			return fmt.Errorf("%s is an internal address", host)
+		}
+		return nil
+	}}
+	return &http.Client{Transport: &http.Transport{
+		DialContext:           dialer.DialContext,
+		TLSClientConfig:       tlsConfig,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}}
 }
 
 func (g *GeoManager) hostAllowed(host string) bool {

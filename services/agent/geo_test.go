@@ -180,3 +180,32 @@ func TestGeoRetriesAMissingFileAfterAPause(t *testing.T) {
 		t.Fatalf("retry after the pause failed: %+v", g.Status())
 	}
 }
+
+func TestGeoRefusesNamesThatResolveToInternalAddresses(t *testing.T) {
+	srv := newGeoServer(t, map[string][]byte{"ru.dat": siteDat(t, "example.ru")})
+	tlsConfig := srv.Client().Transport.(*http.Transport).TLSClientConfig
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
+	g := testGeo(t, srv)
+	g.client = publicClient(tlsConfig, publicAddr)
+	g.Ensure(context.Background(), geo)
+	if st := g.Status()["ru"]; !strings.Contains(st.Error, "internal address") || srv.hits["ru.dat"].Load() != 0 {
+		t.Fatalf("a name that resolves to 127.0.0.1 was fetched: %+v", st)
+	}
+	g = testGeo(t, srv)
+	g.client = publicClient(tlsConfig, func(string) bool { return true })
+	g.Ensure(context.Background(), geo)
+	if st := g.Status()["ru"]; st.Error != "" || st.SHA256 == "" {
+		t.Fatalf("the guarded client cannot download at all: %+v", st)
+	}
+	for _, host := range []string{"127.0.0.1", "10.1.2.3", "169.254.169.254", "100.64.0.1", "198.18.0.5", "::1", "::ffff:127.0.0.1", "fe80::1", "fd00::1", "64:ff9b::a00:1", "0.0.0.0"} {
+		if publicAddr(host) {
+			t.Errorf("%s passes as public", host)
+		}
+	}
+	if !publicAddr("1.1.1.1") || !publicAddr("2606:4700::1111") {
+		t.Error("public addresses are refused")
+	}
+	if NewGeoManager(t.TempDir(), "", discardLogger()).client.Transport.(*http.Transport).Proxy != nil {
+		t.Error("downloads may go through a proxy from the environment")
+	}
+}
