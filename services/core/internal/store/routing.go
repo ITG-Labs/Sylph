@@ -222,7 +222,7 @@ func (s *Store) RefreshLinks(ctx context.Context) error {
 			return err
 		}
 		if tag.RowsAffected() > 0 {
-			touched = append(touched, l.to)
+			touched = append(touched, l.from, l.to)
 		}
 	}
 	for _, l := range existing {
@@ -232,7 +232,7 @@ func (s *Store) RefreshLinks(ctx context.Context) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM node_links WHERE from_node_id = $1 AND to_node_id = $2`, l.from, l.to); err != nil {
 			return err
 		}
-		touched = append(touched, l.to)
+		touched = append(touched, l.from, l.to)
 	}
 	if len(touched) > 0 {
 		if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE id = ANY($1)`, touched); err != nil {

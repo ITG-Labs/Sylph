@@ -96,7 +96,7 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 	routing, geo, err := s.nodeRouting(ctx, node)
 	if err != nil {
 		s.log.LogAttrs(ctx, slog.LevelError, "node_routing_failed", slog.Int64("node_id", node.ID), slog.String("error", err.Error()))
-		routing, geo = nil, nil
+		return nil, err
 	}
 	return &SyncResponse{Version: node.UsersVersion, Users: nodeUsers, Inbounds: inbounds, Routing: routing, ServiceKeys: serviceKeys, Geo: geo}, nil
 }

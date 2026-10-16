@@ -445,12 +445,43 @@ func TestDisabledEntryNodeLosesItsServiceKey(t *testing.T) {
 	if keys, _ := f.svc.store.ServiceKeys(ctx, f.y.ID); len(keys) != 0 {
 		t.Fatalf("disabled entry node keeps its key on the exit: %v", keys)
 	}
+	before, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.svc.UpdateNode(ctx, f.x.ID, NodePatch{Enabled: &on}); err != nil {
 		t.Fatal(err)
 	}
 	keys, _ := f.svc.store.ServiceKeys(ctx, f.y.ID)
 	if len(keys) != 1 || keys[0] == f.key {
 		t.Fatalf("re-enabled node must get a fresh key: %v (old %s)", keys, f.key)
+	}
+	after, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UsersVersion == before.UsersVersion {
+		t.Fatal("the re-enabled entry node was not told about its new service key")
+	}
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, before.UsersVersion)
+	if err != nil || resp.Routing == nil {
+		t.Fatalf("sync: %v", err)
+	}
+	for _, o := range resp.Routing.Outbounds {
+		if o.Proxy != nil && o.Proxy.UUID != keys[0] {
+			t.Fatalf("entry node cascades with %s, the exit knows %s", o.Proxy.UUID, keys[0])
+		}
+	}
+}
+
+func TestSyncFailsInsteadOfDroppingTheProfile(t *testing.T) {
+	f := setupCascade(t)
+	ctx := context.Background()
+	if _, err := poolOf(f.svc).Exec(ctx, `UPDATE routing_profiles SET doc = '{"outbounds": 1}'`); err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0); err == nil {
+		t.Fatalf("sync answered without the node's profile: routing %v", resp.Routing)
 	}
 }
 
