@@ -32,11 +32,15 @@ func startCode(text string) (string, bool) {
 		return "", false
 	}
 	for _, r := range payload {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-' || r == '_') {
+		if !isPayloadRune(r) {
 			return "", false
 		}
 	}
 	return payload, true
+}
+
+func isPayloadRune(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-' || r == '_'
 }
 
 func (a *App) menu(ctx context.Context, tgID int64) (string, *models.InlineKeyboardMarkup) {

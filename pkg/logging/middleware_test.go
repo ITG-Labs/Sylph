@@ -35,7 +35,7 @@ func TestMiddlewareGeneratesRequestID(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTeapot)
 	}
 	var m map[string]any
-	if err := json.Unmarshal([]byte(buf.String()), &m); err != nil {
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
 	if m["msg"] != "http_request" {

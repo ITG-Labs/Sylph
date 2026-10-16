@@ -26,8 +26,8 @@ jobs:
       SYLPH_TEST_DB: postgres://sylph:sylph@localhost:55432/sylph_test
       SYLPH_TEST_XRAY: 127.0.0.1:55085
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
       - run: docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
@@ -40,13 +40,13 @@ jobs:
       matrix:
         module: [".", "services/core", "services/agent", "services/cron", "services/subs", "services/bot", "services/panel"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.15.0
           working-directory: ${{ matrix.module }}
   web:
     runs-on: ubuntu-latest
@@ -54,8 +54,8 @@ jobs:
       run:
         working-directory: services/panel/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: npm
@@ -67,8 +67,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
       - run: go vet ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/...
