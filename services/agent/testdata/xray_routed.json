@@ -141,6 +141,10 @@
     {
       "protocol": "freedom",
       "tag": "sylph_direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "sylph_block"
     }
   ],
   "routing": {
@@ -159,6 +163,13 @@
     ],
     "domainStrategy": "AsIs",
     "rules": [
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "sylph_block",
+        "ruleTag": "sylph-guard"
+      },
       {
         "outboundTag": "sylph_direct",
         "ruleTag": "sylph-service",

@@ -85,3 +85,22 @@ func writeGolden(t *testing.T, name string, data []byte) {
 		t.Fatal(err)
 	}
 }
+
+func TestRoutingServiceOnlyForPlanRules(t *testing.T) {
+	p := routedProfile()
+	p.Rules = p.Rules[:2]
+	got, err := BuildXrayRouted(XrayInput{Inbounds: goldenInbounds(), APIListen: "127.0.0.1:10085", Routing: p, GeoPrefix: "sylph"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "RoutingService") {
+		t.Fatal("routing API is open without rules by plan")
+	}
+	got, err = BuildXrayRouted(XrayInput{Inbounds: goldenInbounds(), APIListen: "127.0.0.1:10085", Routing: routedProfile(), GeoPrefix: "sylph"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "RoutingService") {
+		t.Fatal("routing API is closed although the profile has rules by plan")
+	}
+}

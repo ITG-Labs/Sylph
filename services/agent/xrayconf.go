@@ -152,7 +152,9 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("routing: %w", err)
 		}
-		cfg.API.Services = append(cfg.API.Services, "RoutingService")
+		if noderoute.HasPlanRules(&profile) {
+			cfg.API.Services = append(cfg.API.Services, "RoutingService")
+		}
 		cfg.Outbounds = make([]any, 0, len(static.Outbounds))
 		for _, o := range static.Outbounds {
 			cfg.Outbounds = append(cfg.Outbounds, o)

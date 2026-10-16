@@ -12,6 +12,8 @@ const (
 	ServiceOutboundTag = "sylph_direct"
 	ServiceRuleTag     = "sylph-service"
 	DefaultRuleTag     = "sylph-default"
+	GuardOutboundTag   = "sylph_block"
+	GuardRuleTag       = "sylph-guard"
 )
 
 var directStrategies = map[string]string{
@@ -72,7 +74,7 @@ func Render(in RenderInput) (Static, error) {
 		}
 		out.Outbounds = append(out.Outbounds, rendered)
 	}
-	var rules []any
+	rules := []any{map[string]any{"ruleTag": GuardRuleTag, "ip": []string{"geoip:private"}, "outboundTag": GuardOutboundTag}}
 	if len(in.ServiceKeys) > 0 {
 		out.Outbounds = append(out.Outbounds, map[string]any{"tag": ServiceOutboundTag, "protocol": "freedom"})
 		rules = append(rules, map[string]any{"ruleTag": ServiceRuleTag, "user": in.ServiceKeys, "outboundTag": ServiceOutboundTag})
@@ -108,10 +110,8 @@ func Render(in RenderInput) (Static, error) {
 	if p.isBalancer(p.Default) {
 		rules = append(rules, map[string]any{"ruleTag": DefaultRuleTag, "network": "tcp,udp", "balancerTag": p.Default})
 	}
+	out.Outbounds = append(out.Outbounds, map[string]any{"tag": GuardOutboundTag, "protocol": "blackhole"})
 	routing := map[string]any{"domainStrategy": strategy, "rules": rules}
-	if rules == nil {
-		routing["rules"] = []any{}
-	}
 	var subjects []string
 	if len(p.Balancers) > 0 {
 		var balancers []any

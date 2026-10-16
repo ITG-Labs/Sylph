@@ -115,3 +115,34 @@ func TestTail(t *testing.T) {
 		t.Fatal("plan rules not seen")
 	}
 }
+
+func TestRenderGuardsInternalNetworksFirst(t *testing.T) {
+	for _, keys := range [][]string{nil, {"svc"}} {
+		p := resolvedProfile()
+		s, err := Render(RenderInput{Profile: &p, ServiceKeys: keys, GeoFile: geoFile})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := s.Routing["rules"].([]any)[0].(map[string]any)
+		if first["ruleTag"] != GuardRuleTag || first["outboundTag"] != GuardOutboundTag {
+			t.Fatalf("first rule = %v", first)
+		}
+		ips, _ := first["ip"].([]string)
+		if len(ips) != 1 || ips[0] != "geoip:private" {
+			t.Fatalf("guard ips = %v", first["ip"])
+		}
+		last := s.Outbounds[len(s.Outbounds)-1]
+		if last["tag"] != GuardOutboundTag || last["protocol"] != "blackhole" {
+			t.Fatalf("guard outbound = %v", last)
+		}
+	}
+	p := resolvedProfile()
+	p.Rules = []Rule{{Protocol: []string{"bittorrent"}, To: "block"}}
+	s, err := Render(RenderInput{Profile: &p, GeoFile: geoFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Routing["domainStrategy"] != "AsIs" {
+		t.Fatalf("the guard must not switch the domain strategy: %v", s.Routing["domainStrategy"])
+	}
+}
