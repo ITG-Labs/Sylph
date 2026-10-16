@@ -523,3 +523,30 @@ func TestRawSecretsAreHiddenAndKeptOnlyUnchanged(t *testing.T) {
 		t.Fatalf("node did not get the real secret: %s", resp.Routing.Outbounds[2].Raw)
 	}
 }
+
+func TestSecretIsNotKeptWhenRealityKeyChanges(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	d := basicDoc()
+	proxy := map[string]any{"protocol": "vless", "address": "nl.example.com", "port": 443, "uuid": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+		"security": "reality", "flow": "xtls-rprx-vision", "sni": "www.microsoft.com", "public_key": "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw", "short_id": "ab12"}
+	d["outbounds"] = append(d["outbounds"].([]any), map[string]any{"tag": "nl", "kind": "proxy", "proxy": proxy})
+	v, err := svc.CreateProfile(ctx, "p", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy["uuid"] = ""
+	if _, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision); err != nil {
+		t.Fatalf("unchanged outbound must keep the uuid (defaults like the fingerprint are filled in): %v", err)
+	}
+	v, _ = svc.GetProfile(ctx, v.ID)
+	for _, change := range []func(){
+		func() { proxy["public_key"] = "MDHqaJPhoMxwOUVfWKd2y8WK8XFd8mmQr0LHNlU2ZVE" },
+		func() { proxy["public_key"] = "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw"; proxy["short_id"] = "cd" },
+		func() { proxy["short_id"] = "ab12"; proxy["fingerprint"] = "firefox" },
+	} {
+		change()
+		_, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision)
+		mustField(t, err, "doc.outbounds[2].proxy.uuid")
+	}
+}

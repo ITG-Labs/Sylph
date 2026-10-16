@@ -224,8 +224,15 @@ func checkHostname(field, v string, required bool) error {
 func NormalizeProxy(x *Proxy) {
 	x.Protocol = strings.ToLower(x.Protocol)
 	x.Security = strings.ToLower(x.Security)
+	x.Address = strings.ToLower(x.Address)
+	x.SNI = strings.ToLower(x.SNI)
+	x.UUID = strings.ToLower(x.UUID)
+	x.ShortID = strings.ToLower(x.ShortID)
 	if x.Protocol == "trojan" && x.Security == "" {
 		x.Security = "tls"
+	}
+	if x.Fingerprint == "" && (x.Protocol == "trojan" || (x.Protocol == "vless" && x.Security == "reality")) {
+		x.Fingerprint = "chrome"
 	}
 }
 

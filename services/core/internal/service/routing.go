@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/netaddr"
@@ -99,8 +98,12 @@ func mergeSecrets(p, prev *noderoute.Profile) error {
 }
 
 func sameDestination(a, b *noderoute.Proxy) bool {
-	return a.Protocol == b.Protocol && strings.EqualFold(a.Address, b.Address) && a.Port == b.Port && a.Username == b.Username &&
-		strings.EqualFold(a.Security, b.Security) && strings.EqualFold(a.SNI, b.SNI) && a.Method == b.Method
+	x, y := *a, *b
+	noderoute.NormalizeProxy(&x)
+	noderoute.NormalizeProxy(&y)
+	x.UUID, x.Password, x.HasSecret = "", "", false
+	y.UUID, y.Password, y.HasSecret = "", "", false
+	return x == y
 }
 
 func maskSecrets(p *noderoute.Profile) {
