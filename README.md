@@ -38,8 +38,3 @@ test-db и test-xray поднимают в docker Postgres и xray, прогон
 core.sylph.internal, переопределяется SYLPH_CORE_NAME).
 
 Каталог ca/ содержит приватный ключ корневого сертификата и не попадает в git.
-
-## Документация
-
-docs/vault — описание устройства проекта для чтения в Obsidian: открыть папку как vault,
-начать с заметки Sylph.

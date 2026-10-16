@@ -3,7 +3,7 @@ ca/
 dist/
 coverage.out
 .superpowers/
-docs/vault/.obsidian/
+docs/
 .bin/
 deploy/test/node/bin/
 deploy/test/subs/bin/
