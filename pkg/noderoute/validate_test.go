@@ -125,6 +125,24 @@ func TestValidateRejects(t *testing.T) {
 		{"raw wireguard endpoint", func(p *Profile) {
 			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"wireguard","settings":{"peers":[{"endpoint":"localhost:51820"}]}}`)
 		}, "outbounds[8].raw"},
+		{"raw unicode-folded key", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"redirect":"x.example.com:1","addre\u017fs":"127.0.0.1","port":1}}`)
+		}, "outbounds[8].raw"},
+		{"raw capital port hides address", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"socks","settings":{"Address":"127.0.0.1","Port":10085}}`)
+		}, "outbounds[8].raw"},
+		{"raw final rules", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.0/8"]}]}}`)
+		}, "outbounds[8].raw"},
+		{"raw ips blocked override", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"IPsBlocked":[]}}`)
+		}, "outbounds[8].raw"},
+		{"raw kelvin key", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"\u212aey":"x"}}`)
+		}, "outbounds[8].raw"},
+		{"raw redirect with empty host", func(p *Profile) {
+			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","settings":{"redirect":":10085"}}`)
+		}, "outbounds[8].raw"},
 		{"raw too big", func(p *Profile) {
 			p.Outbounds[8].Raw = json.RawMessage(`{"protocol":"freedom","x":"` + strings.Repeat("a", 17000) + `"}`)
 		}, "outbounds[8].raw"},

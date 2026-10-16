@@ -337,7 +337,7 @@ func checkRaw(field string, raw json.RawMessage) error {
 		return fieldErr(field, "protocol %s is not allowed", proto)
 	}
 	if bad := ScanAddresses(obj); bad != "" {
-		return fieldErr(field, "points to an internal address: %s", bad)
+		return fieldErr(field, "%s", bad)
 	}
 	return nil
 }

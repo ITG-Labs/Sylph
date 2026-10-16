@@ -8,7 +8,10 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/netaddr"
 )
 
-var destinationKeys = map[string]bool{"endpoint": true, "redirect": true, "dest": true, "target": true, "server": true}
+var (
+	destinationKeys = []string{"endpoint", "redirect", "dest", "target", "server"}
+	forbiddenKeys   = []string{"finalRules", "ipsBlocked"}
+)
 
 func hostOf(v string) string {
 	if strings.Contains(v, "://") {
@@ -28,15 +31,41 @@ func badHost(v string) bool {
 	return !netaddr.PublicHost(hostOf(v))
 }
 
+func asciiKey(k string) bool {
+	for i := 0; i < len(k); i++ {
+		if k[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+func keyIn(k string, names []string) bool {
+	for _, n := range names {
+		if strings.EqualFold(k, n) {
+			return true
+		}
+	}
+	return false
+}
+
 func ScanAddresses(v any) string {
 	switch x := v.(type) {
 	case map[string]any:
-		_, hasPort := x["port"]
+		hasPort := false
+		for k := range x {
+			if !asciiKey(k) {
+				return "key " + k + " is not ASCII"
+			}
+			if keyIn(k, forbiddenKeys) {
+				return "key " + k + " is not allowed"
+			}
+			hasPort = hasPort || strings.EqualFold(k, "port")
+		}
 		for k, val := range x {
 			s, isString := val.(string)
-			key := strings.ToLower(k)
-			if isString && (destinationKeys[key] || (key == "address" && hasPort)) && badHost(s) {
-				return s
+			if isString && (keyIn(k, destinationKeys) || (strings.EqualFold(k, "address") && hasPort)) && badHost(s) {
+				return "points to an internal address: " + s
 			}
 			if bad := ScanAddresses(val); bad != "" {
 				return bad
@@ -50,7 +79,7 @@ func ScanAddresses(v any) string {
 		}
 	case string:
 		if strings.Contains(x, "://") && badHost(x) {
-			return x
+			return "points to an internal address: " + x
 		}
 	}
 	return ""

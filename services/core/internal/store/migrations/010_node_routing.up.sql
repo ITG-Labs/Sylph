@@ -41,3 +41,13 @@ BEFORE UPDATE OF group_id, profile_id ON nodes
 FOR EACH ROW
 WHEN (OLD.group_id IS DISTINCT FROM NEW.group_id OR OLD.profile_id IS DISTINCT FROM NEW.profile_id)
 EXECUTE FUNCTION bump_own_node_version();
+
+CREATE OR REPLACE FUNCTION bump_inbound_node_version() RETURNS trigger AS $$
+DECLARE
+    target BIGINT := CASE WHEN TG_OP = 'DELETE' THEN OLD.node_id ELSE NEW.node_id END;
+BEGIN
+    UPDATE nodes SET users_version = next_users_version(users_version)
+    WHERE id = target OR id IN (SELECT from_node_id FROM node_links WHERE to_node_id = target);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
