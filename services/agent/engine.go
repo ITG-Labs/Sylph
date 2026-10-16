@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 type Engine struct {
@@ -15,6 +17,17 @@ type Engine struct {
 	desired     map[string]bool
 	haveDesired bool
 	inbounds    []Inbound
+	users       []SyncUser
+	routing     *noderoute.Profile
+	serviceKeys []string
+	geo         *SyncGeo
+}
+
+type NodeDesired struct {
+	Inbounds    []Inbound
+	Routing     *noderoute.Profile
+	ServiceKeys []string
+	Geo         *SyncGeo
 }
 
 func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logger) *Engine {
@@ -41,11 +54,33 @@ func (e *Engine) Inbounds() []Inbound {
 }
 
 func (e *Engine) setDesired(list []SyncUser) {
-	e.desired = make(map[string]bool, len(list))
+	e.users = list
+	e.desired = make(map[string]bool, len(list)+len(e.serviceKeys))
 	for _, u := range list {
 		e.desired[u.UUID] = true
 	}
+	for _, k := range e.serviceKeys {
+		e.desired[k] = true
+	}
 	e.haveDesired = true
+}
+
+func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, geo *SyncGeo) {
+	e.routing, e.serviceKeys, e.geo = routing, serviceKeys, geo
+}
+
+func (e *Engine) Desired() NodeDesired {
+	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo}
+}
+
+func (e *Engine) PlanUsers() map[int64][]string {
+	out := map[int64][]string{}
+	for _, u := range e.users {
+		if u.PlanID != 0 {
+			out[u.PlanID] = append(out[u.PlanID], u.UUID)
+		}
+	}
+	return out
 }
 
 func (e *Engine) LoadState(path string) error {
@@ -57,6 +92,7 @@ func (e *Engine) LoadState(path string) error {
 		e.logger.Info("cache_absent")
 		return nil
 	}
+	e.setRouting(c.Routing, c.ServiceKeys, c.Geo)
 	e.setDesired(c.Users)
 	e.inbounds = c.Inbounds
 	e.version = c.Version
@@ -75,10 +111,12 @@ func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	if resp.Users == nil {
 		return resp, nil
 	}
+	e.setRouting(resp.Routing, resp.ServiceKeys, resp.Geo)
 	e.setDesired(resp.Users)
 	e.inbounds = resp.Inbounds
 	e.version = resp.Version
-	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, Users: resp.Users, Inbounds: resp.Inbounds}); err != nil {
+	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, Users: resp.Users, Inbounds: resp.Inbounds,
+		Routing: resp.Routing, ServiceKeys: resp.ServiceKeys, Geo: resp.Geo}); err != nil {
 		e.logger.Error("cache_save_failed", "error", err.Error())
 	}
 	e.logger.Info("sync_received", "version", resp.Version, "users", len(resp.Users), "inbounds", len(resp.Inbounds))

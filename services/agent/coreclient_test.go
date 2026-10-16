@@ -24,6 +24,7 @@ type fakeCore struct {
 	lastHeartbeat   map[string]any
 	failDeltas      bool
 	failAfterCommit bool
+	syncExtra       map[string]any
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +40,11 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion, "users": f.syncUsers, "inbounds": f.syncInbounds})
+		resp := map[string]any{"version": f.syncVersion, "users": f.syncUsers, "inbounds": f.syncInbounds}
+		for k, v := range f.syncExtra {
+			resp[k] = v
+		}
+		json.NewEncoder(w).Encode(resp)
 	case "/v1/sync/deltas":
 		var body Batch
 		b, _ := io.ReadAll(r.Body)

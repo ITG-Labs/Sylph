@@ -9,10 +9,24 @@ import (
 
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
 type SyncUser struct {
-	UUID string `json:"uuid"`
+	UUID   string `json:"uuid"`
+	PlanID int64  `json:"plan_id,omitempty"`
+}
+
+type GeoSource struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	URL       string `json:"url"`
+	SHA256URL string `json:"sha256_url"`
+}
+
+type SyncGeo struct {
+	Generation int64       `json:"generation"`
+	Sources    []GeoSource `json:"sources"`
 }
 
 type Reality struct {
@@ -34,9 +48,12 @@ type Inbound struct {
 }
 
 type SyncResp struct {
-	Version  int64      `json:"version"`
-	Users    []SyncUser `json:"users"`
-	Inbounds []Inbound  `json:"inbounds"`
+	Version     int64              `json:"version"`
+	Users       []SyncUser         `json:"users"`
+	Inbounds    []Inbound          `json:"inbounds"`
+	Routing     *noderoute.Profile `json:"routing,omitempty"`
+	ServiceKeys []string           `json:"service_keys,omitempty"`
+	Geo         *SyncGeo           `json:"geo,omitempty"`
 }
 
 type Delta struct {
@@ -46,12 +63,14 @@ type Delta struct {
 }
 
 type Heartbeat struct {
-	AgentVersion   string  `json:"agent_version"`
-	XrayVersion    string  `json:"xray_version"`
-	AgentUptimeSec int64   `json:"agent_uptime_sec"`
-	XrayUptimeSec  *int64  `json:"xray_uptime_sec"`
-	ActiveUsers    *int    `json:"active_users"`
-	ConfigError    *string `json:"config_error"`
+	AgentVersion   string               `json:"agent_version"`
+	XrayVersion    string               `json:"xray_version"`
+	AgentUptimeSec int64                `json:"agent_uptime_sec"`
+	XrayUptimeSec  *int64               `json:"xray_uptime_sec"`
+	ActiveUsers    *int                 `json:"active_users"`
+	ConfigError    *string              `json:"config_error"`
+	GeoStatus      map[string]GeoStatus `json:"geo_status,omitempty"`
+	RoutingError   *string              `json:"routing_error,omitempty"`
 }
 
 type CoreClient struct {
@@ -115,4 +134,11 @@ func (c *CoreClient) ReportDeltas(ctx context.Context, batch *Batch) (bool, erro
 
 func (c *CoreClient) Heartbeat(ctx context.Context, hb Heartbeat) error {
 	return c.api.Do(ctx, http.MethodPost, "/v1/sync/heartbeat", hb, nil)
+}
+
+type GeoStatus struct {
+	SHA256       string `json:"sha256,omitempty"`
+	Size         int64  `json:"size,omitempty"`
+	DownloadedAt string `json:"downloaded_at,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
