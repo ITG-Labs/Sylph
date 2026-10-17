@@ -170,7 +170,9 @@ func TestAlertsCarryFirstSeen(t *testing.T) {
 	if len(got) != 1 || !got[0].FirstSeen.Equal(t0) {
 		t.Fatalf("alert = %+v", got)
 	}
-	got = tr.CoreDown(t0.Add(time.Minute), "таймаут")
+	if early := tr.CoreDown(t0.Add(time.Minute), "таймаут"); len(early) != 0 {
+		t.Fatalf("core down fired at once: %+v", early)
+	}
 	got = tr.CoreDown(t0.Add(3*time.Minute), "соединение отклонено")
 	if len(got) != 1 || !got[0].FirstSeen.Equal(t0.Add(time.Minute)) || !strings.Contains(got[0].Problem.Text, "соединение отклонено") {
 		t.Fatalf("core down = %+v", got)
