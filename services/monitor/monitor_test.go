@@ -189,4 +189,8 @@ func TestBrokenStateFileStartsFresh(t *testing.T) {
 	if got := msg.take(); len(got) != 2 {
 		t.Fatalf("sent = %+v", got)
 	}
+	broken, err := filepath.Glob(path + ".broken-*")
+	if err != nil || len(broken) != 1 {
+		t.Fatalf("broken state was not kept aside: %v %v", broken, err)
+	}
 }

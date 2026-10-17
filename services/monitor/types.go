@@ -3,12 +3,13 @@ package monitor
 import "time"
 
 type Problem struct {
-	Key      string     `json:"key"`
-	Category string     `json:"category"`
-	Level    int        `json:"level"`
-	Text     string     `json:"text"`
-	Since    *time.Time `json:"since,omitempty"`
-	DelaySec int        `json:"delay_sec"`
+	Key        string     `json:"key"`
+	Category   string     `json:"category"`
+	Level      int        `json:"level"`
+	Text       string     `json:"text"`
+	Since      *time.Time `json:"since,omitempty"`
+	DelaySec   int        `json:"delay_sec"`
+	Suppresses string     `json:"suppresses,omitempty"`
 }
 
 type Service struct {

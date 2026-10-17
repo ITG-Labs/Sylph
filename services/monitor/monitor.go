@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,7 +21,10 @@ type Messenger interface {
 	Updates(ctx context.Context, offset int64, timeoutSec int) ([]Update, error)
 }
 
-const commandMaxAge = 5 * time.Minute
+const (
+	commandMaxAge = 5 * time.Minute
+	sendTimeout   = 15 * time.Second
+)
 
 type Monitor struct {
 	src       Source
@@ -33,9 +35,7 @@ type Monitor struct {
 	panelURL  string
 	log       *slog.Logger
 	now       func() time.Time
-
-	mu      sync.Mutex
-	tracker *Tracker
+	tracker   *Tracker
 }
 
 func NewMonitor(src Source, msg Messenger, chats []int64, statePath string, loc *time.Location, panelURL string, log *slog.Logger) *Monitor {
@@ -47,7 +47,11 @@ func NewMonitor(src Source, msg Messenger, chats []int64, statePath string, loc 
 		log.Error("state_load_failed", slog.String("error", err.Error()))
 	default:
 		if err := m.tracker.UnmarshalJSON(data); err != nil {
-			log.Error("state_load_failed", slog.String("error", err.Error()))
+			aside := fmt.Sprintf("%s.broken-%d", statePath, time.Now().Unix())
+			log.Error("state_load_failed", slog.String("error", err.Error()), slog.String("kept_as", aside))
+			if err := os.Rename(statePath, aside); err != nil {
+				log.Error("state_keep_failed", slog.String("error", err.Error()))
+			}
 			m.tracker = NewTracker()
 		}
 	}
@@ -76,20 +80,16 @@ func (m *Monitor) Tick(ctx context.Context) {
 		return
 	}
 	now := m.now()
-	m.mu.Lock()
 	var alerts []Alert
 	if err != nil {
 		m.log.Warn("core_unreachable", slog.String("error", err.Error()))
-		alerts = m.tracker.CoreDown(now)
+		alerts = m.tracker.CoreDown(now, coreDownCause(err))
 	} else {
 		alerts = m.tracker.Step(now, st.Problems)
 	}
-	m.mu.Unlock()
 	for _, a := range alerts {
 		if !m.deliver(ctx, FormatAlert(a, now, m.loc, m.panelURL)) {
-			m.mu.Lock()
 			m.tracker.Failed(a)
-			m.mu.Unlock()
 			continue
 		}
 		m.log.Info("alert_sent", slog.String("kind", a.Kind), slog.String("key", a.Problem.Key), slog.Int("level", a.Problem.Level))
@@ -100,7 +100,10 @@ func (m *Monitor) Tick(ctx context.Context) {
 func (m *Monitor) deliver(ctx context.Context, text string) bool {
 	ok := false
 	for _, chat := range m.chats {
-		if err := m.msg.Send(ctx, chat, text); err != nil {
+		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+		err := m.msg.Send(sendCtx, chat, text)
+		cancel()
+		if err != nil {
 			m.log.Warn("telegram_send_failed", slog.Int64("chat", chat), slog.String("error", err.Error()))
 			continue
 		}
@@ -110,9 +113,7 @@ func (m *Monitor) deliver(ctx context.Context, text string) bool {
 }
 
 func (m *Monitor) save() {
-	m.mu.Lock()
 	data, err := m.tracker.MarshalJSON()
-	m.mu.Unlock()
 	if err == nil {
 		err = writeAtomic(m.statePath, data)
 	}
@@ -169,7 +170,9 @@ func (m *Monitor) handle(ctx context.Context, u Update) {
 	default:
 		return
 	}
-	if err := m.msg.Send(ctx, msg.Chat.ID, reply); err != nil {
+	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	if err := m.msg.Send(sendCtx, msg.Chat.ID, reply); err != nil {
 		m.log.Warn("telegram_send_failed", slog.Int64("chat", msg.Chat.ID), slog.String("error", err.Error()))
 	}
 }

@@ -2,9 +2,11 @@ package monitor
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func moscow(t *testing.T) *time.Location {
@@ -79,5 +81,43 @@ func TestFormatStatus(t *testing.T) {
 	}
 	if got := FormatStatus(nil, errors.New("dial tcp: timeout"), now, loc); !strings.Contains(got, "Ядро недоступно") {
 		t.Errorf("core down = %s", got)
+	}
+}
+
+func TestFormatAlertFallsBackToFirstSeen(t *testing.T) {
+	loc := moscow(t)
+	now := time.Date(2026, 10, 17, 9, 30, 0, 0, time.UTC)
+	seen := time.Date(2026, 10, 17, 9, 10, 0, 0, time.UTC)
+	got := FormatAlert(Alert{Kind: KindProblem, Problem: Problem{Key: "money:mismatch", Level: 2, Text: "mismatch: 1"}, FirstSeen: seen}, now, loc, "")
+	if !strings.Contains(got, "с 12:10 MSK") {
+		t.Fatalf("alert = %q", got)
+	}
+}
+
+func TestFormatStatusStaysUnderTelegramLimit(t *testing.T) {
+	st := &State{Nodes: map[string]int{"online": 0}}
+	for i := 0; i < 60; i++ {
+		st.Problems = append(st.Problems, Problem{Key: fmt.Sprintf("node:%d:config", i), Level: 2, Text: "Нода: ошибка конфига — " + strings.Repeat("ж", 290)})
+	}
+	got := FormatStatus(st, nil, time.Now(), moscow(t))
+	if n := utf8.RuneCountInString(got); n > 4000 {
+		t.Fatalf("status is %d runes, Telegram takes at most 4096", n)
+	}
+	if !strings.Contains(got, "Проблем: 60") || !strings.Contains(got, "и ещё") {
+		t.Fatalf("status lost the count or the tail note:\n%s", got[:200])
+	}
+}
+
+func TestCoreDownCause(t *testing.T) {
+	cases := map[string]string{
+		`Get "https://10.0.0.1:443/v1/monitor/state": dial tcp 10.0.0.1:443: connect: connection refused`: "соединение отклонено",
+		`Get "https://x/v1/monitor/state": context deadline exceeded`:                                     "таймаут",
+		`Get "https://x": tls: failed to verify certificate: x509: certificate has expired`:               "TLS",
+		`GET /v1/monitor/state: api 403 forbidden: role not allowed`:                                      "403",
+	}
+	for msg, want := range cases {
+		if got := coreDownCause(errors.New(msg)); !strings.Contains(got, want) || strings.Contains(got, "10.0.0.1") {
+			t.Errorf("cause(%q) = %q, want it to mention %q without addresses", msg, got, want)
+		}
 	}
 }

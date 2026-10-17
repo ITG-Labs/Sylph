@@ -55,6 +55,7 @@ func run(logger *slog.Logger) error {
 	}
 	m := monitor.NewMonitor(monitor.NewCoreClient(api), monitor.NewTelegram(cfg.TelegramAPI, cfg.BotToken),
 		cfg.ChatIDs, cfg.StatePath, cfg.Location, cfg.PanelURL, logger)
+	pulse.Send(ctx, api, logger, nil)
 	go pulse.Run(ctx, api, logger, pulse.Every, nil)
 	go m.Poll(ctx)
 	logger.Info("watching", slog.String("interval", cfg.Interval.String()), slog.Int("chats", len(cfg.ChatIDs)), slog.String("core", cfg.CoreURL))

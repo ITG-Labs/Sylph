@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,10 +87,10 @@ func TestTrackerCoreUnreachableKeepsOtherProblems(t *testing.T) {
 	tr := NewTracker()
 	money := Problem{Key: "money:mismatch", Level: 2}
 	tr.Step(t0, []Problem{money})
-	if got := keys(tr.CoreDown(t0.Add(time.Minute))); len(got) != 0 {
+	if got := keys(tr.CoreDown(t0.Add(time.Minute), "таймаут")); len(got) != 0 {
 		t.Fatalf("core down fired before delay: %v", got)
 	}
-	if got := keys(tr.CoreDown(t0.Add(3 * time.Minute))); !eq(got, []string{"problem " + CoreUnreachableKey}) {
+	if got := keys(tr.CoreDown(t0.Add(3*time.Minute), "таймаут")); !eq(got, []string{"problem " + CoreUnreachableKey}) {
 		t.Fatalf("core down = %v", got)
 	}
 	if got := keys(tr.Step(t0.Add(4*time.Minute), []Problem{money})); !eq(got, []string{"resolved " + CoreUnreachableKey}) {
@@ -140,5 +141,48 @@ func TestTrackerDelayToleratesTickJitter(t *testing.T) {
 	}
 	if got := keys(tr.Step(t0.Add(2*time.Minute+300*time.Millisecond), []Problem{node})); !eq(got, []string{"problem node:1:offline"}) {
 		t.Fatalf("a tick 0.1s short of the delay must still fire: %v", got)
+	}
+}
+
+func TestOfflineNodeHoldsItsOtherAlerts(t *testing.T) {
+	tr := NewTracker()
+	config := Problem{Key: "node:1:config", Level: 2, Text: "ошибка конфига"}
+	offline := Problem{Key: "node:1:offline", Level: 2, Text: "лежит", DelaySec: 120, Suppresses: "node:1:"}
+	other := Problem{Key: "node:2:config", Level: 2, Text: "чужая"}
+	tr.Step(t0, []Problem{config, other})
+	if got := keys(tr.Step(t0.Add(time.Minute), []Problem{offline})); !eq(got, []string{"resolved node:2:config"}) {
+		t.Fatalf("going offline = %v: only the other node may resolve", got)
+	}
+	if got := keys(tr.Step(t0.Add(3*time.Minute), []Problem{offline})); !eq(got, []string{"problem node:1:offline"}) {
+		t.Fatalf("offline = %v", got)
+	}
+	if got := keys(tr.Step(t0.Add(4*time.Minute), []Problem{config})); !eq(got, []string{"resolved node:1:offline"}) {
+		t.Fatalf("back with the same error = %v: the config alert must not repeat", got)
+	}
+	if got := keys(tr.Step(t0.Add(5*time.Minute), nil)); !eq(got, []string{"resolved node:1:config"}) {
+		t.Fatalf("fixed = %v", got)
+	}
+}
+
+func TestAlertsCarryFirstSeen(t *testing.T) {
+	tr := NewTracker()
+	got := tr.Step(t0, []Problem{{Key: "money:mismatch", Level: 2}})
+	if len(got) != 1 || !got[0].FirstSeen.Equal(t0) {
+		t.Fatalf("alert = %+v", got)
+	}
+	got = tr.CoreDown(t0.Add(time.Minute), "таймаут")
+	got = tr.CoreDown(t0.Add(3*time.Minute), "соединение отклонено")
+	if len(got) != 1 || !got[0].FirstSeen.Equal(t0.Add(time.Minute)) || !strings.Contains(got[0].Problem.Text, "соединение отклонено") {
+		t.Fatalf("core down = %+v", got)
+	}
+}
+
+func TestTrackerIgnoresNullEntries(t *testing.T) {
+	tr := NewTracker()
+	if err := tr.UnmarshalJSON([]byte(`{"a":null,"b":{"sent_level":2,"problem":{"key":"b"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got := keys(tr.Step(t0, nil)); !eq(got, []string{"resolved b"}) {
+		t.Fatalf("got %v", got)
 	}
 }
