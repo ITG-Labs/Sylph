@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +173,7 @@ func TestMonitorStateCertLevels(t *testing.T) {
 	n := mkNodeAt(t, svc, "n1", true, "10 seconds", "10 seconds", nil)
 	exec(t, svc, `UPDATE nodes SET cert_not_after = now() + interval '200 days' WHERE id = $1`, n.ID)
 	got := problemsByKey(t, svc)
-	levels := map[string]int{"cert:core": 1, "cert:bot": 2, "cert:subs": 3}
+	levels := map[string]int{"cert:core": 1, "cert:service:bot": 2, "cert:service:subs": 3}
 	for key, lvl := range levels {
 		p, ok := got[key]
 		if !ok || p.Level != lvl || p.Category != CategoryCert {
@@ -233,5 +234,89 @@ func TestYooKassaOutcomesAreMarked(t *testing.T) {
 				t.Fatalf("marks = %+v, want untouched", m)
 			}
 		})
+	}
+}
+
+func TestSilentServicesAndCronWaitForASecondPoll(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	if err := svc.ServiceHeartbeat(ctx, model.ServiceHeartbeat{CertCN: "subs", Role: "subs"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkCronExpire(ctx); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, svc, `UPDATE services SET last_seen = now() - interval '10 minutes'`)
+	exec(t, svc, `UPDATE health_marks SET ok_at = now() - interval '10 minutes'`)
+	got := problemsByKey(t, svc)
+	for _, key := range []string{"service:subs:silent", "cron:expire"} {
+		if p, ok := got[key]; !ok || p.DelaySec < 60 {
+			t.Errorf("%s = %+v: after a core outage every service looks silent until its next pulse, so the alert must wait for a second poll", key, p)
+		}
+	}
+}
+
+func TestCronExpireIsQuietWhileCronItselfIsSilent(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	if err := svc.ServiceHeartbeat(ctx, model.ServiceHeartbeat{CertCN: "cron", Role: "cron"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkCronExpire(ctx); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, svc, `UPDATE services SET last_seen = now() - interval '10 minutes'`)
+	exec(t, svc, `UPDATE health_marks SET ok_at = now() - interval '10 minutes'`)
+	got := problemsByKey(t, svc)
+	if _, ok := got["service:cron:silent"]; !ok {
+		t.Fatal("silent cron not reported")
+	}
+	if _, ok := got["cron:expire"]; ok {
+		t.Fatal("a dead cron raised two alerts for one cause")
+	}
+}
+
+func TestYooKassaAlertNeedsRepeatedFailures(t *testing.T) {
+	cases := []struct {
+		name        string
+		since, last string
+		want        bool
+	}{
+		{"single failure long ago", "6 minutes", "6 minutes", false},
+		{"failing for five minutes", "6 minutes", "30 seconds", true},
+		{"stale streak with no new calls", "30 minutes", "15 minutes", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := setupService(t)
+			exec(t, svc, `INSERT INTO health_marks (name, failing_since, failed_at, error) VALUES ('yookassa', now() - $1::interval, now() - $2::interval, 'timeout')`, tc.since, tc.last)
+			if _, ok := problemsByKey(t, svc)["money:yookassa"]; ok != tc.want {
+				t.Fatalf("alert = %v, want %v", ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestOfflineNodeKeepsItsOtherProblems(t *testing.T) {
+	svc := setupService(t)
+	broken := "xray_config_rejected: bad"
+	n := mkNodeAt(t, svc, "n1", true, "4 minutes", "4 minutes", &broken)
+	got := problemsByKey(t, svc)
+	off, ok := got[nodeKey(n.ID, "offline")]
+	if !ok || off.Suppresses != fmt.Sprintf("node:%d:", n.ID) {
+		t.Fatalf("offline = %+v: it must ask the monitor to hold the node's other alerts", off)
+	}
+	if _, ok := got[nodeKey(n.ID, "config")]; ok {
+		t.Fatal("an offline node still reported its stale config error as a separate fresh problem")
+	}
+}
+
+func TestGeoErrorsHideURLs(t *testing.T) {
+	svc := setupService(t)
+	n := mkNodeAt(t, svc, "n1", true, "10 seconds", "10 seconds", nil)
+	exec(t, svc, `UPDATE nodes SET geo_status = '{"ru":{"error":"Get \"https://geo.example.com/ru.dat?token=SECRET\": timeout"}}' WHERE id = $1`, n.ID)
+	p, ok := problemsByKey(t, svc)[nodeKey(n.ID, "geo")]
+	if !ok || strings.Contains(p.Text, "SECRET") || strings.Contains(p.Text, "geo.example.com") || !strings.Contains(p.Text, "timeout") {
+		t.Fatalf("geo = %+v", p)
 	}
 }

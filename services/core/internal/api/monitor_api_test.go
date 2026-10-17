@@ -125,7 +125,9 @@ func TestOnlyCronExpireMarksCron(t *testing.T) {
 		t.Fatalf("panel expire = %d %s", code, body)
 	}
 	var n int
-	_ = e.pool.QueryRow(context.Background(), `SELECT count(*) FROM health_marks WHERE name = 'cron_expire'`).Scan(&n)
+	if err := e.pool.QueryRow(context.Background(), `SELECT count(*) FROM health_marks WHERE name = 'cron_expire'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 0 {
 		t.Fatal("a panel-triggered expire marked the cron as alive")
 	}
@@ -133,7 +135,9 @@ func TestOnlyCronExpireMarksCron(t *testing.T) {
 	if code, body := do(t, cron, http.MethodPost, e.ts.URL+"/v1/maintenance/expire", `{}`, nil); code != http.StatusOK {
 		t.Fatalf("cron expire = %d %s", code, body)
 	}
-	_ = e.pool.QueryRow(context.Background(), `SELECT count(*) FROM health_marks WHERE name = 'cron_expire' AND ok_at IS NOT NULL`).Scan(&n)
+	if err := e.pool.QueryRow(context.Background(), `SELECT count(*) FROM health_marks WHERE name = 'cron_expire' AND ok_at IS NOT NULL`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatal("cron expire did not mark the cron")
 	}
@@ -155,5 +159,31 @@ func TestForgetService(t *testing.T) {
 	code, body := do(t, panel, http.MethodGet, e.ts.URL+"/v1/admin/overview", "", op)
 	if code != http.StatusOK || !strings.Contains(string(body), `"services":[]`) || !strings.Contains(string(body), `"core":{`) {
 		t.Fatalf("overview = %d %s", code, body)
+	}
+}
+
+func TestConflictTimeOnlyFromBotAndNotFromTheFuture(t *testing.T) {
+	e := newAPIEnv(t)
+	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	for _, c := range []struct{ cn, role string }{{"bot", mtls.RoleBot}, {"subs", mtls.RoleSubs}} {
+		if code, body := do(t, e.client(t, c.cn, c.role), http.MethodPost, e.ts.URL+"/v1/services/heartbeat", `{"version":"1","telegram_conflict_at":"`+future+`"}`, nil); code != http.StatusOK {
+			t.Fatalf("%s pulse = %d %s", c.cn, code, body)
+		}
+	}
+	st, err := e.svc.MonitorState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sv := range st.Services {
+		switch sv.CertCN {
+		case "bot":
+			if sv.TelegramConflictAt == nil || sv.TelegramConflictAt.After(time.Now().Add(time.Minute)) {
+				t.Fatalf("bot conflict = %v, want clamped to now", sv.TelegramConflictAt)
+			}
+		case "subs":
+			if sv.TelegramConflictAt != nil {
+				t.Fatalf("subs conflict = %v, want ignored", sv.TelegramConflictAt)
+			}
+		}
 	}
 }

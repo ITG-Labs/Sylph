@@ -9,7 +9,7 @@ import (
 func (s *Store) UpsertServiceHeartbeat(ctx context.Context, hb model.ServiceHeartbeat) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO services (cert_cn, role, version, uptime_sec, cert_not_after, telegram_conflict_at, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, $6, now())
+		 VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE LEAST($6::timestamptz, now()) END, now())
 		 ON CONFLICT (cert_cn) DO UPDATE SET role = EXCLUDED.role, version = EXCLUDED.version, uptime_sec = EXCLUDED.uptime_sec,
 		   cert_not_after = EXCLUDED.cert_not_after, telegram_conflict_at = EXCLUDED.telegram_conflict_at, last_seen = now()`,
 		hb.CertCN, hb.Role, hb.Version, hb.UptimeSec, hb.CertNotAfter, hb.TelegramConflictAt)

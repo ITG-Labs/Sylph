@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -22,9 +23,11 @@ const (
 	CategoryCert    = "cert"
 
 	nodeDelaySec       = 120
+	silentDelaySec     = 90
 	serviceSilentAfter = 3 * time.Minute
 	cronExpireStale    = 5 * time.Minute
 	yookassaDownAfter  = 5 * time.Minute
+	yookassaStaleAfter = 10 * time.Minute
 	pendingStuckAfter  = time.Hour
 	conflictRecent     = 2 * time.Minute
 	certSoon           = 30 * 24 * time.Hour
@@ -32,15 +35,19 @@ const (
 	problemTextRunes   = 300
 )
 
-var categoryOrder = []string{CategoryNode, CategoryService, CategoryMoney, CategoryCert}
+var (
+	categoryOrder = []string{CategoryNode, CategoryService, CategoryMoney, CategoryCert}
+	urlPattern    = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']+`)
+)
 
 type Problem struct {
-	Key      string     `json:"key"`
-	Category string     `json:"category"`
-	Level    int        `json:"level"`
-	Text     string     `json:"text"`
-	Since    *time.Time `json:"since,omitempty"`
-	DelaySec int        `json:"delay_sec"`
+	Key        string     `json:"key"`
+	Category   string     `json:"category"`
+	Level      int        `json:"level"`
+	Text       string     `json:"text"`
+	Since      *time.Time `json:"since,omitempty"`
+	DelaySec   int        `json:"delay_sec"`
+	Suppresses string     `json:"suppresses,omitempty"`
 }
 
 type ServiceView struct {
@@ -143,24 +150,27 @@ func (s *Service) MonitorState(ctx context.Context) (*MonitorState, error) {
 			add(p)
 		}
 	}
+	cronSilent := false
 	for _, sv := range services {
 		name := serviceName(sv.Role, sv.CertCN)
 		if !sv.Alive {
 			since := sv.LastSeen
-			add(Problem{Key: "service:" + sv.CertCN + ":silent", Category: CategoryService, Level: 2, Text: name + " молчит: нет пульса", Since: &since})
+			cronSilent = cronSilent || sv.Role == "cron"
+			add(Problem{Key: "service:" + sv.CertCN + ":silent", Category: CategoryService, Level: 2, Text: name + " молчит: нет пульса", Since: &since, DelaySec: silentDelaySec})
 		} else if sv.TelegramConflictAt != nil && now.Sub(*sv.TelegramConflictAt) <= conflictRecent {
 			add(Problem{Key: "service:" + sv.CertCN + ":conflict", Category: CategoryService, Level: 2, Text: name + ": второй экземпляр с тем же токеном отнимает апдейты Telegram", Since: sv.TelegramConflictAt})
 		}
 		if sv.CertNotAfter != nil {
-			if p, ok := certProblem("cert:"+sv.CertCN, "Серт "+name, *sv.CertNotAfter, now); ok {
+			if p, ok := certProblem("cert:service:"+sv.CertCN, "Серт "+name, *sv.CertNotAfter, now); ok {
 				add(p)
 			}
 		}
 	}
-	if m, ok := marks[model.HealthCronExpire]; ok && (m.OKAt == nil || now.Sub(*m.OKAt) > cronExpireStale) {
-		add(Problem{Key: "cron:expire", Category: CategoryService, Level: 2, Text: "Крон не закрывает истёкшие периоды", Since: m.OKAt})
+	if m, ok := marks[model.HealthCronExpire]; ok && !cronSilent && (m.OKAt == nil || now.Sub(*m.OKAt) > cronExpireStale) {
+		add(Problem{Key: "cron:expire", Category: CategoryService, Level: 2, Text: "Крон не закрывает истёкшие периоды", Since: m.OKAt, DelaySec: silentDelaySec})
 	}
-	if m, ok := marks[model.HealthYooKassa]; ok && m.FailingSince != nil && now.Sub(*m.FailingSince) >= yookassaDownAfter {
+	if m, ok := marks[model.HealthYooKassa]; ok && m.FailingSince != nil && m.FailedAt != nil &&
+		m.FailedAt.Sub(*m.FailingSince) >= yookassaDownAfter && now.Sub(*m.FailedAt) <= yookassaStaleAfter {
 		add(Problem{Key: "money:yookassa", Category: CategoryMoney, Level: 2, Text: "ЮKassa не отвечает ядру: " + m.Error, Since: m.FailingSince})
 	}
 	if attention.Mismatch > 0 {
@@ -199,7 +209,7 @@ func (s *Service) nodeProblems(n *model.Node, now time.Time) []Problem {
 	name := "Нода «" + n.Name + "»"
 	var out []Problem
 	if n.Status == NodeOffline {
-		out = append(out, Problem{Key: nodeKey(n.ID, "offline"), Category: CategoryNode, Level: 2, Text: name + " лежит: нет heartbeat", Since: n.LastHeartbeat, DelaySec: nodeDelaySec})
+		out = append(out, Problem{Key: nodeKey(n.ID, "offline"), Category: CategoryNode, Level: 2, Text: name + " лежит: нет heartbeat", Since: n.LastHeartbeat, DelaySec: nodeDelaySec, Suppresses: fmt.Sprintf("node:%d:", n.ID)})
 	} else {
 		if n.LastSyncAt == nil || now.Sub(*n.LastSyncAt) > s.nodeStale {
 			out = append(out, Problem{Key: nodeKey(n.ID, "sync"), Category: CategoryNode, Level: 2, Text: name + " не синкается с ядром", Since: n.LastSyncAt, DelaySec: nodeDelaySec})
@@ -235,7 +245,7 @@ func failedGeo(raw json.RawMessage) []string {
 	var out []string
 	for name, st := range status {
 		if st.Error != "" {
-			out = append(out, name+" ("+st.Error+")")
+			out = append(out, name+" ("+urlPattern.ReplaceAllString(st.Error, "<ссылка>")+")")
 		}
 	}
 	sort.Strings(out)

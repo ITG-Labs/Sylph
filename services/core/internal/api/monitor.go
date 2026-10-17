@@ -36,7 +36,9 @@ func (s *Server) handleServiceHeartbeat(w http.ResponseWriter, r *http.Request) 
 		Version:            body.Version,
 		UptimeSec:          body.UptimeSec,
 		CertNotAfter:       &cert.NotAfter,
-		TelegramConflictAt: body.TelegramConflictAt,
+	}
+	if role == mtls.RoleBot {
+		hb.TelegramConflictAt = body.TelegramConflictAt
 	}
 	if err := s.svc.ServiceHeartbeat(r.Context(), hb); err != nil {
 		s.writeServiceError(w, err, "service heartbeat")
