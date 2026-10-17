@@ -4,6 +4,7 @@ import { Link } from "react-router"
 import { AlertTriangle, ArrowRight, Ban, CircleCheck, Clock, CreditCard, Server, ShieldAlert, Users, Wallet } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
+import { ServicesCard } from "@/components/overview/ServicesCard"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { StatTile } from "@/components/common/StatTile"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -239,6 +240,8 @@ export function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ServicesCard services={o.services ?? []} coreInfo={o.core ?? { version: "", cert_not_after: null, ca_not_after: null }} />
     </>
   )
 }
