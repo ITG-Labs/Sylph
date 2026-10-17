@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/envfile"
@@ -17,8 +18,15 @@ type Wizard struct {
 	Run func(*huh.Form) error
 }
 
+func keyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "отмена"))
+	km.Select.Filter = key.NewBinding(key.WithKeys("/"), key.WithDisabled())
+	return km
+}
+
 func (w Wizard) run(groups ...*huh.Group) error {
-	form := huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
+	form := huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithKeyMap(keyMap()).WithShowHelp(true)
 	var err error
 	if w.Run != nil {
 		err = w.Run(form)
