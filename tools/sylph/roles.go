@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/bundle"
@@ -36,6 +37,81 @@ func roleDir(dir string, r *role.Role) (string, error) {
 		dir = filepath.Join(cwd, "sylph-"+r.Name)
 	}
 	return filepath.Abs(dir)
+}
+
+func checkRoleDir(dir string) error {
+	for _, tmp := range []string{"/tmp", "/var/tmp", "/dev/shm", "/run"} {
+		if dir == tmp || strings.HasPrefix(dir, tmp+"/") {
+			return fmt.Errorf("папка роли %s во временной папке — после перезагрузки пропадёт: запусти sylph из домашней папки или укажи --dir", dir)
+		}
+	}
+	if onTmpfs(filepath.Dir(dir)) {
+		return fmt.Errorf("папка роли %s на tmpfs — после перезагрузки пропадёт: укажи --dir на диске", dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 || exists(filepath.Join(dir, "compose.yml")) || strings.HasPrefix(filepath.Base(dir), "sylph-") {
+		return nil
+	}
+	return fmt.Errorf("папка %s не пустая и это не папка роли: укажи новую или пустую через --dir", dir)
+}
+
+func onTmpfs(dir string) bool {
+	var st syscall.Statfs_t
+	for {
+		if err := syscall.Statfs(dir, &st); err == nil {
+			return st.Type == 0x01021994
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
+}
+
+func notInstalledElsewhere(ctx context.Context, r *role.Role, dir string) error {
+	projects, err := compose.Ls(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if p.Name == "sylph-"+r.Name && p.Dir != dir {
+			return fmt.Errorf("роль %s уже стоит в %s: запусти sylph из той папки или укажи --dir %s", r.Name, p.Dir, p.Dir)
+		}
+	}
+	return nil
+}
+
+func trustedDir(dir string) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	owner := int(sys.Uid)
+	sudoUID, err := strconv.Atoi(os.Getenv("SUDO_UID"))
+	if err != nil {
+		sudoUID = -1
+	}
+	if owner != 0 && owner != sudoUID {
+		return fmt.Errorf("папка %s принадлежит чужому юзеру (uid %d) — не доверяю ей", dir, owner)
+	}
+	if st.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("в папку %s могут писать другие — не доверяю ей", dir)
+	}
+	return nil
 }
 
 func roleOfDir(dir string) (*role.Role, error) {
@@ -70,13 +146,18 @@ func readEnv(dir string) (*envfile.Env, error) {
 
 func findRoles(ctx context.Context, dir string) ([]installed, error) {
 	var dirs []string
+	trusted := map[string]bool{}
 	if dir != "" {
 		dirs = append(dirs, dir)
+		if abs, err := filepath.Abs(dir); err == nil {
+			trusted[abs] = true
+		}
 	} else {
 		if projects, err := compose.Ls(ctx); err == nil {
 			for _, p := range projects {
 				if strings.HasPrefix(p.Name, "sylph-") {
 					dirs = append(dirs, p.Dir)
+					trusted[p.Dir] = true
 				}
 			}
 		}
@@ -92,6 +173,9 @@ func findRoles(ctx context.Context, dir string) ([]installed, error) {
 			continue
 		}
 		seen[abs] = true
+		if !trusted[abs] && trustedDir(abs) != nil {
+			continue
+		}
 		r, err := roleOfDir(abs)
 		if err != nil {
 			if dir != "" {
@@ -158,10 +242,11 @@ func writeDeployFiles(dir string, r *role.Role) ([]string, error) {
 			continue
 		}
 		if _, err := os.Stat(path); err == nil {
-			if err := os.Rename(path, path+".bak"); err != nil {
+			bak := name + ".bak-" + time.Now().Format("20060102-150405")
+			if err := os.Rename(path, filepath.Join(dir, bak)); err != nil {
 				return nil, err
 			}
-			backups = append(backups, name+".bak")
+			backups = append(backups, bak)
 		}
 		if err := writeFileAtomic(path, data, 0o644); err != nil {
 			return nil, err
@@ -270,6 +355,25 @@ func chownToSudoUser(path string) error {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func runningAt(ctx context.Context, dir string, tag string) bool {
+	containers, err := compose.Snapshot(ctx, dir)
+	if err != nil {
+		return false
+	}
+	found := false
+	for _, c := range containers {
+		t, ok := sylphTag(c.Image)
+		if !ok || c.State != "running" {
+			continue
+		}
+		if t != tag {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 func projectRunning(ctx context.Context, dir string) bool {

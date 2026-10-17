@@ -123,7 +123,7 @@ func (w Wizard) Ask(req Request) (*Answers, error) {
 	}
 
 	adminsRaw := ""
-	addAdmins := req.FirstInstall
+	addAdmins := len(req.ExistingAdmins) == 0
 	if r.Admins {
 		if len(req.ExistingAdmins) > 0 {
 			desc := "уже есть: " + strings.Join(req.ExistingAdmins, ", ")
@@ -191,7 +191,11 @@ func (w Wizard) Ask(req Request) (*Answers, error) {
 		ans.Bundle = strings.TrimSpace(bundleInput)
 	}
 	if r.Admins && addAdmins {
-		ans.NewAdmins, _ = role.AdminNames(adminsRaw)
+		names, err := role.AdminNames(adminsRaw)
+		if err != nil {
+			return nil, err
+		}
+		ans.NewAdmins = names
 	}
 	return ans, nil
 }

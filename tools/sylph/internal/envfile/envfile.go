@@ -30,7 +30,7 @@ func Parse(data []byte) (*Env, error) {
 		n++
 		key, value, ok, err := parseLine(sc.Text())
 		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", n, err)
+			return nil, fmt.Errorf("строка %d: %w", n, err)
 		}
 		if ok {
 			env.Set(key, value)
@@ -51,20 +51,20 @@ func parseLine(line string) (string, string, bool, error) {
 	key, raw, found := strings.Cut(trimmed, "=")
 	key = strings.TrimSpace(key)
 	if !found || !keyPattern.MatchString(key) {
-		return "", "", false, fmt.Errorf("expected KEY=VALUE")
+		return "", "", false, fmt.Errorf("ожидаю строку вида КЛЮЧ=значение")
 	}
 	raw = strings.TrimSpace(raw)
 	switch {
 	case strings.HasPrefix(raw, "'"):
 		end := strings.Index(raw[1:], "'")
 		if end < 0 {
-			return "", "", false, fmt.Errorf("unterminated quote in %s", key)
+			return "", "", false, fmt.Errorf("не закрыта кавычка в %s", key)
 		}
 		return key, raw[1 : end+1], true, nil
 	case strings.HasPrefix(raw, `"`):
 		end := strings.Index(raw[1:], `"`)
 		if end < 0 {
-			return "", "", false, fmt.Errorf("unterminated quote in %s", key)
+			return "", "", false, fmt.Errorf("не закрыта кавычка в %s", key)
 		}
 		return key, raw[1 : end+1], true, nil
 	}
@@ -88,6 +88,19 @@ func (e *Env) Set(key string, value string) {
 		e.keys = append(e.keys, key)
 	}
 	e.values[key] = value
+}
+
+func (e *Env) Delete(key string) {
+	if _, ok := e.values[key]; !ok {
+		return
+	}
+	delete(e.values, key)
+	for i, k := range e.keys {
+		if k == key {
+			e.keys = append(e.keys[:i], e.keys[i+1:]...)
+			break
+		}
+	}
 }
 
 func (e *Env) Keys() []string {
@@ -117,7 +130,7 @@ func Quote(value string) string {
 
 func ValidValue(value string) error {
 	if strings.ContainsAny(value, "'\n\r") {
-		return fmt.Errorf("value must not contain quotes or line breaks")
+		return fmt.Errorf("без одинарных кавычек и переводов строки")
 	}
 	return nil
 }

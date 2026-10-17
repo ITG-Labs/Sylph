@@ -197,3 +197,20 @@ func TestDecodeRejects(t *testing.T) {
 		t.Errorf("missing file: %v", err)
 	}
 }
+
+func TestReadFromStream(t *testing.T) {
+	dir := newCA(t)
+	issue(t, dir, "subs", mtls.ClientUsage, mtls.RoleSubs)
+	b, _ := Collect(dir, "subs", "subs", "", now)
+	raw, _ := b.Encode()
+	line, _ := b.Inline()
+	for name, in := range map[string][]byte{"gzip": raw, "inline": []byte(line + "\n")} {
+		got, err := Read(bytes.NewReader(in))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := got.Verify("subs", "", now); err != nil {
+			t.Fatalf("%s verify: %v", name, err)
+		}
+	}
+}

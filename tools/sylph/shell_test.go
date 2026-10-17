@@ -12,6 +12,22 @@ func newTestShell() *shell {
 	return &shell{input: textinput.New(), installed: []string{"node", "panel"}, width: 100, height: 40}
 }
 
+func TestRootShellHidesCertCommands(t *testing.T) {
+	m := newTestShell()
+	m.root = true
+	m.input.SetValue("/")
+	for _, s := range m.suggestions() {
+		if s.value == "/bundle" || s.value == "/revoke" || s.value == "/certs" {
+			t.Fatalf("root shell offers %s", s.value)
+		}
+	}
+	m.input.SetValue("/bundle core")
+	press(m, "enter")
+	if m.busy || !strings.Contains(m.log[len(m.log)-1], "только на ноуте") {
+		t.Fatalf("root /bundle = %q busy=%v", m.log[len(m.log)-1], m.busy)
+	}
+}
+
 func TestSplitArgs(t *testing.T) {
 	cases := map[string][]string{
 		"install panel":                 {"install", "panel"},

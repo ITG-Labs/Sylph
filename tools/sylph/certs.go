@@ -12,6 +12,7 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/castore"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/bundle"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/compose"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/role"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/ui"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/wizard"
@@ -40,7 +41,7 @@ func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	switch args[0] {
 	case "bundle":
-		return certsBundle(u, args[1:])
+		return certsBundle(ctx, u, args[1:])
 	case "list":
 		return certsList(u, args[1:])
 	case "revoke":
@@ -52,11 +53,10 @@ func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	return fmt.Errorf("неизвестная команда certs %q: bundle, list или revoke", args[0])
 }
 
-func certsBundle(u *ui.UI, args []string) error {
+func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "certs bundle", "./sylph certs bundle <роль> [флаги]")
 	caDir := fs.String("ca", defaultCADir(), "папка CA")
 	name := fs.String("name", "", "имя серта ноды, например node-de-1 (только для node)")
-	coreName := fs.String("core-name", role.DefaultCoreName, "имя в серте ядра (только для core)")
 	out := fs.String("out", ".", "куда положить пакет")
 	inline := fs.Bool("inline", false, "ещё и напечатать пакет одной строкой для вставки в мастер")
 	yes := fs.Bool("yes", false, "создать CA без вопроса, если его нет")
@@ -89,18 +89,13 @@ func certsBundle(u *ui.UI, args []string) error {
 	if err := castore.ValidName(leafName); err != nil {
 		return err
 	}
-	if r.Name == "core" {
-		if err := castore.ValidName(*coreName); err != nil {
-			return err
-		}
-	}
 
 	u.Banner("пакет сертов", "роль "+r.Name+" · CA "+*caDir)
-	if err := ensureCA(u, wz, *caDir, *yes); err != nil {
+	if err := ensureCA(ctx, u, wz, *caDir, *yes); err != nil {
 		return err
 	}
 	now := time.Now()
-	names := bundle.LeafNames(r.Name, leafName, *coreName)
+	names := bundle.LeafNames(r.Name, leafName, role.DefaultCoreName)
 	for _, n := range names {
 		has, err := castore.HasLeaf(*caDir, n)
 		if err != nil {
@@ -112,7 +107,7 @@ func certsBundle(u *ui.UI, args []string) error {
 		}
 		usage, certRole := mtls.ClientUsage, r.Name
 		switch {
-		case r.Name == "core" && n == *coreName:
+		case r.Name == "core" && n == role.DefaultCoreName:
 			usage, certRole = mtls.ServerUsage, ""
 		case r.Name == "core":
 			certRole = mtls.RoleCron
@@ -122,11 +117,11 @@ func certsBundle(u *ui.UI, args []string) error {
 		}
 		u.OK("выпущен серт " + n + " до " + now.Add(certTTL).Format("02.01.2006"))
 	}
-	b, err := bundle.Collect(*caDir, r.Name, leafName, *coreName, now)
+	b, err := bundle.Collect(*caDir, r.Name, leafName, role.DefaultCoreName, now)
 	if err != nil {
 		return err
 	}
-	leaves, err := b.Verify(r.Name, *coreName, now)
+	leaves, err := b.Verify(r.Name, role.DefaultCoreName, now)
 	if err != nil {
 		return err
 	}
@@ -171,13 +166,23 @@ func certsBundle(u *ui.UI, args []string) error {
 	return nil
 }
 
-func ensureCA(u *ui.UI, wz wizard.Wizard, dir string, yes bool) error {
+func ensureCA(ctx context.Context, u *ui.UI, wz wizard.Wizard, dir string, yes bool) error {
 	ok, err := castore.Exists(dir)
 	if err != nil {
 		return err
 	}
 	if ok {
 		return nil
+	}
+	if os.Geteuid() == 0 {
+		return errors.New("CA создаю только на ноуте и без sudo: ключ CA не должен жить на машине роли")
+	}
+	if projects, err := compose.Ls(ctx); err == nil {
+		for _, p := range projects {
+			if strings.HasPrefix(p.Name, "sylph-") {
+				return fmt.Errorf("на этой машине стоит роль (%s): CA создаю только на ноуте", p.Name)
+			}
+		}
 	}
 	if !yes {
 		if !u.TTY {

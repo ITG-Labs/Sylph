@@ -100,3 +100,15 @@ func TestRenderRejectsQuotesAndNewlines(t *testing.T) {
 		}
 	}
 }
+
+func TestDelete(t *testing.T) {
+	env, _ := Parse([]byte("A=1\nB=2\nC=3\n"))
+	env.Delete("B")
+	env.Delete("missing")
+	if strings.Join(env.Keys(), ",") != "A,C" {
+		t.Fatalf("keys = %v", env.Keys())
+	}
+	if _, ok := env.Lookup("B"); ok {
+		t.Fatal("B still there")
+	}
+}

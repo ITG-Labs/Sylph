@@ -56,7 +56,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		cur := in.Env.Get(role.KeyVersion)
 		mark := cur + " → " + target
 		switch {
-		case cur == target:
+		case cur == target && runningAt(ctx, in.Dir, target):
 			mark = cur + ui.Dimmed(" (уже)")
 		case older(target, cur):
 			mark += ui.Colored(ui.Yellow, " (понижение)")

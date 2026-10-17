@@ -43,7 +43,7 @@ func cmdInstall(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "install", "sudo ./sylph install [роль] [флаги]")
 	dir := fs.String("dir", "", "папка роли (по умолчанию ./sylph-<роль>)")
 	envFile := fs.String("env", "", "файл с настройками роли: установка без вопросов")
-	certs := fs.String("certs", "", "пакет сертов: файл .sylph-certs или строка sylph-certs:…")
+	certs := fs.String("certs", "", "пакет сертов: файл .sylph-certs, строка sylph-certs:… или - (прочитать со stdin)")
 	var admins multiFlag
 	fs.Var(&admins, "admin", "имя нового админа панели (флаг можно повторять)")
 	yes := fs.Bool("yes", false, "не спрашивать подтверждение; предупреждения не останавливают")
@@ -126,6 +126,12 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	if p.dir, err = roleDir(o.dir, p.r); err != nil {
 		return err
 	}
+	if err := checkRoleDir(p.dir); err != nil {
+		return err
+	}
+	if err := notInstalledElsewhere(ctx, p.r, p.dir); err != nil {
+		return err
+	}
 	if err := p.load(imgVer); err != nil {
 		return err
 	}
@@ -183,7 +189,17 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 		}
 		return shown(errors.New("настройки с ошибками"))
 	}
-	if bundleIn != "" {
+	switch {
+	case bundleIn == "-":
+		b, err := bundle.Read(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if p.leaves, err = b.Verify(p.r.Name, p.coreName(), now); err != nil {
+			return err
+		}
+		p.newBundle = b
+	case bundleIn != "":
 		if p.newBundle, p.leaves, err = loadBundle(bundleIn, p.r, p.coreName(), now); err != nil {
 			return err
 		}
@@ -236,8 +252,8 @@ func (p *plan) load(imgVer string) error {
 		p.prevVersion = old.Get(role.KeyVersion)
 		p.env.Merge(old)
 	}
-	if p.r.Name == "core" && p.firstInstall && exists(filepath.Join(p.dir, "data", "postgres")) {
-		return fmt.Errorf("в %s есть база Postgres, но нет .env: пароль базы не восстановить — верни .env", p.dir)
+	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
+		return fmt.Errorf("в %s есть база Postgres, но в .env нет её пароля: пароль базы не восстановить — верни .env", p.dir)
 	}
 	p.env.Set(role.KeyVersion, imgVer)
 	if p.r.Name == "core" && p.env.Get(role.KeyPassword) == "" {
@@ -268,6 +284,9 @@ func (p *plan) fromFile(o installOpts, imgVer string) error {
 		return fmt.Errorf("%s: %w", o.envFile, err)
 	}
 	password := p.env.Get(role.KeyPassword)
+	if v, ok := file.Lookup(role.KeyPassword); ok && v == "" {
+		file.Delete(role.KeyPassword)
+	}
 	p.env.Merge(file)
 	p.env.Set(role.KeyVersion, imgVer)
 	if p.r.Name == "core" && !p.firstInstall && p.env.Get(role.KeyPassword) != password {
@@ -509,11 +528,14 @@ func display(f role.Field, v string) string {
 func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactive bool) error {
 	wasRunning := projectRunning(ctx, p.dir)
 	if _, err := u.Step(ctx, "Папка роли", func(ctx context.Context, set func(string)) (string, error) {
+		created := !exists(p.dir)
 		if err := os.MkdirAll(p.dir, 0o755); err != nil {
 			return "", err
 		}
-		if err := chownToSudoUser(p.dir); err != nil {
-			return "", err
+		if created {
+			if err := chownToSudoUser(p.dir); err != nil {
+				return "", err
+			}
 		}
 		backups, err := writeDeployFiles(p.dir, p.r)
 		if err != nil {
@@ -654,10 +676,14 @@ func (p *plan) createAdmins(ctx context.Context, u *ui.UI, wz wizard.Wizard, int
 		u.Line(ui.Dimmed("TOTP: отсканируй в приложении-аутентификаторе"))
 		u.Line(qr)
 		u.Line(ui.Dimmed("или вручную: ") + a.uri)
-		if interactive {
-			if err := wz.Pause("Сохранил пароль и добавил TOTP в приложение?", "больше их нигде не будет: в admins.json только хэш и секрет"); err != nil {
-				return err
-			}
+	}
+	if interactive {
+		title := "Сохранил пароль и добавил TOTP в приложение?"
+		if len(made) > 1 {
+			title = "Сохранил пароли и TOTP всех новых админов?"
+		}
+		if err := wz.Pause(title, "больше их нигде не будет: в admins.json только хэш и секрет; выше листается PgUp"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -729,7 +755,7 @@ func progress(v compose.Verdict) string {
 }
 
 func waitACME(ctx context.Context, dir string, domain string) (string, error) {
-	pattern := filepath.Join(dir, "data", "caddy", "certificates", "*", domain, domain+".crt")
+	pattern := filepath.Join(dir, "data", "caddy", "caddy", "certificates", "*", domain, domain+".crt")
 	deadline := time.Now().Add(acmeTimeout)
 	for {
 		matches, err := filepath.Glob(pattern)

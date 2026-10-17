@@ -173,6 +173,20 @@ func (b *Bundle) Inline() (string, error) {
 	return Prefix + base64.StdEncoding.EncodeToString(data), nil
 }
 
+func Read(r io.Reader) (*Bundle, error) {
+	data, err := io.ReadAll(io.LimitReader(r, 2*maxBundle+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 2*maxBundle {
+		return nil, errors.New("слишком много данных для пакета сертов")
+	}
+	if text := strings.TrimSpace(string(data)); strings.HasPrefix(text, Prefix) {
+		return Load(text)
+	}
+	return Decode(data)
+}
+
 func Load(input string) (*Bundle, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {

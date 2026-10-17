@@ -74,10 +74,10 @@ func TestWriteDeployFilesKeepsBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	backups, err = writeDeployFiles(dir, r)
-	if err != nil || len(backups) != 1 || backups[0] != "Caddyfile.bak" {
+	if err != nil || len(backups) != 1 || !strings.HasPrefix(backups[0], "Caddyfile.bak-") {
 		t.Fatalf("backups = %v, %v", backups, err)
 	}
-	if data, _ := os.ReadFile(filepath.Join(dir, "Caddyfile.bak")); string(data) != "hand edit\n" {
+	if data, _ := os.ReadFile(filepath.Join(dir, backups[0])); string(data) != "hand edit\n" {
 		t.Fatalf("backup = %q", data)
 	}
 	got, _ := roleOfDir(dir)
@@ -226,5 +226,97 @@ func TestFindRolesInWorkingDir(t *testing.T) {
 	found, err := findRoles(context.Background(), "")
 	if err != nil || len(found) != 2 || found[0].Role.Name != "core" || found[1].Role.Name != "node" {
 		t.Fatalf("found = %+v, %v", found, err)
+	}
+}
+
+func TestCheckRoleDir(t *testing.T) {
+	base, err := os.MkdirTemp(".", ".roledir-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	base, _ = filepath.Abs(base)
+	if err := checkRoleDir(filepath.Join(base, "sylph-panel")); err != nil {
+		t.Fatalf("new dir: %v", err)
+	}
+	busy := filepath.Join(base, "srv")
+	os.MkdirAll(busy, 0o755)
+	os.WriteFile(filepath.Join(busy, "other.txt"), []byte("x"), 0o644)
+	if err := checkRoleDir(busy); err == nil || !strings.Contains(err.Error(), "не пустая") {
+		t.Fatalf("non-empty foreign dir: %v", err)
+	}
+	lab := filepath.Join(base, "sylph-panel")
+	os.MkdirAll(lab, 0o755)
+	os.WriteFile(filepath.Join(lab, "compose.override.yml"), []byte("x"), 0o644)
+	if err := checkRoleDir(lab); err != nil {
+		t.Fatalf("sylph-* dir with an override: %v", err)
+	}
+	for _, d := range []string{"/tmp/sylph-core", "/var/tmp/x", "/dev/shm/sylph-node"} {
+		if err := checkRoleDir(d); err == nil {
+			t.Fatalf("%s must be refused", d)
+		}
+	}
+}
+
+func fakeDocker(t *testing.T, responses map[string]string) {
+	t.Helper()
+	old := compose.Exec
+	compose.Exec = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		return []byte(responses[strings.Join(args, " ")]), nil
+	}
+	t.Cleanup(func() { compose.Exec = old })
+}
+
+func TestNotInstalledElsewhere(t *testing.T) {
+	fakeDocker(t, map[string]string{"compose ls -a --format json": `[{"Name":"sylph-core","Status":"running(3)","ConfigFiles":"/root/sylph-core/compose.yml"}]`})
+	core, _ := role.Get("core")
+	panel, _ := role.Get("panel")
+	if err := notInstalledElsewhere(context.Background(), core, "/home/ops/sylph-core"); err == nil || !strings.Contains(err.Error(), "/root/sylph-core") {
+		t.Fatalf("second core: %v", err)
+	}
+	if err := notInstalledElsewhere(context.Background(), core, "/root/sylph-core"); err != nil {
+		t.Fatalf("same dir: %v", err)
+	}
+	if err := notInstalledElsewhere(context.Background(), panel, "/home/ops/sylph-panel"); err != nil {
+		t.Fatalf("other role: %v", err)
+	}
+}
+
+func TestRunningAt(t *testing.T) {
+	fakeDocker(t, map[string]string{
+		"compose ps -a --format json": `{"ID":"a","Service":"core","State":"running","Image":"ghcr.io/itg-labs/sylph-core:0.1.0"}
+{"ID":"b","Service":"postgres","State":"running","Image":"postgres:17-alpine"}`,
+	})
+	if !runningAt(context.Background(), "/x", "0.1.0") || runningAt(context.Background(), "/x", "0.2.0") {
+		t.Fatal("runningAt must compare sylph image tags")
+	}
+}
+
+func TestPlanKeepsPasswordFromEmptyEnvValue(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := role.Get("core")
+	p := &plan{r: r, dir: dir}
+	if err := p.load("0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	writeDeployFiles(dir, r)
+	writeEnv(dir, r, p.env)
+	pw := p.env.Get(role.KeyPassword)
+	again := &plan{r: r, dir: dir}
+	if err := again.load("0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(t.TempDir(), "core.env")
+	os.WriteFile(envFile, []byte("POSTGRES_PASSWORD=\nSYLPH_STATS_TZ=UTC\n"), 0o600)
+	if err := again.fromFile(installOpts{envFile: envFile}, "0.1.0"); err != nil {
+		t.Fatalf("empty password in --env must mean keep: %v", err)
+	}
+	if again.env.Get(role.KeyPassword) != pw || again.env.Get("SYLPH_STATS_TZ") != "UTC" {
+		t.Fatalf("password %q, tz %q", again.env.Get(role.KeyPassword), again.env.Get("SYLPH_STATS_TZ"))
+	}
+	os.MkdirAll(filepath.Join(dir, "data", "postgres"), 0o700)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.1.0\nPOSTGRES_PASSWORD=\n"), 0o600)
+	if err := (&plan{r: r, dir: dir}).load("0.1.0"); err == nil {
+		t.Fatal("a database with an empty password in .env must be refused")
 	}
 }

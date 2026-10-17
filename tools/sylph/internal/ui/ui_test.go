@@ -91,3 +91,16 @@ func TestStepLineCancelled(t *testing.T) {
 		t.Fatalf("StepLine = %q", got)
 	}
 }
+
+func TestPlainStepReportsCancel(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{Out: &buf}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := u.Step(ctx, "Часы", func(ctx context.Context, set func(string)) (string, error) {
+		return "синхронизированы", nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}

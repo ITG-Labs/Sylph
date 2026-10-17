@@ -24,23 +24,24 @@ import (
 )
 
 type shellCommand struct {
-	name string
-	args string
-	desc string
+	name   string
+	args   string
+	desc   string
+	laptop bool
 }
 
 var shellCommands = []shellCommand{
-	{"install", "[роль]", "поставить или перенастроить роль"},
-	{"update", "", "обновить роли машины до версии этого бинаря"},
-	{"status", "", "подробно о ролях машины"},
-	{"start", "[роль]", "запустить роль и дождаться здоровья"},
-	{"stop", "[роль]", "остановить роль"},
-	{"bundle", "<роль>", "пакет сертов роли — на ноуте рядом с CA"},
-	{"certs", "", "серты CA и их сроки"},
-	{"revoke", "<имя>", "отозвать серт"},
-	{"clear", "", "очистить вывод"},
-	{"help", "", "что тут можно"},
-	{"exit", "", "выйти"},
+	{"install", "[роль]", "поставить или перенастроить роль", false},
+	{"update", "", "обновить роли машины до версии этого бинаря", false},
+	{"status", "", "подробно о ролях машины", false},
+	{"start", "[роль]", "запустить роль и дождаться здоровья", false},
+	{"stop", "[роль]", "остановить роль", false},
+	{"bundle", "<роль>", "пакет сертов роли — на ноуте рядом с CA", true},
+	{"certs", "", "серты CA и их сроки", true},
+	{"revoke", "<имя>", "отозвать серт", true},
+	{"clear", "", "очистить вывод", false},
+	{"help", "", "что тут можно", false},
+	{"exit", "", "выйти", false},
 }
 
 const headerEvery = 3 * time.Second
@@ -73,6 +74,9 @@ func (s *shellSink) Print(str string) {
 func (s *shellSink) Step(ctx context.Context, title string, fn ui.StepFunc) (string, error) {
 	s.p.Send(stepStartMsg(title))
 	detail, err := fn(ctx, func(d string) { s.p.Send(stepDetailMsg(d)) })
+	if ctx.Err() != nil {
+		err = context.Canceled
+	}
 	s.p.Send(stepDoneMsg(ui.StepLine(title, detail, err)))
 	return detail, err
 }
@@ -253,7 +257,7 @@ func (m *shell) update(msg tea.Msg) tea.Cmd {
 }
 
 func (m *shell) formSize() tea.WindowSizeMsg {
-	return tea.WindowSizeMsg{Width: max(m.width-2, 20), Height: max(m.height-8, 6)}
+	return tea.WindowSizeMsg{Width: max(m.width-2, 20), Height: max(m.height-11, 5)}
 }
 
 func (m *shell) toForm(msg tea.Msg) tea.Cmd {
@@ -391,7 +395,7 @@ func (m *shell) suggestions() []suggestion {
 	name, rest, hasArg := strings.Cut(v[1:], " ")
 	var out []suggestion
 	if !hasArg {
-		for _, c := range shellCommands {
+		for _, c := range m.commands() {
 			if strings.HasPrefix(c.name, name) {
 				label := "/" + c.name
 				if c.args != "" {
@@ -453,8 +457,15 @@ func (m *shell) execute(line string) tea.Cmd {
 		m.log = nil
 		return nil
 	case "help":
-		m.log = append(m.log, helpLines()...)
+		m.log = append(m.log, helpLines(m.commands(), m.root)...)
 		return nil
+	case "bundle", "certs", "revoke":
+		if m.root {
+			m.log = append(m.log, ui.StepLine(line, "", errors.New("серты — только на ноуте и без sudo: ключ CA не должен жить на машине роли")))
+			return nil
+		}
+	}
+	switch args[0] {
 	case "bundle":
 		args = append([]string{"certs", "bundle"}, args[1:]...)
 	case "revoke":
@@ -479,14 +490,28 @@ func (m *shell) execute(line string) tea.Cmd {
 	return m.startSpinner()
 }
 
-func helpLines() []string {
-	lines := []string{ui.Bold("  Команды")}
+func (m *shell) commands() []shellCommand {
+	var out []shellCommand
 	for _, c := range shellCommands {
+		if m.root && c.laptop {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func helpLines(commands []shellCommand, root bool) []string {
+	lines := []string{ui.Bold("  Команды")}
+	for _, c := range commands {
 		label := "/" + c.name
 		if c.args != "" {
 			label += " " + c.args
 		}
 		lines = append(lines, fmt.Sprintf("  %-18s %s", label, ui.Dimmed(c.desc)))
+	}
+	if root {
+		lines = append(lines, ui.Dimmed("  серты (/bundle, /certs, /revoke) — на ноуте: ./sylph без sudo"))
 	}
 	return append(lines,
 		ui.Dimmed("  флаги — как у отдельных команд: /install panel --dir /srv/panel, /bundle node --name node-de-1"),
@@ -722,7 +747,14 @@ func (m *shell) bottomView() string {
 	if m.sel >= len(sugg) {
 		m.sel = 0
 	}
-	for i, s := range sugg {
+	room := max(m.height-lipgloss.Height(m.headerView())-7, 2)
+	from, to := 0, len(sugg)
+	if len(sugg) > room {
+		from = min(max(m.sel-room/2, 0), len(sugg)-room)
+		to = from + room
+	}
+	for i := from; i < to; i++ {
+		s := sugg[i]
 		label := fmt.Sprintf("%-18s", s.label)
 		if i == m.sel {
 			body += "\n" + ui.Colored(ui.Accent, "› "+label) + " " + s.desc

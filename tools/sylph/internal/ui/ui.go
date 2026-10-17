@@ -224,6 +224,9 @@ func (u *UI) Step(ctx context.Context, title string, fn StepFunc) (string, error
 	if !u.TTY {
 		lipgloss.Fprintln(u.Out, dim.Render("  … ")+title)
 		detail, err := fn(ctx, func(string) {})
+		if ctx.Err() != nil {
+			err = context.Canceled
+		}
 		u.finish(title, detail, err)
 		return detail, err
 	}
@@ -243,6 +246,9 @@ func (u *UI) Step(ctx context.Context, title string, fn StepFunc) (string, error
 		cancel()
 	}
 	<-finished
+	if ctx.Err() != nil {
+		err = context.Canceled
+	}
 	u.finish(title, detail, err)
 	return detail, err
 }
