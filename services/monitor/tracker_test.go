@@ -130,3 +130,15 @@ func TestTrackerRoundTripsThroughJSON(t *testing.T) {
 		t.Fatalf("restored tracker forgot to resolve: %v", got)
 	}
 }
+
+func TestTrackerDelayToleratesTickJitter(t *testing.T) {
+	tr := NewTracker()
+	node := Problem{Key: "node:1:offline", Level: 2, DelaySec: 120}
+	tr.Step(t0.Add(400*time.Millisecond), []Problem{node})
+	if got := keys(tr.Step(t0.Add(time.Minute+300*time.Millisecond), []Problem{node})); len(got) != 0 {
+		t.Fatalf("fired after one tick: %v", got)
+	}
+	if got := keys(tr.Step(t0.Add(2*time.Minute+300*time.Millisecond), []Problem{node})); !eq(got, []string{"problem node:1:offline"}) {
+		t.Fatalf("a tick 0.1s short of the delay must still fire: %v", got)
+	}
+}

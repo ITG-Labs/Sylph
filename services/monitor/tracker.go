@@ -11,6 +11,7 @@ const (
 	KindResolved = "resolved"
 
 	coreDownDelaySec = 120
+	delaySlack       = 5 * time.Second
 )
 
 type Alert struct {
@@ -70,7 +71,7 @@ func (t *Tracker) observe(now time.Time, p Problem) []Alert {
 	}
 	e.Resolving = false
 	e.Problem = p
-	if now.Sub(e.FirstSeen) < time.Duration(p.DelaySec)*time.Second || p.Level <= e.SentLevel {
+	if now.Sub(e.FirstSeen)+delaySlack < time.Duration(p.DelaySec)*time.Second || p.Level <= e.SentLevel {
 		return nil
 	}
 	prev := e.SentLevel
