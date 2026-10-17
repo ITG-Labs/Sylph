@@ -14,10 +14,11 @@ type Server struct {
 	svc     *service.Service
 	log     *slog.Logger
 	revoked *mtls.RevocationList
+	machine map[string]bool
 }
 
 func NewServer(svc *service.Service, log *slog.Logger, revoked *mtls.RevocationList) *Server {
-	return &Server{svc: svc, log: log, revoked: revoked}
+	return &Server{svc: svc, log: log, revoked: revoked, machine: map[string]bool{}}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -28,6 +29,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerSyncRoutes(mux)
 	s.registerServiceRoutes(mux)
 	s.registerAdminRoutes(mux)
+	s.registerMonitorRoutes(mux)
 	s.registerPrivateRoutes(mux)
 	s.registerUserAdminRoutes(mux)
 	s.registerPaymentAdminRoutes(mux)

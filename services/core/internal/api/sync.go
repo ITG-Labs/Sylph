@@ -163,6 +163,9 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		GeoStatus:      geoStatusOf(body.GeoStatus),
 		RoutingError:   truncateRunes(body.RoutingError, maxConfigErrorRunes),
 	}
+	if cert := peerCert(r); cert != nil {
+		hb.CertNotAfter = &cert.NotAfter
+	}
 	if err := s.svc.NodeHeartbeat(r.Context(), cn, hb); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")

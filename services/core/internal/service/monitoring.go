@@ -81,6 +81,8 @@ type Overview struct {
 	Users     store.UsersSummary   `json:"users"`
 	Revenue   store.RevenueSummary `json:"revenue"`
 	Attention Attention            `json:"attention"`
+	Services  []ServiceView        `json:"services"`
+	Core      CoreInfo             `json:"core"`
 }
 
 func (s *Service) Overview(ctx context.Context) (*Overview, error) {
@@ -89,6 +91,14 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 	counts, err := s.store.OverviewCounts(ctx, time.Now().Add(-pollWindow))
+	if err != nil {
+		return nil, err
+	}
+	now, err := s.store.DBNow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	services, err := s.serviceViews(ctx, now)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +111,8 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		Users:     counts.Users,
 		Revenue:   counts.Revenue,
 		Attention: Attention{AttentionCounts: counts.Attention},
+		Services:  services,
+		Core:      s.coreInfo(),
 	}
 	for _, n := range nodes {
 		ov.Nodes.ByStatus[n.Status]++

@@ -93,6 +93,9 @@ var routeMatrix = []routeCase{
 	{http.MethodPatch, "/v1/admin/geo-sources/1", []string{mtls.RolePanel}},
 	{http.MethodDelete, "/v1/admin/geo-sources/1", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/geo-sources/refresh", []string{mtls.RolePanel}},
+	{http.MethodPost, "/v1/services/heartbeat", []string{mtls.RoleBot, mtls.RoleSubs, mtls.RoleCron, mtls.RolePanel, mtls.RoleMonitor}},
+	{http.MethodGet, "/v1/monitor/state", []string{mtls.RoleMonitor}},
+	{http.MethodDelete, "/v1/admin/services/x", []string{mtls.RolePanel}},
 }
 
 type caller struct {
@@ -109,6 +112,7 @@ func matrixCallers(t *testing.T, e *apiEnv) []caller {
 		{"cron", mtls.RoleCron, e.client(t, "cron", mtls.RoleCron)},
 		{"panel", mtls.RolePanel, e.client(t, "panel", mtls.RolePanel)},
 		{"node", mtls.RoleNode, e.client(t, "node-1", mtls.RoleNode)},
+		{"monitor", mtls.RoleMonitor, e.client(t, "monitor", mtls.RoleMonitor)},
 		{"no-ou", "", e.clientWithOU(t, "bot", nil)},
 		{"two-ou", "", e.clientWithOU(t, "bot", []string{mtls.RoleBot, mtls.RolePanel})},
 		{"unknown-ou", "", e.clientWithOU(t, "bot", []string{"admin"})},

@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 )
@@ -118,7 +120,9 @@ func (s *Server) handleProfilePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	if _, err := w.Write(raw); err != nil {
+		logging.RecordError(w, fmt.Errorf("write response: %w", err))
+	}
 }
 
 func (s *Server) handleGeoList(w http.ResponseWriter, r *http.Request) {

@@ -1,13 +1,21 @@
 package main
 
 import (
+	"context"
 	"crypto/x509"
+	"errors"
+	"io"
+	"log/slog"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/mtls"
 )
 
 func TestLoadRevokedList(t *testing.T) {
@@ -144,5 +152,44 @@ func TestBotUsernameFromEnv(t *testing.T) {
 		if _, err := botUsername(); err == nil {
 			t.Fatalf("%q accepted", bad)
 		}
+	}
+}
+
+func TestHealthHandlerPingsDatabase(t *testing.T) {
+	var fail error
+	h := healthHandler(func(context.Context) error { return fail }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("healthy = %d %s", rec.Code, rec.Body.String())
+	}
+	fail = errors.New("db down")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "db down") {
+		t.Fatalf("db down = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/other", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("other path = %d", rec.Code)
+	}
+}
+
+func TestCertNotAfter(t *testing.T) {
+	ca, err := mtls.NewCA("Test CA", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, mtls.EncodeCertPEM(ca.Cert), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := certNotAfter(path)
+	if err != nil || !got.Equal(ca.Cert.NotAfter) {
+		t.Fatalf("not after = %v, %v; want %v", got, err, ca.Cert.NotAfter)
+	}
+	if _, err := certNotAfter(filepath.Join(t.TempDir(), "missing.pem")); err == nil {
+		t.Fatal("missing file accepted")
 	}
 }
