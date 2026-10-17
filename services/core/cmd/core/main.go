@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ITG-Labs/sylph/internal/version"
+	"github.com/ITG-Labs/sylph/pkg/healthcheck"
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/api"
@@ -29,6 +30,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck.Run(healthcheck.LocalURL(envOr("SYLPH_HEALTH_LISTEN", "127.0.0.1:8081"), "/health"), os.Stderr))
+	}
 	logLevel := envOr("SYLPH_LOG_LEVEL", "info")
 	logger := logging.New("core", logLevel)
 	logger.Info("starting", slog.String("version", version.Version))
@@ -95,7 +99,27 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	revoked := loadRevokedList(envOr("SYLPH_REVOKED_JSON", ""))
-	logger.Info("tls_ready")
+	serverNotAfter, err := certNotAfter(envOr("SYLPH_TLS_CERT", ""))
+	if err != nil {
+		return err
+	}
+	caNotAfter, err := certNotAfter(envOr("SYLPH_CLIENT_CA", ""))
+	if err != nil {
+		return err
+	}
+	svc.SetCertExpiry(serverNotAfter, caNotAfter)
+	logger.Info("tls_ready", slog.Time("cert_not_after", serverNotAfter), slog.Time("ca_not_after", caNotAfter))
+
+	if addr := os.Getenv("SYLPH_HEALTH_LISTEN"); addr != "" {
+		healthSrv := &http.Server{Addr: addr, Handler: healthHandler(pool.Ping, logger), ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			if err := healthSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("health_listen_failed", slog.String("error", err.Error()))
+			}
+		}()
+		defer healthSrv.Close()
+		logger.Info("health_listening", slog.String("addr", addr))
+	}
 
 	server := api.NewServer(svc, logger, revoked)
 	addr := envOr("SYLPH_LISTEN", ":8443")
@@ -249,4 +273,35 @@ func envOr(key string, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func healthHandler(ping func(context.Context) error, logger *slog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		status, body := http.StatusOK, `{"status":"ok","version":"`+version.Version+`"}`
+		if err := ping(ctx); err != nil {
+			status, body = http.StatusServiceUnavailable, `{"status":"db_unavailable"}`
+			logger.Warn("health_db_unavailable", slog.String("error", err.Error()))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if _, err := w.Write([]byte(body + "\n")); err != nil {
+			logger.Warn("health_write_failed", slog.String("error", err.Error()))
+		}
+	})
+	return mux
+}
+
+func certNotAfter(path string) (time.Time, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read cert %s: %w", path, err)
+	}
+	cert, err := mtls.ParseCertPEM(data)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse cert %s: %w", path, err)
+	}
+	return cert.NotAfter, nil
 }

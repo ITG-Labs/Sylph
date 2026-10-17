@@ -32,7 +32,7 @@ type PaymentProvider interface {
 }
 
 func (s *Service) EnablePayments(p PaymentProvider, returnURL string) {
-	s.pay, s.returnURL = p, returnURL
+	s.pay, s.returnURL = trackedProvider{PaymentProvider: p, svc: s}, returnURL
 }
 
 type CheckResult struct {

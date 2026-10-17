@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,13 +16,19 @@ import (
 	"time"
 
 	"github.com/ITG-Labs/sylph/internal/version"
+	"github.com/ITG-Labs/sylph/pkg/apiclient"
+	"github.com/ITG-Labs/sylph/pkg/healthcheck"
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/pkg/pulse"
 	"github.com/ITG-Labs/sylph/services/panel"
 	"github.com/ITG-Labs/sylph/services/panel/ui"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck.Run(healthcheck.LocalURL(envOr("SYLPH_LISTEN", ":8080"), "/healthz"), os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "new-admin" {
 		if err := newAdmin(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -66,10 +73,15 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	client, err := coreHTTPClient(cfg)
+	client, tlsCfg, err := coreHTTPClient(cfg)
 	if err != nil {
 		return err
 	}
+	api, err := apiclient.New("panel", cfg.CoreURL, tlsCfg, logger)
+	if err != nil {
+		return err
+	}
+	go pulse.Run(ctx, api, logger, pulse.Every, nil)
 	proxy, err := panel.NewCoreProxy(cfg.CoreURL, client, logger)
 	if err != nil {
 		return err
@@ -110,24 +122,24 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func coreHTTPClient(cfg *panel.Config) (*http.Client, error) {
+func coreHTTPClient(cfg *panel.Config) (*http.Client, *tls.Config, error) {
 	certPEM, err := os.ReadFile(cfg.TLSCert)
 	if err != nil {
-		return nil, fmt.Errorf("read tls cert: %w", err)
+		return nil, nil, fmt.Errorf("read tls cert: %w", err)
 	}
 	keyPEM, err := os.ReadFile(cfg.TLSKey)
 	if err != nil {
-		return nil, fmt.Errorf("read tls key: %w", err)
+		return nil, nil, fmt.Errorf("read tls key: %w", err)
 	}
 	caPEM, err := os.ReadFile(cfg.CACert)
 	if err != nil {
-		return nil, fmt.Errorf("read ca cert: %w", err)
+		return nil, nil, fmt.Errorf("read ca cert: %w", err)
 	}
 	tlsCfg, err := mtls.NewClientTLSConfig(mtls.ClientConfig{CertPEM: certPEM, KeyPEM: keyPEM, CAPEM: caPEM, ServerName: cfg.ServerName})
 	if err != nil {
-		return nil, fmt.Errorf("tls config: %w", err)
+		return nil, nil, fmt.Errorf("tls config: %w", err)
 	}
-	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg, ForceAttemptHTTP2: true}}, nil
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg, ForceAttemptHTTP2: true}}, tlsCfg, nil
 }
 
 func envOr(key string, fallback string) string {

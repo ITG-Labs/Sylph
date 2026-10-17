@@ -1,0 +1,55 @@
+name: sylph-monitor
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-locked: &locked
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logging
+
+services:
+  perms:
+    <<: *locked
+    image: alpine:3.24.2
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    network_mode: none
+    volumes:
+      - ./certs:/certs
+      - ./data:/data
+    command:
+      - sh
+      - -euc
+      - |
+        mkdir -p /data/monitor
+        chown -R 65532:65532 /certs /data/monitor
+        chmod -R u=rX,go= /certs
+        chmod -R u=rwX,go= /data/monitor
+
+  monitor:
+    <<: *locked
+    image: ghcr.io/itg-labs/sylph-monitor:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
+    restart: unless-stopped
+    environment:
+      SYLPH_CORE_URL: ${SYLPH_CORE_URL:?set SYLPH_CORE_URL in .env}
+      SYLPH_CORE_NAME: ${SYLPH_CORE_NAME:-core.sylph.internal}
+      SYLPH_TLS_CERT: /certs/cert.pem
+      SYLPH_TLS_KEY: /certs/key.pem
+      SYLPH_CA_CERT: /certs/ca.pem
+      SYLPH_MONITOR_BOT_TOKEN: ${SYLPH_MONITOR_BOT_TOKEN:?set SYLPH_MONITOR_BOT_TOKEN in .env}
+      SYLPH_MONITOR_CHAT_IDS: ${SYLPH_MONITOR_CHAT_IDS:?set SYLPH_MONITOR_CHAT_IDS in .env}
+      SYLPH_MONITOR_PANEL_URL: ${SYLPH_MONITOR_PANEL_URL:-}
+      SYLPH_MONITOR_TZ: ${SYLPH_MONITOR_TZ:-Europe/Moscow}
+      SYLPH_MONITOR_STATE_PATH: /data/state.json
+      SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+      - ./data/monitor:/data
+    depends_on:
+      perms:
+        condition: service_completed_successfully

@@ -53,6 +53,7 @@ func TestLoadConfigRejects(t *testing.T) {
 		"no cert":           {"SYLPH_TLS_CERT", ""},
 		"bad expire":        {"SYLPH_CRON_EXPIRE_EVERY", "often"},
 		"too fast expire":   {"SYLPH_CRON_EXPIRE_EVERY", "500ms"},
+		"too slow expire":   {"SYLPH_CRON_EXPIRE_EVERY", "5m"},
 		"bad cleanup":       {"SYLPH_CRON_CLEANUP_EVERY", "-1h"},
 		"bad payments":      {"SYLPH_CRON_PAYMENTS_EVERY", "soon"},
 		"zero retention":    {"SYLPH_CRON_RETENTION_DAYS", "0"},

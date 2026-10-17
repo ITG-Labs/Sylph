@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
 
@@ -82,7 +84,7 @@ func TestTelegramLoopDispatchesUpdatesToTheApp(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(logs, nil))
 	core := &fakeCore{}
 	app := NewApp(core, "https://subs.example.com", time.UTC, log)
-	b, err := NewTelegram("123:secret-token", srv.URL, app, log)
+	b, err := NewTelegram("123:secret-token", srv.URL, app, log, &Conflicts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +116,7 @@ func TestNewTelegramFailsOnABadToken(t *testing.T) {
 	t.Cleanup(srv.Close)
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(logs, nil))
-	_, err := NewTelegram("123:wrong-secret", srv.URL, NewApp(&fakeCore{}, "https://s", time.UTC, log), log)
+	_, err := NewTelegram("123:wrong-secret", srv.URL, NewApp(&fakeCore{}, "https://s", time.UTC, log), log, &Conflicts{})
 	if err == nil {
 		t.Fatal("bad token accepted")
 	}
@@ -126,9 +128,28 @@ func TestNewTelegramFailsOnABadToken(t *testing.T) {
 func TestTelegramErrorsAreLoggedWithoutTheToken(t *testing.T) {
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(logs, nil))
-	telegramErrors(log, "123:secret-token")(errors.New(`Post "https://api.telegram.org/bot123:secret-token/getUpdates": dial tcp: timeout`))
+	telegramErrors(log, "123:secret-token", &Conflicts{})(errors.New(`Post "https://api.telegram.org/bot123:secret-token/getUpdates": dial tcp: timeout`))
 	if strings.Contains(logs.String(), "secret-token") || !strings.Contains(logs.String(), `"msg":"telegram_error"`) {
 		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+func TestTelegramConflictIsRecorded(t *testing.T) {
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	c := &Conflicts{}
+	h := telegramErrors(log, "123:secret-token", c)
+	h(errors.New("error get updates, dial tcp: timeout"))
+	if c.Last() != nil {
+		t.Fatal("a network error was taken for a conflict")
+	}
+	before := time.Now()
+	h(fmt.Errorf("error get updates, %w", fmt.Errorf("%w, Conflict: terminated by other getUpdates request", tgbot.ErrorConflict)))
+	if last := c.Last(); last == nil || last.Before(before.Add(-time.Second)) {
+		t.Fatalf("conflict = %v", last)
+	}
+	var none *Conflicts
+	if none.Last() != nil {
+		t.Fatal("nil tracker reported a conflict")
 	}
 }
 

@@ -67,6 +67,7 @@ var coreAllowlist = buildAllowlist(
 	"POST /v1/admin/payments/{payment_id}/refund",
 	"GET /v1/admin/overview",
 	"GET /v1/admin/audit",
+	"DELETE /v1/admin/services/{cn}",
 	"GET /v1/admin/settings",
 	"PATCH /v1/admin/settings",
 	"GET /v1/admin/profiles",

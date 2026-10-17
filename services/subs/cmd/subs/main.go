@@ -14,12 +14,17 @@ import (
 
 	"github.com/ITG-Labs/sylph/internal/version"
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
+	"github.com/ITG-Labs/sylph/pkg/healthcheck"
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/pkg/pulse"
 	"github.com/ITG-Labs/sylph/services/subs"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck.Run(healthcheck.LocalURL(envOr("SYLPH_LISTEN", ":8080"), "/health"), os.Stderr))
+	}
 	logger := logging.New("subs", envOr("SYLPH_LOG_LEVEL", "info"))
 	logger.Info("starting", slog.String("version", version.Version))
 	if err := run(logger); err != nil {
@@ -38,10 +43,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	core, err := coreClient(cfg, logger)
+	core, api, err := coreClient(cfg, logger)
 	if err != nil {
 		return err
 	}
+	go pulse.Run(ctx, api, logger, pulse.Every, nil)
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           subs.NewServer(core, cfg.Settings, logger).Handler(),
@@ -73,28 +79,28 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func coreClient(cfg *subs.Config, logger *slog.Logger) (*subs.CoreClient, error) {
+func coreClient(cfg *subs.Config, logger *slog.Logger) (*subs.CoreClient, *apiclient.Client, error) {
 	certPEM, err := os.ReadFile(cfg.TLSCert)
 	if err != nil {
-		return nil, fmt.Errorf("read tls cert: %w", err)
+		return nil, nil, fmt.Errorf("read tls cert: %w", err)
 	}
 	keyPEM, err := os.ReadFile(cfg.TLSKey)
 	if err != nil {
-		return nil, fmt.Errorf("read tls key: %w", err)
+		return nil, nil, fmt.Errorf("read tls key: %w", err)
 	}
 	caPEM, err := os.ReadFile(cfg.CACert)
 	if err != nil {
-		return nil, fmt.Errorf("read ca cert: %w", err)
+		return nil, nil, fmt.Errorf("read ca cert: %w", err)
 	}
 	tlsCfg, err := mtls.NewClientTLSConfig(mtls.ClientConfig{CertPEM: certPEM, KeyPEM: keyPEM, CAPEM: caPEM, ServerName: cfg.ServerName})
 	if err != nil {
-		return nil, fmt.Errorf("tls config: %w", err)
+		return nil, nil, fmt.Errorf("tls config: %w", err)
 	}
 	api, err := apiclient.New("subs", cfg.CoreURL, tlsCfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("api client: %w", err)
+		return nil, nil, fmt.Errorf("api client: %w", err)
 	}
-	return subs.NewCoreClient(api), nil
+	return subs.NewCoreClient(api), api, nil
 }
 
 func envOr(key string, fallback string) string {

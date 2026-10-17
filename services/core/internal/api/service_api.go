@@ -307,6 +307,11 @@ func (s *Server) handleMaintenanceExpire(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal", "expire failed")
 		return
 	}
+	if role, _ := mtls.RoleOf(peerCert(r)); role == mtls.RoleCron {
+		if err := s.svc.MarkCronExpire(r.Context()); err != nil {
+			s.log.Warn("health_mark_failed", "name", "cron_expire", "error", err.Error())
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]int64{"expired": n})
 }
 

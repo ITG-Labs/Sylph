@@ -21,6 +21,9 @@ type Service struct {
 	nodeOffline time.Duration
 	nodeStale   time.Duration
 	botUsername string
+
+	coreCertNotAfter *time.Time
+	caNotAfter       *time.Time
 }
 
 func (s *Service) SetBotUsername(name string) {

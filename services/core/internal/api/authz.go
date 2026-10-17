@@ -22,6 +22,11 @@ func (s *Server) route(mux *http.ServeMux, pattern string, h http.HandlerFunc, r
 	mux.Handle(pattern, s.requireRole(roles, h))
 }
 
+func (s *Server) routeMachine(mux *http.ServeMux, pattern string, h http.HandlerFunc, roles ...string) {
+	s.machine[pattern] = true
+	s.route(mux, pattern, h, roles...)
+}
+
 func (s *Server) requireRole(roles []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cert := peerCert(r)
@@ -36,7 +41,7 @@ func (s *Server) requireRole(roles []string, next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "forbidden", "role not allowed")
 			return
 		}
-		if role == mtls.RolePanel {
+		if role == mtls.RolePanel && !s.machine[r.Pattern] {
 			s.servePanel(w, r, next)
 			return
 		}

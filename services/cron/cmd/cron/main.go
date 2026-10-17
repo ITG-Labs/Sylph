@@ -12,6 +12,7 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/pkg/pulse"
 	"github.com/ITG-Labs/sylph/services/cron"
 )
 
@@ -31,10 +32,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	core, err := coreClient(cfg, logger)
+	core, api, err := coreClient(cfg, logger)
 	if err != nil {
 		return err
 	}
+	go pulse.Run(ctx, api, logger, pulse.Every, nil)
 	logger.Info("scheduled",
 		slog.String("expire_every", cfg.ExpireEvery.String()),
 		slog.String("cleanup_every", cfg.CleanupEvery.String()),
@@ -45,28 +47,28 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func coreClient(cfg *cron.Config, logger *slog.Logger) (*cron.CoreClient, error) {
+func coreClient(cfg *cron.Config, logger *slog.Logger) (*cron.CoreClient, *apiclient.Client, error) {
 	certPEM, err := os.ReadFile(cfg.TLSCert)
 	if err != nil {
-		return nil, fmt.Errorf("read tls cert: %w", err)
+		return nil, nil, fmt.Errorf("read tls cert: %w", err)
 	}
 	keyPEM, err := os.ReadFile(cfg.TLSKey)
 	if err != nil {
-		return nil, fmt.Errorf("read tls key: %w", err)
+		return nil, nil, fmt.Errorf("read tls key: %w", err)
 	}
 	caPEM, err := os.ReadFile(cfg.CACert)
 	if err != nil {
-		return nil, fmt.Errorf("read ca cert: %w", err)
+		return nil, nil, fmt.Errorf("read ca cert: %w", err)
 	}
 	tlsCfg, err := mtls.NewClientTLSConfig(mtls.ClientConfig{CertPEM: certPEM, KeyPEM: keyPEM, CAPEM: caPEM, ServerName: cfg.ServerName})
 	if err != nil {
-		return nil, fmt.Errorf("tls config: %w", err)
+		return nil, nil, fmt.Errorf("tls config: %w", err)
 	}
 	api, err := apiclient.New("cron", cfg.CoreURL, tlsCfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("api client: %w", err)
+		return nil, nil, fmt.Errorf("api client: %w", err)
 	}
-	return cron.NewCoreClient(api), nil
+	return cron.NewCoreClient(api), api, nil
 }
 
 func envOr(key string, fallback string) string {

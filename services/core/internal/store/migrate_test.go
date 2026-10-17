@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 22 {
-		t.Fatalf("tables = %d, want 22", count)
+	if count != 24 {
+		t.Fatalf("tables = %d, want 24", count)
 	}
 }
 
@@ -719,5 +719,70 @@ func TestMigration010DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 010 again: %v", err)
+	}
+}
+
+func TestMigration011DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 011: %v", err)
+	}
+	for _, name := range []string{"services", "health_marks"} {
+		if !tableExists(t, pool, name) {
+			t.Fatalf("up 011 did not create %s", name)
+		}
+	}
+	if !columnExists(t, pool, "nodes", "cert_not_after") {
+		t.Fatal("up 011 did not add nodes.cert_not_after")
+	}
+	before := nodesVersion(t, pool)
+	for _, q := range []string{
+		`UPDATE nodes SET cert_not_after = now() + interval '1 year' WHERE cert_cn = 'n1'`,
+		`INSERT INTO services (cert_cn, role, last_seen) VALUES ('bot', 'bot', now())`,
+		`INSERT INTO health_marks (name, ok_at) VALUES ('cron_expire', now())`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if v := nodesVersion(t, pool); v != before {
+		t.Fatalf("monitoring writes bumped nodes: %d -> %d", before, v)
+	}
+	for _, q := range []string{
+		`INSERT INTO services (cert_cn, role, last_seen) VALUES ('x', 'admin', now())`,
+		`INSERT INTO health_marks (name) VALUES ('unknown')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 011: %v", err)
+	}
+	for _, name := range []string{"services", "health_marks"} {
+		if tableExists(t, pool, name) {
+			t.Fatalf("down 011 left %s", name)
+		}
+	}
+	if columnExists(t, pool, "nodes", "cert_not_after") {
+		t.Fatal("down 011 left nodes.cert_not_after")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 011 again: %v", err)
 	}
 }

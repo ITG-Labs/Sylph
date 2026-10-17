@@ -25,6 +25,28 @@ export interface Overview {
     refunded_30d: number
   }
   attention: { mismatch: number; stuck_pending: number; paid_while_banned: number; nodes_problem: number }
+  services: ServiceInfo[]
+  core: CoreInfo
+}
+
+export type ServiceRole = "bot" | "subs" | "cron" | "panel" | "monitor"
+
+export interface ServiceInfo {
+  cert_cn: string
+  role: ServiceRole
+  version: string
+  uptime_sec: number
+  cert_not_after: string | null
+  telegram_conflict_at: string | null
+  last_seen: string
+  created_at: string
+  alive: boolean
+}
+
+export interface CoreInfo {
+  version: string
+  cert_not_after: string | null
+  ca_not_after: string | null
 }
 
 export interface UserRow {
