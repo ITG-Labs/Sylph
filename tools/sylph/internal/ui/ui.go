@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image/color"
@@ -42,6 +43,7 @@ type Sink interface {
 	Print(s string)
 	Step(ctx context.Context, title string, fn StepFunc) (string, error)
 	Form(f *huh.Form) error
+	Clipboard(s string)
 }
 
 type UI struct {
@@ -78,6 +80,18 @@ func (u *UI) Form(f *huh.Form) error {
 		return u.Sink.Form(f)
 	}
 	return f.Run()
+}
+
+func (u *UI) Clipboard(s string) bool {
+	if u.Sink != nil {
+		u.Sink.Clipboard(s)
+		return true
+	}
+	if !u.TTY {
+		return false
+	}
+	fmt.Fprintf(u.Out, "\x1b]52;c;%s\x07", base64.StdEncoding.EncodeToString([]byte(s)))
+	return true
 }
 
 func (u *UI) Writer() io.Writer {

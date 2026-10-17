@@ -51,6 +51,7 @@ type (
 	stepStartMsg  string
 	stepDetailMsg string
 	stepDoneMsg   string
+	clipboardMsg  string
 	cmdDoneMsg    struct{}
 	headerTickMsg struct{}
 	formMsg       struct {
@@ -79,6 +80,10 @@ func (s *shellSink) Step(ctx context.Context, title string, fn ui.StepFunc) (str
 	}
 	s.p.Send(stepDoneMsg(ui.StepLine(title, detail, err)))
 	return detail, err
+}
+
+func (s *shellSink) Clipboard(text string) {
+	s.p.Send(clipboardMsg(text))
 }
 
 func (s *shellSink) Form(f *huh.Form) error {
@@ -218,6 +223,8 @@ func (m *shell) update(msg tea.Msg) tea.Cmd {
 		m.step = nil
 		m.log = append(m.log, string(msg))
 		return nil
+	case clipboardMsg:
+		return tea.SetClipboard(string(msg))
 	case formMsg:
 		m.form, m.formDone = msg.form, msg.done
 		cmds := []tea.Cmd{m.form.Init(), m.toForm(m.formSize())}

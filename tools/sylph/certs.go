@@ -57,8 +57,8 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "certs bundle", "./sylph certs bundle <роль> [флаги]")
 	caDir := fs.String("ca", defaultCADir(), "папка CA")
 	name := fs.String("name", "", "имя серта ноды, например node-de-1 (только для node)")
-	out := fs.String("out", ".", "куда положить пакет")
-	inline := fs.Bool("inline", false, "ещё и напечатать пакет одной строкой для вставки в мастер")
+	file := fs.Bool("file", false, "вместо строки записать пакет файлом .sylph-certs (для scp)")
+	out := fs.String("out", ".", "куда положить файл пакета (с --file)")
 	yes := fs.Bool("yes", false, "создать CA без вопроса, если его нет")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
@@ -125,22 +125,6 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err := b.Encode()
-	if err != nil {
-		return err
-	}
-	fileName := leafName
-	if r.Name == "core" {
-		fileName = "core"
-	}
-	path, err := filepath.Abs(filepath.Join(*out, fileName+bundle.Ext))
-	if err != nil {
-		return err
-	}
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
-		return err
-	}
-	shown := displayPath(path)
 	var lines []string
 	for _, l := range leaves {
 		lines = append(lines, l.Name+ui.Dimmed(" · до "+l.NotAfter.Local().Format("02.01.2006")))
@@ -148,21 +132,42 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	if _, ok := b.Files[bundle.RevokedFile]; ok {
 		lines = append(lines, "revoked.json"+ui.Dimmed(" · список отозванных"))
 	}
-	body := ui.KV([][2]string{{"файл", shown}, {"внутри", strings.Join(lines, "\n        ")}}) +
-		"\n\n" + ui.Bold("Довезти на машину роли:") +
-		"\n  scp " + shown + " root@<машина>:~/" +
-		"\n  " + ui.Dimmed("на машине: sudo ./sylph install "+r.Name+" — мастер спросит путь к пакету") +
-		"\n\n" + ui.Dimmed("ca.key остаётся здесь, в "+*caDir+": на машины его не копируй")
-	u.Box("Пакет готов", body, ui.Green)
-	if *inline {
-		line, err := b.Inline()
+	inside := ui.KV([][2]string{{"внутри", strings.Join(lines, "\n        ")}})
+	keyNote := "\n\n" + ui.Dimmed("ca.key остаётся здесь, в "+*caDir+": на машины он не попадает")
+	if *file {
+		data, err := b.Encode()
 		if err != nil {
 			return err
 		}
-		u.Line("")
-		u.Line(ui.Bold("Строка для вставки в мастер") + ui.Dimmed(" (в ней приватный ключ — не свети её):"))
-		u.Line(line)
+		fileName := leafName
+		if r.Name == "core" {
+			fileName = "core"
+		}
+		path, err := filepath.Abs(filepath.Join(*out, fileName+bundle.Ext))
+		if err != nil {
+			return err
+		}
+		if err := writeFileAtomic(path, data, 0o600); err != nil {
+			return err
+		}
+		shown := displayPath(path)
+		u.Box("Пакет "+r.Name+" готов", ui.KV([][2]string{{"файл", shown}})+"\n"+inside+
+			"\n\n"+ui.Bold("Довезти: ")+"scp "+shown+" root@<машина>:"+
+			"\n"+ui.Dimmed("на машине: sudo sylph install "+r.Name+" --certs ~/"+filepath.Base(path))+keyNote, ui.Green)
+		return nil
 	}
+	line, err := b.Inline()
+	if err != nil {
+		return err
+	}
+	clip := "строка ниже"
+	if u.Clipboard(line) {
+		clip = "строка ниже (и в буфере обмена, если терминал умеет)"
+	}
+	u.Box("Пакет "+r.Name+" готов — "+clip, inside+
+		"\n\n"+ui.Bold("Дальше: ")+"на машине роли sudo sylph → /install "+r.Name+" → в шаг «Пакет сертов» вставь строку"+
+		"\n"+ui.Dimmed("в строке приватный ключ роли — не пересылай её в чаты; после установки она больше не нужна")+keyNote, ui.Green)
+	u.Line(line)
 	return nil
 }
 
@@ -282,7 +287,7 @@ func certsRevoke(u *ui.UI, args []string) error {
 		return err
 	}
 	u.OK("серт " + pos[0] + " отозван")
-	u.Info("дальше: ./sylph certs bundle core → на машине ядра sudo ./sylph install core с новым пакетом")
+	u.Info("дальше: sylph certs bundle core → на машине ядра sudo sylph install core и вставь новый пакет")
 	return nil
 }
 

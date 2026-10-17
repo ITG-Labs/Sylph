@@ -75,6 +75,8 @@ func (r *recordSink) Step(ctx context.Context, title string, fn StepFunc) (strin
 
 func (r *recordSink) Form(*huh.Form) error { return nil }
 
+func (r *recordSink) Clipboard(string) {}
+
 func TestWriterRoutesWholeLines(t *testing.T) {
 	sink := &recordSink{}
 	u := &UI{Sink: sink}

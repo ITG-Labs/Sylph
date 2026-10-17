@@ -157,8 +157,8 @@ func (w Wizard) Ask(req Request) (*Answers, error) {
 		).Value(&newCerts)))
 	}
 	groups = append(groups, huh.NewGroup(huh.NewInput().
-		Title("Пакет сертов").
-		Description("путь к файлу .sylph-certs или строка sylph-certs:… из `sylph certs bundle " + r.Name + "` на ноуте").
+		Title("Пакет сертов — вставь строку").
+		Description("её печатает `sylph certs bundle " + r.Name + "` на ноуте (sylph-certs:…); можно и путь к файлу .sylph-certs").
 		CharLimit(1<<16).
 		Value(&bundleInput).
 		Validate(req.CheckBundle)).WithHideFunc(func() bool { return !newCerts }))
