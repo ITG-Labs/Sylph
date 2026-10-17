@@ -161,13 +161,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
   installer:
     if: github.event_name == 'push'
-    needs: [test, lint, web, build]
+    needs: [images]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
       group: installer-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -206,15 +206,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/edge" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/edge" -f sha="$GITHUB_SHA" -F force=true >/dev/null
-          else
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/edge -f sha="$GITHUB_SHA" >/dev/null
-          fi
           notes="Build of main at $GITHUB_SHA. Images: sha-${GITHUB_SHA::7}. Installer: curl -fLo sylph https://github.com/$GITHUB_REPOSITORY/releases/download/edge/sylph-linux-amd64 && chmod +x sylph"
           if gh release view edge --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload edge dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/edge" -f sha="$GITHUB_SHA" -F force=true >/dev/null
             gh release edit edge --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --notes "$notes"
           else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/edge -f sha="$GITHUB_SHA" >/dev/null
             gh release create edge dist/* --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title edge --notes "$notes"
           fi
