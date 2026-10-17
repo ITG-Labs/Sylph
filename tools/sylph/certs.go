@@ -145,6 +145,7 @@ func certsBundle(u *ui.UI, args []string) error {
 	if err := writeFileAtomic(path, data, 0o600); err != nil {
 		return err
 	}
+	shown := displayPath(path)
 	var lines []string
 	for _, l := range leaves {
 		lines = append(lines, l.Name+ui.Dimmed(" · до "+l.NotAfter.Local().Format("02.01.2006")))
@@ -152,9 +153,9 @@ func certsBundle(u *ui.UI, args []string) error {
 	if _, ok := b.Files[bundle.RevokedFile]; ok {
 		lines = append(lines, "revoked.json"+ui.Dimmed(" · список отозванных"))
 	}
-	body := ui.KV([][2]string{{"файл", path}, {"внутри", strings.Join(lines, "\n        ")}}) +
+	body := ui.KV([][2]string{{"файл", shown}, {"внутри", strings.Join(lines, "\n        ")}}) +
 		"\n\n" + ui.Bold("Довезти на машину роли:") +
-		"\n  scp " + path + " root@<машина>:~/" +
+		"\n  scp " + shown + " root@<машина>:~/" +
 		"\n  " + ui.Dimmed("на машине: sudo ./sylph install "+r.Name+" — мастер спросит путь к пакету") +
 		"\n\n" + ui.Dimmed("ca.key остаётся здесь, в "+*caDir+": на машины его не копируй")
 	u.Box("Пакет готов", body, ui.Green)
@@ -278,4 +279,16 @@ func certsRevoke(u *ui.UI, args []string) error {
 	u.OK("серт " + pos[0] + " отозван")
 	u.Info("дальше: ./sylph certs bundle core → на машине ядра sudo ./sylph install core с новым пакетом")
 	return nil
+}
+
+func displayPath(path string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+	rel, err := filepath.Rel(cwd, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return path
+	}
+	return rel
 }

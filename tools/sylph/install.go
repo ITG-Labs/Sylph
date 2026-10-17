@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,9 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	interactive := u.TTY && o.envFile == ""
 	if o.envFile == "" && !u.TTY {
 		return errors.New("нет терминала для мастера: передай настройки через --env <файл>")
+	}
+	if api := os.Getenv("SYLPH_TELEGRAM_API"); api != "" {
+		machine.TelegramAPI = strings.TrimRight(api, "/")
 	}
 	var wz wizard.Wizard
 	u.Banner("установка роли", "образы "+imgVer+" · Ctrl+C — выйти")
@@ -249,6 +253,9 @@ func (p *plan) load(imgVer string) error {
 
 func (p *plan) fromFile(o installOpts, imgVer string) error {
 	data, err := os.ReadFile(o.envFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("нет файла %s", o.envFile)
+	}
 	if err != nil {
 		return err
 	}
@@ -372,6 +379,13 @@ func (p *plan) checks(ctx context.Context, u *ui.UI, now time.Time) (int, error)
 			if err := step("DNS", func(context.Context) machine.Result { return res }); err != nil {
 				return warnings, err
 			}
+		}
+	}
+	if port := p.env.Get(role.KeyPort); p.r.DomainKey != "" && port != "443" {
+		if err := step("Let's Encrypt", func(context.Context) machine.Result {
+			return machine.Result{Level: machine.Warn, Detail: "проверяет домен только на 443: с портом " + port + " серт выпустится, если 443 снаружи проброшен на " + port}
+		}); err != nil {
+			return warnings, err
 		}
 	}
 	if p.r.TokenKey != "" {
@@ -627,11 +641,15 @@ func (p *plan) createAdmins(ctx context.Context, u *ui.UI, wz wizard.Wizard, int
 		return shown(err)
 	}
 	for _, a := range made {
-		body := ui.KV([][2]string{{"логин", a.name}, {"пароль", ui.Bold(a.password)}, {"TOTP", a.uri}})
-		if qr, err := ui.QR(a.uri); err == nil {
-			body += "\n\n" + qr
+		u.Line("")
+		u.Box("Админ "+a.name+" — показываю один раз", ui.KV([][2]string{{"логин", a.name}, {"пароль", ui.Bold(a.password)}}), ui.Yellow)
+		qr, err := ui.QR(a.uri)
+		if err != nil {
+			return err
 		}
-		u.Box("Админ "+a.name+" — пароль и TOTP показываю один раз", body, ui.Yellow)
+		u.Line(ui.Dimmed("TOTP: отсканируй в приложении-аутентификаторе"))
+		u.Line(qr)
+		u.Line(ui.Dimmed("или вручную: ") + a.uri)
 		if interactive {
 			if err := wz.Pause("Сохранил пароль и добавил TOTP в приложение?", "больше их нигде не будет: в admins.json только хэш и секрет"); err != nil {
 				return err
