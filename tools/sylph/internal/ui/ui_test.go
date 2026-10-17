@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"charm.land/huh/v2"
 )
 
 func TestQRIsSquareAndScannableSize(t *testing.T) {
@@ -60,5 +62,32 @@ func TestKV(t *testing.T) {
 	out := KV([][2]string{{"роль", "core"}, {"версия образов", "0.1.0"}})
 	if !strings.Contains(out, "core") || !strings.Contains(out, "0.1.0") || strings.Count(out, "\n") != 1 {
 		t.Fatalf("KV = %q", out)
+	}
+}
+
+type recordSink struct{ lines []string }
+
+func (r *recordSink) Print(s string) { r.lines = append(r.lines, s) }
+
+func (r *recordSink) Step(ctx context.Context, title string, fn StepFunc) (string, error) {
+	return fn(ctx, func(string) {})
+}
+
+func (r *recordSink) Form(*huh.Form) error { return nil }
+
+func TestWriterRoutesWholeLines(t *testing.T) {
+	sink := &recordSink{}
+	u := &UI{Sink: sink}
+	w := u.Writer()
+	w.Write([]byte("Флаги:\n  -dir st"))
+	w.Write([]byte("ring\n\tпапка\n"))
+	if strings.Join(sink.lines, "|") != "Флаги:|  -dir string|\tпапка" {
+		t.Fatalf("lines = %q", sink.lines)
+	}
+}
+
+func TestStepLineCancelled(t *testing.T) {
+	if got := StepLine("Здоровье", "", context.Canceled); !strings.Contains(got, "отменено") {
+		t.Fatalf("StepLine = %q", got)
 	}
 }

@@ -35,7 +35,7 @@ func defaultCADir() string {
 
 func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	if len(args) == 0 {
-		fmt.Println(certsUsage)
+		u.Line(certsUsage)
 		return errors.New("нужна команда: bundle, list или revoke")
 	}
 	switch args[0] {
@@ -46,14 +46,14 @@ func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	case "revoke":
 		return certsRevoke(u, args[1:])
 	case "-h", "--help", "help":
-		fmt.Println(certsUsage)
+		u.Line(certsUsage)
 		return nil
 	}
 	return fmt.Errorf("неизвестная команда certs %q: bundle, list или revoke", args[0])
 }
 
 func certsBundle(u *ui.UI, args []string) error {
-	fs := newFlags("certs bundle", "./sylph certs bundle <роль> [флаги]")
+	fs := newFlags(u, "certs bundle", "./sylph certs bundle <роль> [флаги]")
 	caDir := fs.String("ca", defaultCADir(), "папка CA")
 	name := fs.String("name", "", "имя серта ноды, например node-de-1 (только для node)")
 	coreName := fs.String("core-name", role.DefaultCoreName, "имя в серте ядра (только для core)")
@@ -71,7 +71,7 @@ func certsBundle(u *ui.UI, args []string) error {
 	if err != nil {
 		return err
 	}
-	var wz wizard.Wizard
+	wz := wizardFor(u)
 	leafName := r.Name
 	switch {
 	case r.Name == "node" && *name == "" && u.TTY:
@@ -166,7 +166,7 @@ func certsBundle(u *ui.UI, args []string) error {
 		}
 		u.Line("")
 		u.Line(ui.Bold("Строка для вставки в мастер") + ui.Dimmed(" (в ней приватный ключ — не свети её):"))
-		fmt.Println(line)
+		u.Line(line)
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ func ensureCA(u *ui.UI, wz wizard.Wizard, dir string, yes bool) error {
 }
 
 func certsList(u *ui.UI, args []string) error {
-	fs := newFlags("certs list", "./sylph certs list [флаги]")
+	fs := newFlags(u, "certs list", "./sylph certs list [флаги]")
 	caDir := fs.String("ca", defaultCADir(), "папка CA")
 	if _, err := parseWithArgs(fs, args); err != nil {
 		return err
@@ -251,7 +251,7 @@ func certsList(u *ui.UI, args []string) error {
 }
 
 func certsRevoke(u *ui.UI, args []string) error {
-	fs := newFlags("certs revoke", "./sylph certs revoke <имя> [флаги]")
+	fs := newFlags(u, "certs revoke", "./sylph certs revoke <имя> [флаги]")
 	caDir := fs.String("ca", defaultCADir(), "папка CA")
 	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
 	pos, err := parseWithArgs(fs, args)
@@ -265,7 +265,7 @@ func certsRevoke(u *ui.UI, args []string) error {
 		if !u.TTY {
 			return errors.New("без терминала отзываю только с --yes")
 		}
-		ok, err := wizard.Wizard{}.Confirm("Отозвать серт "+pos[0]+"?", "ядро перестанет его пускать после перезапуска с новым revoked.json; вернуть нельзя", false)
+		ok, err := wizardFor(u).Confirm("Отозвать серт "+pos[0]+"?", "ядро перестанет его пускать после перезапуска с новым revoked.json; вернуть нельзя", false)
 		if err != nil {
 			return err
 		}

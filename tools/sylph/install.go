@@ -40,7 +40,7 @@ type installOpts struct {
 }
 
 func cmdInstall(ctx context.Context, u *ui.UI, args []string) error {
-	fs := newFlags("install", "sudo ./sylph install [роль] [флаги]")
+	fs := newFlags(u, "install", "sudo ./sylph install [роль] [флаги]")
 	dir := fs.String("dir", "", "папка роли (по умолчанию ./sylph-<роль>)")
 	envFile := fs.String("env", "", "файл с настройками роли: установка без вопросов")
 	certs := fs.String("certs", "", "пакет сертов: файл .sylph-certs или строка sylph-certs:…")
@@ -100,8 +100,12 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	if api := os.Getenv("SYLPH_TELEGRAM_API"); api != "" {
 		machine.TelegramAPI = strings.TrimRight(api, "/")
 	}
-	var wz wizard.Wizard
-	u.Banner("установка роли", "образы "+imgVer+" · Ctrl+C — выйти")
+	wz := wizardFor(u)
+	sub := "образы " + imgVer
+	if u.Sink == nil {
+		sub += " · Ctrl+C — выйти"
+	}
+	u.Banner("установка роли", sub)
 	u.Section("Docker")
 	if err := dockerChecks(ctx, u); err != nil {
 		return shown(err)

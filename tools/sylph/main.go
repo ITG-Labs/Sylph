@@ -23,6 +23,9 @@ const usage = `sylph — установка и обслуживание роле
   sudo ./sylph install [роль]   мастер: настройки, серты, запуск, ожидание здоровья
   sudo ./sylph update           обновить роли машины до версии этого бинаря
   sudo ./sylph status           здоровье ролей машины
+  sudo ./sylph start [роль]     запустить роль и дождаться здоровья
+  sudo ./sylph stop [роль]      остановить роль
+  sudo ./sylph                  всё то же в интерактивном режиме
 
 На ноуте рядом с CA:
   ./sylph certs bundle <роль>   пакет сертов роли (первый запуск создаст CA)
@@ -44,9 +47,16 @@ func main() {
 func run(ctx context.Context, args []string) int {
 	u := ui.New()
 	if len(args) == 0 {
-		fmt.Println(usage)
+		if u.TTY {
+			return runShell(ctx, u)
+		}
+		u.Line(usage)
 		return 2
 	}
+	return dispatch(ctx, u, args)
+}
+
+func dispatch(ctx context.Context, u *ui.UI, args []string) int {
 	var err error
 	switch args[0] {
 	case "install":
@@ -55,16 +65,21 @@ func run(ctx context.Context, args []string) int {
 		err = cmdUpdate(ctx, u, args[1:])
 	case "status":
 		return cmdStatus(ctx, u, args[1:])
+	case "start":
+		err = cmdStart(ctx, u, args[1:])
+	case "stop":
+		err = cmdStop(ctx, u, args[1:])
 	case "certs":
 		err = cmdCerts(ctx, u, args[1:])
 	case "version", "--version", "-v":
-		fmt.Printf("sylph %s (образы: %s)\n", version.Version, imageVersionOrDev())
+		u.Line(fmt.Sprintf("sylph %s (образы: %s)", version.Version, imageVersionOrDev()))
 		return 0
 	case "help", "-h", "--help":
-		fmt.Println(usage)
+		u.Line(usage)
 		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "неизвестная команда %q\n\n%s\n", args[0], usage)
+		u.Fail(fmt.Sprintf("неизвестная команда %q", args[0]))
+		u.Line(usage)
 		return 2
 	}
 	switch {
@@ -84,6 +99,8 @@ func run(ctx context.Context, args []string) int {
 }
 
 type shownError struct{ error }
+
+func (s shownError) Unwrap() error { return s.error }
 
 func shown(err error) error { return shownError{err} }
 
@@ -114,8 +131,13 @@ func imageVersionOrDev() string {
 	return v
 }
 
-func newFlags(name string, short string) *flag.FlagSet {
+func wizardFor(u *ui.UI) wizard.Wizard {
+	return wizard.Wizard{Run: u.Form}
+}
+
+func newFlags(u *ui.UI, name string, short string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(u.Writer())
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "%s\n\nФлаги:\n", short)
 		fs.PrintDefaults()

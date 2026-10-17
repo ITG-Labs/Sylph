@@ -15,7 +15,7 @@ import (
 )
 
 func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
-	fs := newFlags("update", "sudo ./sylph update [флаги]")
+	fs := newFlags(u, "update", "sudo ./sylph update [флаги]")
 	dir := fs.String("dir", "", "обновить только роль из этой папки")
 	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
 	ver := fs.String("version", "", "тег образов вместо версии бинаря")
@@ -77,7 +77,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		u.Warn("понижение версии: миграции базы ядра назад не откатываются")
 	}
 	if u.TTY && !*yes {
-		ok, err := wizard.Wizard{}.Confirm("Обновляем?", "свежие compose-файлы, новая версия в .env, pull, up, ожидание здоровья", true)
+		ok, err := wizardFor(u).Confirm("Обновляем?", "свежие compose-файлы, новая версия в .env, pull, up, ожидание здоровья", true)
 		if err != nil {
 			return err
 		}

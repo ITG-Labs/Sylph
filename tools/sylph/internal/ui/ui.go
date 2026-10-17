@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -12,6 +14,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"rsc.io/qr"
 )
@@ -35,10 +38,17 @@ var (
 	bold   = lipgloss.NewStyle().Bold(true)
 )
 
+type Sink interface {
+	Print(s string)
+	Step(ctx context.Context, title string, fn StepFunc) (string, error)
+	Form(f *huh.Form) error
+}
+
 type UI struct {
 	Out  io.Writer
 	TTY  bool
 	Dark bool
+	Sink Sink
 }
 
 func New() *UI {
@@ -56,10 +66,46 @@ func isTerminal(f *os.File) bool {
 }
 
 func (u *UI) print(s string) {
+	if u.Sink != nil {
+		u.Sink.Print(s)
+		return
+	}
 	lipgloss.Fprintln(u.Out, s)
 }
 
+func (u *UI) Form(f *huh.Form) error {
+	if u.Sink != nil {
+		return u.Sink.Form(f)
+	}
+	return f.Run()
+}
+
+func (u *UI) Writer() io.Writer {
+	return &lineWriter{u: u}
+}
+
+type lineWriter struct {
+	u   *UI
+	buf bytes.Buffer
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf.Write(p)
+	for {
+		line, err := w.buf.ReadString('\n')
+		if err != nil {
+			w.buf.WriteString(line)
+			return len(p), nil
+		}
+		w.u.print(strings.TrimRight(line, "\n"))
+	}
+}
+
 func (u *UI) Banner(title string, subtitle string) {
+	if u.Sink != nil {
+		u.print("\n" + accent.Render("◆ "+title) + dim.Render(" · "+subtitle))
+		return
+	}
 	logo := accent.Render("◆ Sylph") + dim.Render(" · ") + bold.Render(title)
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(Accent).Padding(0, 2)
 	u.print(box.Render(logo + "\n" + dim.Render(subtitle)))
@@ -172,6 +218,9 @@ type WarnError struct{ Msg string }
 func (w WarnError) Error() string { return w.Msg }
 
 func (u *UI) Step(ctx context.Context, title string, fn StepFunc) (string, error) {
+	if u.Sink != nil {
+		return u.Sink.Step(ctx, title, fn)
+	}
 	if !u.TTY {
 		lipgloss.Fprintln(u.Out, dim.Render("  … ")+title)
 		detail, err := fn(ctx, func(string) {})
@@ -180,7 +229,7 @@ func (u *UI) Step(ctx context.Context, title string, fn StepFunc) (string, error
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	m := &stepModel{title: title, spin: spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(Accent))), cancel: cancel, started: time.Now()}
+	m := &stepModel{title: title, spin: Spinner(), cancel: cancel, started: time.Now()}
 	p := tea.NewProgram(m, tea.WithoutSignalHandler())
 	var detail string
 	var err error
@@ -199,18 +248,38 @@ func (u *UI) Step(ctx context.Context, title string, fn StepFunc) (string, error
 }
 
 func (u *UI) finish(title string, detail string, err error) {
+	u.print(StepLine(title, detail, err))
+}
+
+func StepLine(title string, detail string, err error) string {
 	switch {
+	case errors.Is(err, context.Canceled):
+		return yellow.Render("  ! ") + title + dim.Render(" · отменено")
 	case err == nil:
 		line := green.Render("  ✓ ") + title
 		if detail != "" {
 			line += dim.Render(" · " + detail)
 		}
-		u.print(line)
+		return line
 	case isWarn(err):
-		u.print(yellow.Render("  ! ") + title + dim.Render(" · ") + err.Error())
-	default:
-		u.print(red.Render("  ✗ ") + title + dim.Render(" · ") + red.Render(err.Error()))
+		return yellow.Render("  ! ") + title + dim.Render(" · ") + err.Error()
 	}
+	return red.Render("  ✗ ") + title + dim.Render(" · ") + red.Render(err.Error())
+}
+
+func Spinner() spinner.Model {
+	return spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(Accent)))
+}
+
+func LiveStep(spin string, title string, detail string, elapsed time.Duration) string {
+	line := "  " + spin + " " + title
+	if detail != "" {
+		line += dim.Render(" · " + detail)
+	}
+	if elapsed >= 3*time.Second {
+		line += dim.Render(fmt.Sprintf(" (%s)", elapsed.Round(time.Second)))
+	}
+	return line
 }
 
 func isWarn(err error) bool {
@@ -261,13 +330,5 @@ func (m *stepModel) View() tea.View {
 	if m.done {
 		return tea.NewView("")
 	}
-	line := "  " + m.spin.View() + " " + m.title
-	elapsed := time.Since(m.started).Round(time.Second)
-	if m.detail != "" {
-		line += dim.Render(" · " + m.detail)
-	}
-	if elapsed >= 3*time.Second {
-		line += dim.Render(fmt.Sprintf(" (%s)", elapsed))
-	}
-	return tea.NewView(line)
+	return tea.NewView(LiveStep(m.spin.View(), m.title, m.detail, time.Since(m.started)))
 }

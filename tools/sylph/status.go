@@ -18,7 +18,7 @@ import (
 )
 
 func cmdStatus(ctx context.Context, u *ui.UI, args []string) int {
-	fs := newFlags("status", "sudo ./sylph status [флаги]")
+	fs := newFlags(u, "status", "sudo ./sylph status [флаги]")
 	dir := fs.String("dir", "", "показать только роль из этой папки")
 	if _, err := parseWithArgs(fs, args); err != nil {
 		return 2

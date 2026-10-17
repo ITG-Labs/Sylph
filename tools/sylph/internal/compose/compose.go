@@ -267,6 +267,11 @@ func Up(ctx context.Context, dir string) error {
 	return err
 }
 
+func Stop(ctx context.Context, dir string) error {
+	_, err := Exec(ctx, dir, "compose", "stop")
+	return err
+}
+
 func Restart(ctx context.Context, dir string, services ...string) error {
 	_, err := Exec(ctx, dir, append([]string{"compose", "restart"}, services...)...)
 	return err

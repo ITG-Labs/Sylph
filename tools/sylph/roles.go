@@ -50,6 +50,9 @@ func roleOfDir(dir string) (*role.Role, error) {
 			return role.Get(strings.TrimSpace(name))
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
 	return nil, fmt.Errorf("%s: это не папка роли sylph", dir)
 }
 

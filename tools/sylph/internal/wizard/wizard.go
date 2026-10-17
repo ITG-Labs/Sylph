@@ -13,10 +13,18 @@ import (
 
 var ErrAborted = errors.New("отменено")
 
-type Wizard struct{}
+type Wizard struct {
+	Run func(*huh.Form) error
+}
 
 func (w Wizard) run(groups ...*huh.Group) error {
-	err := huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true).Run()
+	form := huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeCharm)).WithShowHelp(true)
+	var err error
+	if w.Run != nil {
+		err = w.Run(form)
+	} else {
+		err = form.Run()
+	}
 	if errors.Is(err, huh.ErrUserAborted) {
 		return ErrAborted
 	}
@@ -33,6 +41,16 @@ func (w Wizard) ChooseRole() (*role.Role, error) {
 		return nil, err
 	}
 	return role.Get(name)
+}
+
+func (w Wizard) Select(title string, labels []string) (int, error) {
+	var idx int
+	var opts []huh.Option[int]
+	for i, l := range labels {
+		opts = append(opts, huh.NewOption(l, i))
+	}
+	err := w.run(huh.NewGroup(huh.NewSelect[int]().Title(title).Options(opts...).Value(&idx)))
+	return idx, err
 }
 
 func (w Wizard) Confirm(title string, description string, def bool) (bool, error) {
