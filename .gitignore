@@ -11,3 +11,4 @@ deploy/prod/*/certs/
 deploy/prod/*/data/
 deploy/prod/*/admins.json
 deploy/prod/*/compose.override.yml
+/tools/sylph/sylph

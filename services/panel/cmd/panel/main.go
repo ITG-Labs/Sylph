@@ -47,12 +47,20 @@ func main() {
 func newAdmin(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("new-admin", flag.ContinueOnError)
 	name := fs.String("name", "", "admin name shown in the audit log")
+	asJSON := fs.Bool("json", false, "print the record, password and TOTP URI as one JSON object")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	rec, password, uri, err := panel.NewAdmin(*name)
 	if err != nil {
 		return err
+	}
+	if *asJSON {
+		return json.NewEncoder(out).Encode(struct {
+			Record   panel.AdminRecord `json:"record"`
+			Password string            `json:"password"`
+			TOTPURI  string            `json:"totp_uri"`
+		}{rec, password, uri})
 	}
 	b, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
