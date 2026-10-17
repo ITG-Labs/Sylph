@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const maxExpireEvery = 4 * time.Minute
+
 type Config struct {
 	CoreURL       string
 	TLSCert       string
@@ -44,6 +46,9 @@ func LoadConfig() (*Config, error) {
 	var err error
 	if cfg.ExpireEvery, err = interval("SYLPH_CRON_EXPIRE_EVERY", cfg.ExpireEvery); err != nil {
 		return nil, err
+	}
+	if cfg.ExpireEvery > maxExpireEvery {
+		return nil, errors.New("SYLPH_CRON_EXPIRE_EVERY must be at most 4m: the monitor alerts when expiry has not run for 5 minutes")
 	}
 	if cfg.CleanupEvery, err = interval("SYLPH_CRON_CLEANUP_EVERY", cfg.CleanupEvery); err != nil {
 		return nil, err
