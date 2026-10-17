@@ -2,20 +2,45 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
 
-func NewTelegram(token, apiURL string, app *App, log *slog.Logger) (*tgbot.Bot, error) {
+type Conflicts struct {
+	last atomic.Int64
+}
+
+func (c *Conflicts) record(t time.Time) {
+	if c != nil {
+		c.last.Store(t.UnixNano())
+	}
+}
+
+func (c *Conflicts) Last() *time.Time {
+	if c == nil {
+		return nil
+	}
+	n := c.last.Load()
+	if n == 0 {
+		return nil
+	}
+	t := time.Unix(0, n).UTC()
+	return &t
+}
+
+func NewTelegram(token, apiURL string, app *App, log *slog.Logger, conflicts *Conflicts) (*tgbot.Bot, error) {
 	b, err := tgbot.New(token,
 		tgbot.WithServerURL(apiURL),
 		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates{"message", "callback_query"}),
 		tgbot.WithDefaultHandler(safeHandler(app, log)),
-		tgbot.WithErrorsHandler(telegramErrors(log, token)),
+		tgbot.WithErrorsHandler(telegramErrors(log, token, conflicts)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("telegram: %s", mask(err.Error(), token))
@@ -34,8 +59,11 @@ func safeHandler(app *App, log *slog.Logger) tgbot.HandlerFunc {
 	}
 }
 
-func telegramErrors(log *slog.Logger, token string) tgbot.ErrorsHandler {
+func telegramErrors(log *slog.Logger, token string, conflicts *Conflicts) tgbot.ErrorsHandler {
 	return func(err error) {
+		if errors.Is(err, tgbot.ErrorConflict) {
+			conflicts.record(time.Now())
+		}
 		log.LogAttrs(context.Background(), slog.LevelError, "telegram_error", slog.String("error", mask(err.Error(), token)))
 	}
 }
