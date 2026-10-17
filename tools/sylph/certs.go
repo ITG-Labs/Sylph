@@ -1,0 +1,281 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ITG-Labs/sylph/pkg/castore"
+	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/bundle"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/role"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/ui"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/wizard"
+)
+
+const certTTL = 365 * 24 * time.Hour
+
+const certsUsage = `./sylph certs <команда> — на ноуте рядом с CA
+
+  bundle <роль> [--name <имя>]   пакет сертов роли; первый запуск создаст CA
+  list                           серты CA и их сроки
+  revoke <имя>                   отозвать серт`
+
+func defaultCADir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "sylph-ca"
+	}
+	return filepath.Join(home, "sylph-ca")
+}
+
+func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
+	if len(args) == 0 {
+		fmt.Println(certsUsage)
+		return errors.New("нужна команда: bundle, list или revoke")
+	}
+	switch args[0] {
+	case "bundle":
+		return certsBundle(u, args[1:])
+	case "list":
+		return certsList(u, args[1:])
+	case "revoke":
+		return certsRevoke(u, args[1:])
+	case "-h", "--help", "help":
+		fmt.Println(certsUsage)
+		return nil
+	}
+	return fmt.Errorf("неизвестная команда certs %q: bundle, list или revoke", args[0])
+}
+
+func certsBundle(u *ui.UI, args []string) error {
+	fs := newFlags("certs bundle", "./sylph certs bundle <роль> [флаги]")
+	caDir := fs.String("ca", defaultCADir(), "папка CA")
+	name := fs.String("name", "", "имя серта ноды, например node-de-1 (только для node)")
+	coreName := fs.String("core-name", role.DefaultCoreName, "имя в серте ядра (только для core)")
+	out := fs.String("out", ".", "куда положить пакет")
+	inline := fs.Bool("inline", false, "ещё и напечатать пакет одной строкой для вставки в мастер")
+	yes := fs.Bool("yes", false, "создать CA без вопроса, если его нет")
+	pos, err := parseWithArgs(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New("укажи роль: ./sylph certs bundle <core|panel|bot|subs|node|monitor>")
+	}
+	r, err := role.Get(pos[0])
+	if err != nil {
+		return err
+	}
+	var wz wizard.Wizard
+	leafName := r.Name
+	switch {
+	case r.Name == "node" && *name == "" && u.TTY:
+		if *name, err = wz.Input("Имя ноды", "оно же cert_cn ноды в панели, например node-de-1", castore.ValidName); err != nil {
+			return err
+		}
+		leafName = *name
+	case r.Name == "node" && *name == "":
+		return errors.New("для ноды нужно имя: --name node-de-1")
+	case r.Name == "node":
+		leafName = *name
+	case *name != "":
+		return errors.New("--name только для node: у остальных ролей имя серта — имя роли")
+	}
+	if err := castore.ValidName(leafName); err != nil {
+		return err
+	}
+	if r.Name == "core" {
+		if err := castore.ValidName(*coreName); err != nil {
+			return err
+		}
+	}
+
+	u.Banner("пакет сертов", "роль "+r.Name+" · CA "+*caDir)
+	if err := ensureCA(u, wz, *caDir, *yes); err != nil {
+		return err
+	}
+	now := time.Now()
+	names := bundle.LeafNames(r.Name, leafName, *coreName)
+	for _, n := range names {
+		has, err := castore.HasLeaf(*caDir, n)
+		if err != nil {
+			return err
+		}
+		if has {
+			u.Info("серт " + n + " уже есть — беру его")
+			continue
+		}
+		usage, certRole := mtls.ClientUsage, r.Name
+		switch {
+		case r.Name == "core" && n == *coreName:
+			usage, certRole = mtls.ServerUsage, ""
+		case r.Name == "core":
+			certRole = mtls.RoleCron
+		}
+		if err := castore.Issue(*caDir, n, usage, certRole, certTTL, now); err != nil {
+			return err
+		}
+		u.OK("выпущен серт " + n + " до " + now.Add(certTTL).Format("02.01.2006"))
+	}
+	b, err := bundle.Collect(*caDir, r.Name, leafName, *coreName, now)
+	if err != nil {
+		return err
+	}
+	leaves, err := b.Verify(r.Name, *coreName, now)
+	if err != nil {
+		return err
+	}
+	data, err := b.Encode()
+	if err != nil {
+		return err
+	}
+	fileName := leafName
+	if r.Name == "core" {
+		fileName = "core"
+	}
+	path, err := filepath.Abs(filepath.Join(*out, fileName+bundle.Ext))
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(path, data, 0o600); err != nil {
+		return err
+	}
+	var lines []string
+	for _, l := range leaves {
+		lines = append(lines, l.Name+ui.Dimmed(" · до "+l.NotAfter.Local().Format("02.01.2006")))
+	}
+	if _, ok := b.Files[bundle.RevokedFile]; ok {
+		lines = append(lines, "revoked.json"+ui.Dimmed(" · список отозванных"))
+	}
+	body := ui.KV([][2]string{{"файл", path}, {"внутри", strings.Join(lines, "\n        ")}}) +
+		"\n\n" + ui.Bold("Довезти на машину роли:") +
+		"\n  scp " + path + " root@<машина>:~/" +
+		"\n  " + ui.Dimmed("на машине: sudo ./sylph install "+r.Name+" — мастер спросит путь к пакету") +
+		"\n\n" + ui.Dimmed("ca.key остаётся здесь, в "+*caDir+": на машины его не копируй")
+	u.Box("Пакет готов", body, ui.Green)
+	if *inline {
+		line, err := b.Inline()
+		if err != nil {
+			return err
+		}
+		u.Line("")
+		u.Line(ui.Bold("Строка для вставки в мастер") + ui.Dimmed(" (в ней приватный ключ — не свети её):"))
+		fmt.Println(line)
+	}
+	return nil
+}
+
+func ensureCA(u *ui.UI, wz wizard.Wizard, dir string, yes bool) error {
+	ok, err := castore.Exists(dir)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if !yes {
+		if !u.TTY {
+			return fmt.Errorf("CA в %s нет: создать новый — флаг --yes", dir)
+		}
+		create, err := wz.Confirm("Создать новый боевой CA в "+dir+"?", "CA ещё нет. Его ключ ca.key останется только тут, на ноуте; все серты ролей будут подписаны им", true)
+		if err != nil {
+			return err
+		}
+		if !create {
+			return wizard.ErrAborted
+		}
+	}
+	if err := castore.Init(dir, "Sylph CA", time.Now()); err != nil {
+		return err
+	}
+	u.OK("создан CA в " + dir + " — сделай копию ca.key офлайн, без него новых сертов не выпустить")
+	return nil
+}
+
+func certsList(u *ui.UI, args []string) error {
+	fs := newFlags("certs list", "./sylph certs list [флаги]")
+	caDir := fs.String("ca", defaultCADir(), "папка CA")
+	if _, err := parseWithArgs(fs, args); err != nil {
+		return err
+	}
+	ok, err := castore.Exists(*caDir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("CA в %s нет: его создаст первый `./sylph certs bundle <роль>`", *caDir)
+	}
+	infos, err := castore.List(*caDir)
+	if err != nil {
+		return err
+	}
+	revoked, err := castore.LoadRevoked(*caDir)
+	if err != nil {
+		return err
+	}
+	isRevoked := map[string]bool{}
+	for _, s := range revoked {
+		isRevoked[s] = true
+	}
+	now := time.Now()
+	var rows [][2]string
+	for _, ci := range infos {
+		roleName := ci.Role
+		if roleName == "" {
+			roleName = ci.Type
+		}
+		left := ci.NotAfter.Sub(now)
+		when := fmt.Sprintf("%s · до %s (%d дн.)", roleName, ci.NotAfter.Local().Format("02.01.2006"), int(left.Hours()/24))
+		switch {
+		case isRevoked[ci.Serial]:
+			when = ui.Dimmed(when + " · отозван")
+		case left < 7*24*time.Hour:
+			when = ui.Colored(ui.Red, when)
+		case left < 30*24*time.Hour:
+			when = ui.Colored(ui.Yellow, when)
+		}
+		rows = append(rows, [2]string{ci.Name, when})
+	}
+	if len(rows) == 0 {
+		u.Info("в CA пока нет сертов")
+		return nil
+	}
+	u.Box("Серты CA "+*caDir, ui.KV(rows), ui.Accent)
+	return nil
+}
+
+func certsRevoke(u *ui.UI, args []string) error {
+	fs := newFlags("certs revoke", "./sylph certs revoke <имя> [флаги]")
+	caDir := fs.String("ca", defaultCADir(), "папка CA")
+	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
+	pos, err := parseWithArgs(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New("укажи имя серта: ./sylph certs revoke <имя> (имена — в ./sylph certs list)")
+	}
+	if !*yes {
+		if !u.TTY {
+			return errors.New("без терминала отзываю только с --yes")
+		}
+		ok, err := wizard.Wizard{}.Confirm("Отозвать серт "+pos[0]+"?", "ядро перестанет его пускать после перезапуска с новым revoked.json; вернуть нельзя", false)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return wizard.ErrAborted
+		}
+	}
+	if err := castore.Revoke(*caDir, pos[0]); err != nil {
+		return err
+	}
+	u.OK("серт " + pos[0] + " отозван")
+	u.Info("дальше: ./sylph certs bundle core → на машине ядра sudo ./sylph install core с новым пакетом")
+	return nil
+}

@@ -9,4 +9,5 @@ use (
 	./services/bot
 	./services/panel
 	./services/monitor
+	./tools/sylph
 )
