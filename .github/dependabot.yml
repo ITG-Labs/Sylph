@@ -9,6 +9,8 @@ updates:
       - /services/subs
       - /services/bot
       - /services/panel
+      - /services/monitor
+      - /tools/sylph
     schedule:
       interval: daily
       time: "09:00"
