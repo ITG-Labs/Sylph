@@ -11,12 +11,12 @@ import (
 )
 
 const nodeColumns = `id, cert_cn, name, group_id, address, users_version, enabled, config_error, last_heartbeat, agent_version, xray_version,
-	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, profile_id, geo_status, routing_error, created_at`
+	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, profile_id, geo_status, routing_error, cert_not_after, created_at`
 
 func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 	n := &model.Node{}
 	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupID, &n.Address, &n.UsersVersion, &n.Enabled, &n.ConfigError, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
-		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CreatedAt)
+		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CertNotAfter, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -87,9 +87,10 @@ func (s *Store) ListNodes(ctx context.Context) ([]model.Node, error) {
 func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.NodeHeartbeat) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
-		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9
+		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9,
+		 cert_not_after = COALESCE($10, cert_not_after)
 		 WHERE id = $1`,
-		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError)
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter)
 	return err
 }
 

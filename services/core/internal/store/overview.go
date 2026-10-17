@@ -104,14 +104,11 @@ func (s *Store) OverviewCounts(ctx context.Context, stuckBefore time.Time) (*Ove
 		s.statsTZ).Scan(&r.Refunded30d); err != nil {
 		return nil, err
 	}
-	a := &out.Attention
-	if err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FILTER (WHERE pm.status = 'mismatch'),
-		        count(*) FILTER (WHERE pm.status = 'pending' AND pm.source = 'yookassa' AND pm.created_at < $1),
-		        count(*) FILTER (WHERE pm.status = 'succeeded' AND u.status = 'banned' AND pm.paid_at >= u.banned_at)
-		 FROM payments pm JOIN users u ON u.id = pm.user_id`, stuckBefore).Scan(&a.Mismatch, &a.StuckPending, &a.PaidWhileBanned); err != nil {
+	a, err := s.AttentionCounts(ctx, stuckBefore)
+	if err != nil {
 		return nil, err
 	}
+	out.Attention = *a
 	trows, err := s.pool.Query(ctx,
 		`SELECT node_id, LEAST(sum(bytes_up::numeric + bytes_down), 9223372036854775807)::bigint
 		 FROM traffic_daily WHERE day = (now() AT TIME ZONE $1)::date GROUP BY node_id`, s.statsTZ)
@@ -127,4 +124,17 @@ func (s *Store) OverviewCounts(ctx context.Context, stuckBefore time.Time) (*Ove
 		out.TrafficToday[id] = b
 	}
 	return out, trows.Err()
+}
+
+func (s *Store) AttentionCounts(ctx context.Context, stuckBefore time.Time) (*AttentionCounts, error) {
+	a := &AttentionCounts{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FILTER (WHERE pm.status = 'mismatch'),
+		        count(*) FILTER (WHERE pm.status = 'pending' AND pm.source = 'yookassa' AND pm.created_at < $1),
+		        count(*) FILTER (WHERE pm.status = 'succeeded' AND u.status = 'banned' AND pm.paid_at >= u.banned_at)
+		 FROM payments pm JOIN users u ON u.id = pm.user_id`, stuckBefore).Scan(&a.Mismatch, &a.StuckPending, &a.PaidWhileBanned)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
 }

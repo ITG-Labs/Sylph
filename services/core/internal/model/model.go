@@ -32,6 +32,7 @@ type Node struct {
 	ProfileID      *int64          `json:"profile_id"`
 	GeoStatus      json.RawMessage `json:"geo_status"`
 	RoutingError   *string         `json:"routing_error"`
+	CertNotAfter   *time.Time      `json:"cert_not_after"`
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
@@ -44,6 +45,39 @@ type NodeHeartbeat struct {
 	ConfigError    *string
 	GeoStatus      json.RawMessage
 	RoutingError   *string
+	CertNotAfter   *time.Time
+}
+
+type ServiceHeartbeat struct {
+	CertCN             string
+	Role               string
+	Version            string
+	UptimeSec          int64
+	CertNotAfter       *time.Time
+	TelegramConflictAt *time.Time
+}
+
+type ServiceInfo struct {
+	CertCN             string     `json:"cert_cn"`
+	Role               string     `json:"role"`
+	Version            string     `json:"version"`
+	UptimeSec          int64      `json:"uptime_sec"`
+	CertNotAfter       *time.Time `json:"cert_not_after"`
+	TelegramConflictAt *time.Time `json:"telegram_conflict_at"`
+	LastSeen           time.Time  `json:"last_seen"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+
+const (
+	HealthCronExpire = "cron_expire"
+	HealthYooKassa   = "yookassa"
+)
+
+type HealthMark struct {
+	OKAt         *time.Time
+	FailingSince *time.Time
+	FailedAt     *time.Time
+	Error        string
 }
 
 type NodeInbound struct {
