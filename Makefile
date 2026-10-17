@@ -1,6 +1,6 @@
 .PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray test-node test-subs
 
-PKGS := ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/...
+PKGS := ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/... ./services/monitor/...
 
 build:
 	go build $(PKGS)

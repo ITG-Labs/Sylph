@@ -53,6 +53,7 @@ services:
     environment:
       SYLPH_DB_URL: postgres://sylph:${POSTGRES_PASSWORD}@postgres:5432/sylph?sslmode=disable
       SYLPH_LISTEN: ":8443"
+      SYLPH_HEALTH_LISTEN: 127.0.0.1:8081
       SYLPH_TLS_CERT: /certs/core/cert.pem
       SYLPH_TLS_KEY: /certs/core/key.pem
       SYLPH_CLIENT_CA: /certs/ca.pem
@@ -67,6 +68,12 @@ services:
       SYLPH_LOG_LEVEL: ${SYLPH_LOG_LEVEL:-info}
     volumes:
       - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "/sylph", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       default:
         aliases: [core.sylph.internal]
@@ -103,4 +110,4 @@ services:
           create_host_path: false
     depends_on:
       core:
-        condition: service_started
+        condition: service_healthy
