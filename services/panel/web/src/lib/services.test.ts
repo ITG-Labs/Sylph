@@ -11,6 +11,12 @@ describe("certState", () => {
     expect(certState(inDays(5), now)).toEqual({ tone: "urgent", days: 5 })
     expect(certState(inDays(-1), now)).toEqual({ tone: "expired", days: -1 })
   })
+  it("uses the same 7 and 30 day borders as the core alerts", () => {
+    expect(certState(inDays(7.5), now).tone).toBe("soon")
+    expect(certState(inDays(7), now).tone).toBe("urgent")
+    expect(certState(inDays(30.5), now).tone).toBe("ok")
+    expect(certState(inDays(30), now).tone).toBe("soon")
+  })
 })
 
 describe("serviceTitle", () => {

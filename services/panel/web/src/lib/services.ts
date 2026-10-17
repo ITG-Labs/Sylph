@@ -7,14 +7,16 @@ export function serviceTitle(role: ServiceRole, cn: string): string {
   return cn === role ? name : `${name} (${cn})`
 }
 
+const day = 86400_000
+
 export type CertTone = "none" | "ok" | "soon" | "urgent" | "expired"
 
 export function certState(notAfter: string | null, now: Date = new Date()): { tone: CertTone; days: number | null } {
   if (!notAfter) return { tone: "none", days: null }
   const ms = new Date(notAfter).getTime() - now.getTime()
-  const days = Math.floor(ms / 86400_000)
+  const days = Math.floor(ms / day)
   if (ms <= 0) return { tone: "expired", days }
-  if (days <= 7) return { tone: "urgent", days }
-  if (days <= 30) return { tone: "soon", days }
+  if (ms <= 7 * day) return { tone: "urgent", days }
+  if (ms <= 30 * day) return { tone: "soon", days }
   return { tone: "ok", days }
 }
