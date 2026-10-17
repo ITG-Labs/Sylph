@@ -1,4 +1,4 @@
-package main
+package castore
 
 import (
 	"crypto/x509"
@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
@@ -21,7 +23,49 @@ const (
 	revokedFile = "revoked.json"
 )
 
-func initCA(dir string, name string, now time.Time) error {
+var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+func ValidName(name string) error {
+	if !namePattern.MatchString(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid certificate name %q: use letters, digits, dot, dash or underscore", name)
+	}
+	return nil
+}
+
+func Exists(dir string) (bool, error) {
+	_, err := os.Stat(filepath.Join(dir, caCertFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func CACertPath(dir string) string {
+	return filepath.Join(dir, caCertFile)
+}
+
+func RevokedPath(dir string) string {
+	return filepath.Join(dir, revokedFile)
+}
+
+func LeafPaths(dir string, name string) (string, string) {
+	leafDir := filepath.Join(dir, certsDir, name)
+	return filepath.Join(leafDir, "cert.pem"), filepath.Join(leafDir, "key.pem")
+}
+
+func HasLeaf(dir string, name string) (bool, error) {
+	if err := ValidName(name); err != nil {
+		return false, err
+	}
+	certPath, _ := LeafPaths(dir, name)
+	_, err := os.Stat(certPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func Init(dir string, name string, now time.Time) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -43,7 +87,7 @@ func initCA(dir string, name string, now time.Time) error {
 	return os.WriteFile(filepath.Join(dir, caKeyFile), keyPEM, 0o600)
 }
 
-func loadCA(dir string) (*mtls.CA, error) {
+func Load(dir string) (*mtls.CA, error) {
 	certPEM, err := os.ReadFile(filepath.Join(dir, caCertFile))
 	if err != nil {
 		return nil, err
@@ -63,8 +107,11 @@ func loadCA(dir string) (*mtls.CA, error) {
 	return &mtls.CA{Cert: cert, Key: key}, nil
 }
 
-func issueCert(dir string, name string, usage mtls.LeafUsage, role string, ttl time.Duration, now time.Time) error {
-	ca, err := loadCA(dir)
+func Issue(dir string, name string, usage mtls.LeafUsage, role string, ttl time.Duration, now time.Time) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
+	ca, err := Load(dir)
 	if err != nil {
 		return err
 	}
@@ -90,7 +137,7 @@ func issueCert(dir string, name string, usage mtls.LeafUsage, role string, ttl t
 	return os.WriteFile(filepath.Join(leafDir, "key.pem"), keyPEM, 0o600)
 }
 
-type certInfo struct {
+type CertInfo struct {
 	Name     string
 	Type     string
 	Role     string
@@ -98,7 +145,7 @@ type certInfo struct {
 	NotAfter time.Time
 }
 
-func loadRevoked(dir string) ([]string, error) {
+func LoadRevoked(dir string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, revokedFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -115,7 +162,10 @@ func loadRevoked(dir string) ([]string, error) {
 	return list.Serials, nil
 }
 
-func revokeCert(dir string, name string) error {
+func Revoke(dir string, name string) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
 	certPEM, err := os.ReadFile(filepath.Join(dir, certsDir, name, "cert.pem"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("certificate %q not found", name)
@@ -128,7 +178,7 @@ func revokeCert(dir string, name string) error {
 		return err
 	}
 	serial := cert.SerialNumber.String()
-	serials, err := loadRevoked(dir)
+	serials, err := LoadRevoked(dir)
 	if err != nil {
 		return err
 	}
@@ -147,7 +197,7 @@ func revokeCert(dir string, name string) error {
 	return os.WriteFile(filepath.Join(dir, revokedFile), append(data, '\n'), 0o644)
 }
 
-func listCerts(dir string) ([]certInfo, error) {
+func List(dir string) ([]CertInfo, error) {
 	entries, err := os.ReadDir(filepath.Join(dir, certsDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -155,7 +205,7 @@ func listCerts(dir string) ([]certInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	var infos []certInfo
+	var infos []CertInfo
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -175,7 +225,7 @@ func listCerts(dir string) ([]certInfo, error) {
 			}
 		}
 		role, _ := mtls.RoleOf(cert)
-		infos = append(infos, certInfo{
+		infos = append(infos, CertInfo{
 			Name:     entry.Name(),
 			Type:     typ,
 			Role:     role,

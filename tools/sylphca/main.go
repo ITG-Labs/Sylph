@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ITG-Labs/sylph/pkg/castore"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 )
 
@@ -23,7 +24,7 @@ func main() {
 		name := fs.String("name", "Sylph CA", "CA common name")
 		err = fs.Parse(os.Args[2:])
 		if err == nil {
-			err = initCA(*dir, *name, time.Now())
+			err = castore.Init(*dir, *name, time.Now())
 		}
 	case "issue":
 		name := fs.String("name", "", "certificate name")
@@ -38,7 +39,7 @@ func main() {
 				err = fmt.Errorf("--name is required")
 			}
 			if err == nil {
-				err = issueCert(*dir, *name, usage, *role, *ttl, time.Now())
+				err = castore.Issue(*dir, *name, usage, *role, *ttl, time.Now())
 			}
 		}
 	case "revoke":
@@ -48,14 +49,14 @@ func main() {
 			if *name == "" {
 				err = fmt.Errorf("--name is required")
 			} else {
-				err = revokeCert(*dir, *name)
+				err = castore.Revoke(*dir, *name)
 			}
 		}
 	case "list":
 		err = fs.Parse(os.Args[2:])
 		if err == nil {
-			var infos []certInfo
-			infos, err = listCerts(*dir)
+			var infos []castore.CertInfo
+			infos, err = castore.List(*dir)
 			if err == nil {
 				for _, ci := range infos {
 					role := ci.Role

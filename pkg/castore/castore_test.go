@@ -1,4 +1,4 @@
-package main
+package castore
 
 import (
 	"fmt"
@@ -11,11 +11,11 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 )
 
-var cliNow = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+var testNow = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 
 func TestInitCA(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
 	certPEM, err := os.ReadFile(filepath.Join(dir, "ca.pem"))
@@ -36,7 +36,7 @@ func TestInitCA(t *testing.T) {
 	if keyStat.Mode().Perm() != 0o600 {
 		t.Fatalf("ca.key mode = %v, want 0600", keyStat.Mode().Perm())
 	}
-	loaded, err := loadCA(dir)
+	loaded, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,20 +47,20 @@ func TestInitCA(t *testing.T) {
 
 func TestInitCATwiceFails(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := initCA(dir, "Sylph CA", cliNow); err == nil {
+	if err := Init(dir, "Sylph CA", testNow); err == nil {
 		t.Fatal("second init should fail")
 	}
 }
 
 func TestIssueCert(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
 		t.Fatal(err)
 	}
 	certPEM, err := os.ReadFile(filepath.Join(dir, "certs", "bot", "cert.pem"))
@@ -95,26 +95,26 @@ func TestIssueCert(t *testing.T) {
 
 func TestIssueCertTwiceFails(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err == nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err == nil {
 		t.Fatal("second issue should fail")
 	}
 }
 
 func TestRevokeCert(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := revokeCert(dir, "bot"); err != nil {
+	if err := Revoke(dir, "bot"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "revoked.json"))
@@ -134,26 +134,26 @@ func TestRevokeCert(t *testing.T) {
 	if got != want {
 		t.Fatalf("revoked.json = %s, want %s", got, want)
 	}
-	if err := revokeCert(dir, "bot"); err == nil {
+	if err := Revoke(dir, "bot"); err == nil {
 		t.Fatal("double revoke should fail")
 	}
-	if err := revokeCert(dir, "missing"); err == nil {
+	if err := Revoke(dir, "missing"); err == nil {
 		t.Fatal("revoke of missing cert should fail")
 	}
 }
 
 func TestListCerts(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "core", mtls.ServerUsage, "", 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "core", mtls.ServerUsage, "", 24*time.Hour, testNow); err != nil {
 		t.Fatal(err)
 	}
-	infos, err := listCerts(dir)
+	infos, err := List(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,22 +173,64 @@ func TestListCerts(t *testing.T) {
 
 func TestIssueCertRoleValidation(t *testing.T) {
 	dir := t.TempDir()
-	if err := initCA(dir, "Sylph CA", cliNow); err != nil {
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, "", 24*time.Hour, cliNow); err == nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, "", 24*time.Hour, testNow); err == nil {
 		t.Fatal("client cert without role should fail")
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, "admin", 24*time.Hour, cliNow); err == nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, "admin", 24*time.Hour, testNow); err == nil {
 		t.Fatal("client cert with unknown role should fail")
 	}
-	if err := issueCert(dir, "core", mtls.ServerUsage, mtls.RolePanel, 24*time.Hour, cliNow); err == nil {
+	if err := Issue(dir, "core", mtls.ServerUsage, mtls.RolePanel, 24*time.Hour, testNow); err == nil {
 		t.Fatal("server cert with role should fail")
 	}
-	if _, err := listCerts(dir); err != nil {
+	if _, err := List(dir); err != nil {
 		t.Fatalf("failed issue left a broken cert dir: %v", err)
 	}
-	if err := issueCert(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, cliNow); err != nil {
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
 		t.Fatalf("issue after failed attempt: %v", err)
+	}
+}
+
+func TestNameValidation(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "../x", "a/b", ".hidden", "a..b", "a b"} {
+		if err := Issue(dir, name, mtls.ClientUsage, mtls.RoleNode, 24*time.Hour, testNow); err == nil {
+			t.Fatalf("issue %q should fail", name)
+		}
+		if _, err := HasLeaf(dir, name); err == nil {
+			t.Fatalf("HasLeaf %q should fail", name)
+		}
+	}
+	for _, name := range []string{"core.sylph.internal", "node-de-1", "panel"} {
+		if err := ValidName(name); err != nil {
+			t.Fatalf("ValidName %q: %v", name, err)
+		}
+	}
+}
+
+func TestExistsAndHasLeaf(t *testing.T) {
+	dir := t.TempDir()
+	if ok, err := Exists(dir); err != nil || ok {
+		t.Fatalf("Exists on empty dir = %v, %v", ok, err)
+	}
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Exists(dir); err != nil || !ok {
+		t.Fatalf("Exists after init = %v, %v", ok, err)
+	}
+	if ok, err := HasLeaf(dir, "bot"); err != nil || ok {
+		t.Fatalf("HasLeaf before issue = %v, %v", ok, err)
+	}
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := HasLeaf(dir, "bot"); err != nil || !ok {
+		t.Fatalf("HasLeaf after issue = %v, %v", ok, err)
 	}
 }
