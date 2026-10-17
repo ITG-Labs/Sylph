@@ -46,7 +46,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		return err
 	}
 	if len(roles) == 0 {
-		return errors.New("ролей sylph на машине не нашёл (ищу в docker compose ls и ./sylph-*); укажи --dir")
+		return errors.New("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
 	}
 
 	var todo []installed

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,25 +208,27 @@ func TestPlanLoadRefusesOtherRoleDir(t *testing.T) {
 	}
 }
 
-func TestFindRolesInWorkingDir(t *testing.T) {
-	old := compose.Exec
-	compose.Exec = func(ctx context.Context, dir string, args ...string) ([]byte, error) { return []byte("[]"), nil }
-	defer func() { compose.Exec = old }()
+func TestFindRolesFromDocker(t *testing.T) {
 	base := t.TempDir()
-	cwd, _ := os.Getwd()
-	defer os.Chdir(cwd)
-	os.Chdir(base)
+	var configs []string
 	for _, name := range []string{"node", "core"} {
 		r, _ := role.Get(name)
 		dir := filepath.Join(base, "sylph-"+name)
 		os.MkdirAll(dir, 0o755)
 		writeDeployFiles(dir, r)
 		os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.1.0\n"), 0o600)
+		configs = append(configs, fmt.Sprintf(`{"Name":"sylph-%s","Status":"running(3)","ConfigFiles":"%s/compose.yml"}`, name, dir))
 	}
 	os.MkdirAll(filepath.Join(base, "sylph-junk"), 0o755)
+	configs = append(configs, fmt.Sprintf(`{"Name":"other","Status":"running(1)","ConfigFiles":"%s/sylph-junk/compose.yml"}`, base))
+	fakeDocker(t, map[string]string{"compose ls -a --format json": "[" + strings.Join(configs, ",") + "]"})
 	found, err := findRoles(context.Background(), "")
 	if err != nil || len(found) != 2 || found[0].Role.Name != "core" || found[1].Role.Name != "node" {
 		t.Fatalf("found = %+v, %v", found, err)
+	}
+	one, err := findRoles(context.Background(), filepath.Join(base, "sylph-node"))
+	if err != nil || len(one) != 1 || one[0].Role.Name != "node" {
+		t.Fatalf("explicit dir = %+v, %v", one, err)
 	}
 }
 

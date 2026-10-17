@@ -48,11 +48,17 @@ func checkRoleDir(dir string) error {
 	if onTmpfs(filepath.Dir(dir)) {
 		return fmt.Errorf("папка роли %s на tmpfs — после перезагрузки пропадёт: укажи --dir на диске", dir)
 	}
+	if err := trustedDir(filepath.Dir(dir)); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	if err := trustedDir(dir); err != nil {
 		return err
 	}
 	if len(entries) == 0 || exists(filepath.Join(dir, "compose.yml")) || strings.HasPrefix(filepath.Base(dir), "sylph-") {
@@ -92,9 +98,12 @@ func trustedDir(dir string) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
-	st, err := os.Stat(dir)
+	st, err := os.Lstat(dir)
 	if err != nil {
 		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("папка %s — симлинк: укажи настоящую папку", dir)
 	}
 	sys, ok := st.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -108,7 +117,7 @@ func trustedDir(dir string) error {
 	if owner != 0 && owner != sudoUID {
 		return fmt.Errorf("папка %s принадлежит чужому юзеру (uid %d) — не доверяю ей", dir, owner)
 	}
-	if st.Mode().Perm()&0o022 != 0 {
+	if st.Mode().Perm()&0o022 != 0 && st.Mode()&os.ModeSticky == 0 {
 		return fmt.Errorf("в папку %s могут писать другие — не доверяю ей", dir)
 	}
 	return nil
@@ -148,21 +157,25 @@ func findRoles(ctx context.Context, dir string) ([]installed, error) {
 	var dirs []string
 	trusted := map[string]bool{}
 	if dir != "" {
-		dirs = append(dirs, dir)
-		if abs, err := filepath.Abs(dir); err == nil {
-			trusted[abs] = true
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, err
 		}
+		if err := trustedDir(abs); err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, abs)
+		trusted[abs] = true
 	} else {
-		if projects, err := compose.Ls(ctx); err == nil {
-			for _, p := range projects {
-				if strings.HasPrefix(p.Name, "sylph-") {
-					dirs = append(dirs, p.Dir)
-					trusted[p.Dir] = true
-				}
-			}
+		projects, err := compose.Ls(ctx)
+		if err != nil {
+			return nil, err
 		}
-		if matches, err := filepath.Glob("sylph-*"); err == nil {
-			dirs = append(dirs, matches...)
+		for _, p := range projects {
+			if strings.HasPrefix(p.Name, "sylph-") {
+				dirs = append(dirs, p.Dir)
+				trusted[p.Dir] = true
+			}
 		}
 	}
 	seen := map[string]bool{}

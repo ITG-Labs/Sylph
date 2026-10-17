@@ -84,7 +84,7 @@ func pickRole(ctx context.Context, u *ui.UI, pos []string, dir string) (installe
 		return installed{}, err
 	}
 	if len(roles) == 0 {
-		return installed{}, errors.New("ролей sylph на машине не нашёл (ищу в docker compose ls и ./sylph-*); укажи --dir")
+		return installed{}, errors.New("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
 	}
 	if len(pos) == 1 {
 		for _, in := range roles {

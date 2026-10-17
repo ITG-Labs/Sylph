@@ -33,7 +33,7 @@ func cmdStatus(ctx context.Context, u *ui.UI, args []string) int {
 		return 1
 	}
 	if len(roles) == 0 {
-		u.Fail("ролей sylph на машине не нашёл (ищу в docker compose ls и ./sylph-*); укажи --dir")
+		u.Fail("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
 		return 1
 	}
 	bad := false
