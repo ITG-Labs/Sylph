@@ -28,7 +28,7 @@ func main() {
 	case "issue":
 		name := fs.String("name", "", "certificate name")
 		certType := fs.String("type", "client", "client or server")
-		role := fs.String("role", "", "client role: bot, subs, cron, panel or node")
+		role := fs.String("role", "", "client role: bot, subs, cron, panel, node or monitor")
 		ttl := fs.Duration("ttl", 8760*time.Hour, "certificate lifetime")
 		err = fs.Parse(os.Args[2:])
 		if err == nil {

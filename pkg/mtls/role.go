@@ -3,19 +3,21 @@ package mtls
 import "crypto/x509"
 
 const (
-	RoleBot   = "bot"
-	RoleSubs  = "subs"
-	RoleCron  = "cron"
-	RolePanel = "panel"
-	RoleNode  = "node"
+	RoleBot     = "bot"
+	RoleSubs    = "subs"
+	RoleCron    = "cron"
+	RolePanel   = "panel"
+	RoleNode    = "node"
+	RoleMonitor = "monitor"
 )
 
 var knownRoles = map[string]bool{
-	RoleBot:   true,
-	RoleSubs:  true,
-	RoleCron:  true,
-	RolePanel: true,
-	RoleNode:  true,
+	RoleBot:     true,
+	RoleSubs:    true,
+	RoleCron:    true,
+	RolePanel:   true,
+	RoleNode:    true,
+	RoleMonitor: true,
 }
 
 func IsKnownRole(role string) bool {

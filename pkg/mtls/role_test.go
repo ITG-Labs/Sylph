@@ -22,6 +22,17 @@ func TestIssueClientCertCarriesRole(t *testing.T) {
 	}
 }
 
+func TestMonitorIsKnownRole(t *testing.T) {
+	ca := mustCA(t)
+	leaf, err := ca.Issue("monitor", ClientUsage, RoleMonitor, testNow, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role, ok := RoleOf(leaf.Cert); !ok || role != "monitor" {
+		t.Fatalf("role = %q, %v; want monitor", role, ok)
+	}
+}
+
 func TestIssueClientCertRequiresKnownRole(t *testing.T) {
 	ca := mustCA(t)
 	if _, err := ca.Issue("bot", ClientUsage, "", testNow, time.Hour); err == nil {
