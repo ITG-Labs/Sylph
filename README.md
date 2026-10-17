@@ -42,7 +42,7 @@ core.sylph.internal, переопределяется SYLPH_CORE_NAME).
 ## Деплой
 
 Образы собирает CI после зелёных тестов и публикует в GHCR:
-ghcr.io/itg-labs/sylph-{core,cron,subs,bot,panel,agent,caddy}. Пуш в main даёт теги edge и
+ghcr.io/itg-labs/sylph-{core,cron,subs,bot,panel,agent,caddy,monitor}. Пуш в main даёт теги edge и
 sha-<коммит>, git-тег vX.Y.Z — тег X.Y.Z (и sha-<коммит>). Тега latest нет: в проде указывайте
 конкретную версию.
 
@@ -52,7 +52,8 @@ sha-<коммит>, git-тег vX.Y.Z — тег X.Y.Z (и sha-<коммит>). 
 - panel — панель за Caddy;
 - bot — бот, наружу через Caddy только вебхук ЮKassa;
 - subs — подписки за Caddy;
-- node — нода: Caddy с layer4, xray и агент.
+- node — нода: Caddy с layer4, xray и агент;
+- monitor — монитор: спрашивает ядро и шлёт алерты отдельным Telegram-ботом (своя машина).
 
 Папку роли кладут на машину, рядом создают .env по .env.example и certs/ с сертификатами (панели
 ещё нужен admins.json от sylph-panel new-admin) — всё это до первого запуска — и делают
@@ -71,6 +72,6 @@ Postgres.
 
 - core: ca.pem, revoked.json (если что-то отозвано), core/cert.pem и core/key.pem (серверный
   core.sylph.internal), cron/cert.pem и cron/key.pem;
-- panel, bot, subs, node: ca.pem, cert.pem и key.pem своей роли.
+- panel, bot, subs, node, monitor: ca.pem, cert.pem и key.pem своей роли.
 
-Порядок выкатки: ядро, ноды, панель, затем бот и subs.
+Порядок выкатки: ядро, ноды, панель, затем бот и subs, последним монитор.
