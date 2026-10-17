@@ -51,7 +51,7 @@ var Exec = func(ctx context.Context, dir string, args ...string) ([]byte, error)
 		if msg == "" {
 			return nil, fmt.Errorf("docker %s: %w", args[0], err)
 		}
-		return stdout.Bytes(), fmt.Errorf("docker %s: %s", strings.Join(firstArgs(args), " "), lastLines(msg, 15))
+		return stdout.Bytes(), fmt.Errorf("docker %s: %s", strings.Join(firstArgs(args), " "), summarize(msg))
 	}
 	return stdout.Bytes(), nil
 }
@@ -63,10 +63,25 @@ func firstArgs(args []string) []string {
 	return args
 }
 
-func lastLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
+func summarize(s string) string {
+	seen := map[string]bool{}
+	var lines, errs []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+		if strings.Contains(strings.ToLower(line), "error") {
+			errs = append(errs, line)
+		}
+	}
+	if len(errs) > 0 {
+		lines = errs
+	}
+	if len(lines) > 8 {
+		lines = lines[len(lines)-8:]
 	}
 	return strings.Join(lines, "\n")
 }
@@ -172,7 +187,7 @@ func Snapshot(ctx context.Context, dir string) ([]Container, error) {
 	if err != nil || len(containers) == 0 {
 		return containers, err
 	}
-	args := []string{"inspect", "--format", "{{.Id}}|{{.State.StartedAt}}|{{.RestartCount}}"}
+	args := []string{"inspect", "--format", "{{.Id}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.State.ExitCode}}"}
 	for _, c := range containers {
 		args = append(args, c.ID)
 	}
@@ -226,7 +241,7 @@ func parsePs(out []byte) ([]Container, error) {
 func applyInspect(containers []Container, out []byte) {
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		parts := strings.Split(line, "|")
-		if len(parts) != 3 {
+		if len(parts) != 4 {
 			continue
 		}
 		for i := range containers {
@@ -235,6 +250,9 @@ func applyInspect(containers []Container, out []byte) {
 			}
 			containers[i].StartedAt, _ = time.Parse(time.RFC3339Nano, parts[1])
 			containers[i].RestartCount, _ = strconv.Atoi(parts[2])
+			if code, err := strconv.Atoi(parts[3]); err == nil {
+				containers[i].ExitCode = code
+			}
 		}
 	}
 }
@@ -374,7 +392,10 @@ func longRunning(c Container, now time.Time, stable time.Duration) (Status, stri
 		if c.RestartCount >= 3 {
 			return Failed, fmt.Sprintf("падает и перезапускается (%d раз), код %d", c.RestartCount, c.ExitCode)
 		}
-		return Waiting, "перезапускается"
+		if c.State == "restarting" {
+			return Waiting, "перезапускается"
+		}
+		return Waiting, fmt.Sprintf("остановлен, код %d", c.ExitCode)
 	}
 	return Waiting, c.State
 }

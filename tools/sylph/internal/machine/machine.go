@@ -57,10 +57,10 @@ func Root() error {
 func PortFree(port string) Result {
 	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		return fail("порт %s занят другой программой", port)
+		return fail("занят другой программой")
 	}
 	l.Close()
-	return ok("порт %s свободен", port)
+	return ok("свободен")
 }
 
 func TimeSync(ctx context.Context) Result {
@@ -69,9 +69,9 @@ func TimeSync(ctx context.Context) Result {
 		return ok("timedatectl нет — синхронизацию часов не проверить")
 	}
 	if strings.TrimSpace(string(out)) == "yes" {
-		return ok("часы синхронизированы")
+		return ok("синхронизированы")
 	}
-	return warn("часы не синхронизированы по NTP: mTLS и сроки сертов зависят от времени")
+	return warn("не синхронизированы по NTP: mTLS и сроки сертов зависят от времени")
 }
 
 func DiskFree(dir string) Result {

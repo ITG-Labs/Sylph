@@ -30,8 +30,8 @@ func TestParsePsNDJSONAndArray(t *testing.T) {
 
 func TestApplyInspect(t *testing.T) {
 	cs := []Container{{ID: "aaa"}, {ID: "bbb"}}
-	applyInspect(cs, []byte("aaa111|2026-10-17T11:59:00.123456789Z|0\nbbb222|2026-10-17T11:00:00Z|4\n"))
-	if cs[0].StartedAt.IsZero() || cs[1].RestartCount != 4 {
+	applyInspect(cs, []byte("aaa111|2026-10-17T11:59:00.123456789Z|0|0\nbbb222|2026-10-17T11:00:00Z|4|1\n"))
+	if cs[0].StartedAt.IsZero() || cs[1].RestartCount != 4 || cs[1].ExitCode != 1 {
 		t.Fatalf("%+v", cs)
 	}
 }
@@ -119,5 +119,24 @@ func TestAtLeast(t *testing.T) {
 		if got := AtLeast(c.v, c.min); got != c.want {
 			t.Errorf("AtLeast(%q, %q) = %v", c.v, c.min, got)
 		}
+	}
+}
+
+func TestSummarizeKeepsErrors(t *testing.T) {
+	in := " Image a Skipped Image is already present locally      \n Image x Pulling   \n Image x Error failed to resolve reference \"x\": not found\nError response from daemon: not found   \nError response from daemon: not found\n"
+	got := summarize(in)
+	want := "Image x Error failed to resolve reference \"x\": not found\nError response from daemon: not found"
+	if got != want {
+		t.Fatalf("summarize = %q", got)
+	}
+	if got := summarize("line one\nline two\n"); got != "line one\nline two" {
+		t.Fatalf("plain = %q", got)
+	}
+}
+
+func TestEvaluateStoppedContainer(t *testing.T) {
+	v := Evaluate([]Service{{Name: "subs"}}, []Container{{Service: "subs", State: "exited", ExitCode: 137}}, now, time.Second)
+	if v.Done() || v.States[0].Detail != "остановлен, код 137" {
+		t.Fatalf("stopped = %+v", v)
 	}
 }
