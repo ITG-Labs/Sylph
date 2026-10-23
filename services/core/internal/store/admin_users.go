@@ -174,12 +174,12 @@ func closePeriodTx(ctx context.Context, tx pgx.Tx, periodID int64, now time.Time
 	var gap time.Duration
 	if p.startsAt.After(now) {
 		gap = p.expires.Sub(p.startsAt)
-		if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE WHERE id = $1`, p.id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE, closed_manually = TRUE WHERE id = $1`, p.id); err != nil {
 			return false, err
 		}
 	} else {
 		gap = p.expires.Sub(now)
-		if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE, expires_at = $2 WHERE id = $1`, p.id, now); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE subscriptions SET canceled = TRUE, closed_manually = TRUE, expires_at = $2 WHERE id = $1`, p.id, now); err != nil {
 			return false, err
 		}
 	}
@@ -204,7 +204,7 @@ func (s *Store) BanUser(ctx context.Context, userID int64, reason string, now ti
 			return nil
 		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE subscriptions SET canceled = TRUE, expires_at = CASE WHEN starts_at <= $2 THEN $2 ELSE expires_at END
+			`UPDATE subscriptions SET canceled = TRUE, closed_manually = TRUE, expires_at = CASE WHEN starts_at <= $2 THEN $2 ELSE expires_at END
 			 WHERE user_id = $1 AND NOT canceled AND expires_at > $2`, userID, now); err != nil {
 			return err
 		}

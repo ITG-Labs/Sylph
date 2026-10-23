@@ -41,7 +41,7 @@ func TestNotificationsDueAndSent(t *testing.T) {
 	r.decode(t, &due)
 	if len(due) != 1 || due[0].Kind != "traffic_95" || due[0].UserID != u.ID || due[0].TelegramID != 8301 || due[0].Trial ||
 		due[0].TrafficUsedBytes == nil || *due[0].TrafficUsedBytes != 960 || *due[0].TrafficLimitBytes != 1000 ||
-		due[0].PeriodEnds == nil || due[0].PaidUntil == nil || !due[0].PaidUntil.Equal(*due[0].PeriodEnds) || !strings.HasSuffix(due[0].Ref, ":1000") {
+		due[0].PeriodEnds == nil || due[0].PaidUntil == nil || !due[0].PaidUntil.Equal(*due[0].PeriodEnds) || !strings.HasSuffix(due[0].Ref, ":0") {
 		t.Fatalf("due = %s", r.body)
 	}
 	sent := map[string]any{"user_id": u.ID, "kind": due[0].Kind, "ref": due[0].Ref, "outcome": "sent"}

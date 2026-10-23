@@ -63,8 +63,8 @@ type NotificationSent struct {
 	Outcome string `json:"outcome"`
 }
 
-func trafficRef(periodID, limit int64) string {
-	return fmt.Sprintf("%d:%d", periodID, limit)
+func trafficRef(periodID, bonus int64) string {
+	return fmt.Sprintf("%d:%d", periodID, bonus)
 }
 
 func untilRef(t time.Time) string {
@@ -100,7 +100,7 @@ func dueFor(c store.NotifyCandidate, now time.Time, st store.Settings) []Notific
 		}
 		if kind != "" {
 			n := base
-			n.Kind, n.Ref, n.PeriodEnds, n.PaidUntil = kind, trafficRef(*c.PeriodID, limit), c.PeriodEnds, c.PaidUntil
+			n.Kind, n.Ref, n.PeriodEnds, n.PaidUntil = kind, trafficRef(*c.PeriodID, c.BonusBytes), c.PeriodEnds, c.PaidUntil
 			n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
 			out = append(out, n)
 		}
@@ -136,7 +136,7 @@ func suppressed(n Notification, marks []store.NotifyMark) bool {
 	want := notifyKinds[n.Kind]
 	for _, m := range marks {
 		got, ok := notifyKinds[m.Kind]
-		if ok && m.Ref == n.Ref && got.family == want.family && got.severity >= want.severity {
+		if ok && m.Ref == n.Ref && got.family == want.family && (got.severity >= want.severity || m.Outcome == "unreachable") {
 			return true
 		}
 	}
@@ -194,16 +194,16 @@ func (s *Service) MarkNotified(ctx context.Context, in NotificationSent) error {
 	if !ok {
 		return fieldErr("kind", "unknown notification kind")
 	}
-	if in.Outcome != "sent" && in.Outcome != "unreachable" {
-		return fieldErr("outcome", "must be sent or unreachable")
+	if in.Outcome != "sent" && in.Outcome != "unreachable" && in.Outcome != "failed" {
+		return fieldErr("outcome", "must be sent, unreachable or failed")
 	}
 	m := store.NotifyMark{UserID: in.UserID, Kind: in.Kind, Ref: in.Ref, Outcome: in.Outcome}
 	switch kind.family {
 	case familyTraffic:
-		period, limit, found := strings.Cut(in.Ref, ":")
+		period, bonus, found := strings.Cut(in.Ref, ":")
 		id, err1 := strconv.ParseInt(period, 10, 64)
-		lim, err2 := strconv.ParseInt(limit, 10, 64)
-		if !found || err1 != nil || err2 != nil || id <= 0 || lim <= 0 || trafficRef(id, lim) != in.Ref {
+		b, err2 := strconv.ParseInt(bonus, 10, 64)
+		if !found || err1 != nil || err2 != nil || id <= 0 || b < 0 || trafficRef(id, b) != in.Ref {
 			return fieldErr("ref", "malformed traffic reference")
 		}
 		m.PeriodID = &id

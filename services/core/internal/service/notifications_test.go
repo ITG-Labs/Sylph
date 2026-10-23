@@ -69,7 +69,7 @@ func TestDueForTrafficBoundaries(t *testing.T) {
 		}
 	}
 	n := dueFor(trafficCand(800, 1000), now, allOn)[0]
-	if n.Ref != "7:1000" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
+	if n.Ref != "7:0" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
 		t.Fatalf("traffic notification = %+v", n)
 	}
 	off := allOn
@@ -265,7 +265,7 @@ func TestDueNotificationsNewPointAfterBonusAndRenewal(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := due(t, svc, now)
-	if !sameKinds(got, "traffic_80") || got[0].Ref != trafficRef(period, 1050) {
+	if !sameKinds(got, "traffic_80") || got[0].Ref != trafficRef(period, 50) {
 		t.Fatalf("after bonus = %+v", got)
 	}
 	mark(t, svc, got[0], "sent")
@@ -330,7 +330,7 @@ func TestMarkNotifiedValidation(t *testing.T) {
 		{UserID: u.ID, Kind: "expired", Ref: until, Outcome: "maybe"},
 		{UserID: u.ID, Kind: "traffic_80", Ref: "", Outcome: "sent"},
 		{UserID: u.ID, Kind: "traffic_80", Ref: "7", Outcome: "sent"},
-		{UserID: u.ID, Kind: "traffic_80", Ref: "7:0", Outcome: "sent"},
+		{UserID: u.ID, Kind: "traffic_80", Ref: "7:-1", Outcome: "sent"},
 		{UserID: u.ID, Kind: "traffic_80", Ref: "07:100", Outcome: "sent"},
 		{UserID: u.ID, Kind: "traffic_80", Ref: "-1:100", Outcome: "sent"},
 		{UserID: u.ID, Kind: "expiry_1d", Ref: "", Outcome: "sent"},
@@ -347,5 +347,70 @@ func TestMarkNotifiedValidation(t *testing.T) {
 	}
 	if err := svc.MarkNotified(ctx, NotificationSent{UserID: u.ID, Kind: "traffic_80", Ref: "7:100", Outcome: "unreachable"}); err != nil {
 		t.Fatalf("valid traffic: %v", err)
+	}
+	if err := svc.MarkNotified(ctx, NotificationSent{UserID: u.ID, Kind: "expired", Ref: until, Outcome: "failed"}); err != nil {
+		t.Fatalf("failed outcome: %v", err)
+	}
+}
+
+func TestDueNotificationsExpiredSurvivesCron(t *testing.T) {
+	svc, plan, u := notifyFixture(t)
+	ctx := context.Background()
+	now := time.Now()
+	insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(-29*day), now.Add(30*time.Minute), 0)
+	mark(t, svc, due(t, svc, now)[0], "sent")
+	later := now.Add(time.Hour)
+	if n, err := svc.CheckAndExpire(ctx, later); err != nil || n != 1 {
+		t.Fatalf("expire = %d, %v", n, err)
+	}
+	if got := due(t, svc, later); !sameKinds(got, "expired") {
+		t.Fatalf("after cron = %v", kinds(got))
+	}
+}
+
+func TestDueNotificationsUnreachableSilencesThePoint(t *testing.T) {
+	svc, plan, u := notifyFixture(t)
+	now := time.Now()
+	insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(-27*day), now.Add(2*day), 0)
+	mark(t, svc, due(t, svc, now)[0], "unreachable")
+	if got := due(t, svc, now.Add(36*time.Hour)); len(got) != 0 {
+		t.Fatalf("unreachable user warned again: %v", kinds(got))
+	}
+	insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(2*day), now.Add(32*day), 0)
+	if got := due(t, svc, now.Add(31*day)); !sameKinds(got, "expiry_1d") {
+		t.Fatalf("new point after renewal = %v", kinds(got))
+	}
+}
+
+func TestDueNotificationsPlanLimitEditKeepsThePoint(t *testing.T) {
+	svc, plan, u := notifyFixture(t)
+	ctx := context.Background()
+	now := time.Now()
+	insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(-day), now.Add(20*day), 960)
+	got := due(t, svc, now)
+	if !sameKinds(got, "traffic_95") {
+		t.Fatalf("first = %v", kinds(got))
+	}
+	mark(t, svc, got[0], "sent")
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 1100 WHERE id = $1`, plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := due(t, svc, now); len(got) != 0 {
+		t.Fatalf("raised plan limit warned again: %v", kinds(got))
+	}
+	other, _, err := svc.store.RegisterTelegramUser(ctx, 779, model.NewToken(), model.NewUUID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertPeriodAt(t, svc, other.ID, plan.ID, now.Add(-day), now.Add(20*day), 500)
+	if got := due(t, svc, now); len(got) != 0 {
+		t.Fatalf("45%% user warned: %v", kinds(got))
+	}
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 600 WHERE id = $1`, plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	got = due(t, svc, now)
+	if len(got) != 2 || got[0].UserID != u.ID || got[0].Kind != "traffic_out" || got[1].UserID != other.ID || got[1].Kind != "traffic_80" {
+		t.Fatalf("after lowering = %+v", got)
 	}
 }

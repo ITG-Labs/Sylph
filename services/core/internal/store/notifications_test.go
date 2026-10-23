@@ -287,3 +287,38 @@ func TestSettingsNotifyToggles(t *testing.T) {
 		t.Fatalf("all off = %+v", st)
 	}
 }
+
+func TestNotifyCandidatesExpiredAfterCronButNotClosedByHand(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	plan := mkLimitedPlan(t, s, 30, 1<<40)
+	natural := tgUser(t, s, 9181)
+	closed := tgUser(t, s, 9182)
+	banned := tgUser(t, s, 9183)
+	mkPeriod(t, s, natural.ID, plan.ID, now.Add(-30*day), now.Add(-2*time.Hour))
+	pc := mkPeriod(t, s, closed.ID, plan.ID, now.Add(-10*day), now.Add(20*day))
+	mkPeriod(t, s, banned.ID, plan.ID, now.Add(-10*day), now.Add(20*day))
+	if n, err := s.ExpireOverdue(ctx, now); err != nil || n != 1 {
+		t.Fatalf("expire = %d, %v", n, err)
+	}
+	if err := s.ClosePeriod(ctx, pc, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BanUser(ctx, banned.ID, "", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UnbanUser(ctx, banned.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := candidatesByUser(t, s, now)
+	if c, ok := got[natural.ID]; !ok || c.EndedAt == nil || !sameTime(*c.EndedAt, now.Add(-2*time.Hour)) {
+		t.Fatalf("naturally expired after cron = %+v (ok %v)", c, ok)
+	}
+	if c, ok := got[closed.ID]; ok {
+		t.Fatalf("closed by hand = %+v", c)
+	}
+	if c, ok := got[banned.ID]; ok {
+		t.Fatalf("banned and unbanned = %+v", c)
+	}
+}

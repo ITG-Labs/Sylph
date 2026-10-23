@@ -813,8 +813,8 @@ func TestMigration012DownAndUpAgain(t *testing.T) {
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 012: %v", err)
 	}
-	if !tableExists(t, pool, "notifications_sent") {
-		t.Fatal("up 012 did not create notifications_sent")
+	if !tableExists(t, pool, "notifications_sent") || !columnExists(t, pool, "subscriptions", "closed_manually") {
+		t.Fatal("up 012 did not create notifications_sent or subscriptions.closed_manually")
 	}
 	var traffic, expiry, trial bool
 	var title string
@@ -826,7 +826,8 @@ func TestMigration012DownAndUpAgain(t *testing.T) {
 	}
 	before := nodesVersion(t, pool)
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO notifications_sent (user_id, kind, ref, paid_until, outcome) SELECT id, 'expired', 'r', now(), 'sent' FROM users`); err != nil {
+		`INSERT INTO notifications_sent (user_id, kind, ref, paid_until, outcome) SELECT id, 'expired', 'r', now(), 'sent' FROM users
+		 UNION ALL SELECT id, 'expired', 'rf', now(), 'failed' FROM users`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE settings SET notify_trial = FALSE`); err != nil {
@@ -855,6 +856,9 @@ func TestMigration012DownAndUpAgain(t *testing.T) {
 		if columnExists(t, pool, "settings", c) {
 			t.Fatalf("down 012 left settings.%s", c)
 		}
+	}
+	if columnExists(t, pool, "subscriptions", "closed_manually") {
+		t.Fatal("down 012 left subscriptions.closed_manually")
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 012 again: %v", err)
