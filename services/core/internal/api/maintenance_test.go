@@ -16,7 +16,7 @@ func TestMaintenanceCleanup(t *testing.T) {
 	mustStatus(t, r, http.StatusOK)
 	var got map[string]int64
 	r.decode(t, &got)
-	if len(got) != 4 || got["deltas"] != 0 || got["batches"] != 0 || got["keys"] != 0 || got["daily"] != 0 {
+	if len(got) != 5 || got["deltas"] != 0 || got["batches"] != 0 || got["keys"] != 0 || got["daily"] != 0 || got["notifications"] != 0 {
 		t.Fatalf("cleanup = %v", got)
 	}
 	for _, days := range []any{0, 3651} {

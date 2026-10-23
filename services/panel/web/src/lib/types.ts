@@ -242,6 +242,9 @@ export interface NodeTraffic {
 export interface Settings {
   subs_title: string
   subs_support_url: string
+  notify_traffic: boolean
+  notify_expiry: boolean
+  notify_trial: boolean
   updated_at: string
 }
 

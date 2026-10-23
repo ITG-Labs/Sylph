@@ -10,7 +10,7 @@ const actions: Record<string, Record<string, string>> = {
   node: { create: "завёл ноду", update: "изменил ноду" },
   inbound: { create: "создал вход", update: "изменил вход", delete: "удалил вход" },
   group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу" },
-  settings: { update: "изменил название или поддержку подписки" },
+  settings: { update: "изменил настройки" },
 }
 
 const entities: Record<string, string> = {
@@ -40,7 +40,7 @@ export const auditEntities = [
   ["node", "Ноды"],
   ["inbound", "Входы"],
   ["group", "Группы"],
-  ["settings", "Настройки подписки"],
+  ["settings", "Настройки"],
 ]
 
 export function auditAction(entity: string, action: string): string {

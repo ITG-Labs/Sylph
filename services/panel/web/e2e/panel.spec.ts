@@ -219,6 +219,35 @@ test("subscription settings are saved and restored", async () => {
   await save(before.subs_title, before.subs_support_url)
 })
 
+test("user notification toggles are saved and restored", async () => {
+  type Toggles = { notify_traffic: boolean; notify_expiry: boolean; notify_trial: boolean }
+  const read = () => shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/settings")).json()) as Toggles)
+  const before = await read()
+  await shared.goto("/settings")
+  const trial = shared.getByRole("switch", { name: "Пробный период" })
+  await expect(trial).toHaveAttribute("aria-checked", String(before.notify_trial))
+  await trial.click()
+  const dialog = shared.getByRole("dialog")
+  await expect(dialog).toContainText(before.notify_trial ? "перестанут получать" : "начнёт присылать")
+  await dialog.getByRole("button", { name: "Отмена" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(trial).toHaveAttribute("aria-checked", String(before.notify_trial))
+  expect((await read()).notify_trial).toBe(before.notify_trial)
+  const flip = async (want: boolean) => {
+    await trial.click()
+    await shared.getByRole("dialog").getByRole("button", { name: want ? "Включить" : "Выключить" }).click()
+    await expect(shared.getByRole("dialog")).toHaveCount(0)
+    await expect(trial).toHaveAttribute("aria-checked", String(want))
+  }
+  await flip(!before.notify_trial)
+  const flipped = await read()
+  expect(flipped).toEqual({ ...flipped, notify_trial: !before.notify_trial, notify_traffic: before.notify_traffic, notify_expiry: before.notify_expiry })
+  await shared.reload()
+  await expect(trial).toHaveAttribute("aria-checked", String(!before.notify_trial))
+  await flip(before.notify_trial)
+  expect((await read()).notify_trial).toBe(before.notify_trial)
+})
+
 test("proxy refuses requests without the panel header and routes outside the allowlist", async () => {
   const res = await shared.evaluate(async () => {
     const noHeader = await fetch("/api/core/v1/admin/users/1/ban", { method: "POST", body: "{}" })

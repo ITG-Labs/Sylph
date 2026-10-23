@@ -29,10 +29,11 @@ type App struct {
 	checkCooldown time.Duration
 	checkedMu     sync.Mutex
 	lastCheck     map[string]time.Time
+	noticePause   time.Duration
 }
 
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
-	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log, checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}}
+	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log, checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond}
 }
 
 func (a *App) checkTooSoon(tgID int64, paymentID string) bool {

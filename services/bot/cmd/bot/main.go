@@ -57,6 +57,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	go pulse.Run(ctx, api, logger, pulse.Every, func(b *pulse.Body) { b.TelegramConflictAt = conflicts.Last() })
+	noticesDone := make(chan struct{})
+	go func() {
+		app.RunNotices(ctx, core, tg, bot.NoticeEvery)
+		close(noticesDone)
+	}()
 	var srv *http.Server
 	errCh := make(chan error, 1)
 	if cfg.WebhookListen != "" {
@@ -84,6 +89,11 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("polling", slog.String("subs_url", cfg.SubsURL), slog.Bool("custom_emoji", cfg.CustomEmoji))
 	tg.Start(ctx)
+	select {
+	case <-noticesDone:
+	case <-time.After(15 * time.Second):
+		logger.Warn("notices_stop_timeout")
+	}
 	if srv != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
