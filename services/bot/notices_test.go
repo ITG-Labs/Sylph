@@ -83,9 +83,9 @@ func TestNoticeTexts(t *testing.T) {
 		{Notice{Kind: "traffic_95", TrafficUsedBytes: ip(48 * gb), TrafficLimitBytes: ip(50 * gb), PeriodEnds: &ends, PaidUntil: &ends},
 			[]string{"Трафик почти закончился", "48 ГБ из 50 ГБ", "Текущий период до"}, nil},
 		{Notice{Kind: "traffic_out", TrafficUsedBytes: ip(50 * gb), TrafficLimitBytes: ip(50 * gb), PeriodEnds: &ends, PaidUntil: &ends},
-			[]string{"Трафик закончился", "Доступ закрыт до", "12.11.2026 18:00", "новый период начнётся сразу, с полным трафиком"}, []string{"Следующий оплаченный"}},
+			[]string{"Трафик закончился", "трафик на этот период исчерпан, период — до", "12.11.2026 18:00", "новый период начнётся сразу, с полным трафиком"}, []string{"Следующий оплаченный", "Доступ закрыт"}},
 		{Notice{Kind: "traffic_out", TrafficUsedBytes: ip(50 * gb), TrafficLimitBytes: ip(50 * gb), PeriodEnds: &ends, PaidUntil: &later},
-			[]string{"Следующий оплаченный период начнётся", "12.11.2026 18:00", "Не хочешь ждать"}, []string{"Доступ закрыт"}},
+			[]string{"Следующий оплаченный период начнётся", "12.11.2026 18:00", "Не хочешь ждать"}, []string{"исчерпан"}},
 		{Notice{Kind: "expiry_3d", PaidUntil: &ends}, []string{"Подписка заканчивается", "Осталось меньше 3 дней", "Оплачено до", "12.11.2026 18:00", "Продли"}, nil},
 		{Notice{Kind: "expiry_1d", PaidUntil: &ends}, []string{"Подписка скоро закончится", "Осталось меньше суток", "Оплачено до"}, []string{"Пробный"}},
 		{Notice{Kind: "expiry_1h", PaidUntil: &ends}, []string{"Подписка закончится через час", "Оплачено до", "12.11.2026 18:00"}, []string{"меньше суток"}},
@@ -141,7 +141,7 @@ func TestSendNoticesMarksOutcomes(t *testing.T) {
 		44: fmt.Errorf("%w, Bad Request: can't parse entities", tgbot.ErrorBadRequest),
 	}}
 	app.SendNotices(context.Background(), core, tg)
-	want := []marked{{"expiry_1h", "r1", "sent", 1}, {"expired", "r2", "unreachable", 2}, {"expired", "r3", "unreachable", 3}, {"expired", "r6", "sent", 6}}
+	want := []marked{{"expiry_1h", "r1", "sent", 1}, {"expired", "r2", "unreachable", 2}, {"expired", "r3", "unreachable", 3}, {"expired", "r4", "failed", 4}, {"expired", "r6", "sent", 6}}
 	if fmt.Sprint(core.marks) != fmt.Sprint(want) {
 		t.Fatalf("marks = %+v", core.marks)
 	}
@@ -243,5 +243,56 @@ func TestCoreNotices(t *testing.T) {
 	if post.method != http.MethodPost || post.path != "/v1/notifications/sent" || post.body["user_id"] != float64(7) || post.body["kind"] != "traffic_95" ||
 		post.body["ref"] != "3:100" || post.body["outcome"] != "unreachable" || len(post.body) != 4 {
 		t.Fatalf("post = %+v", post)
+	}
+}
+
+func TestSendNoticesStopsWhenTheBotIsBroken(t *testing.T) {
+	for _, broken := range []error{
+		fmt.Errorf("%w, Unauthorized", tgbot.ErrorUnauthorized),
+		fmt.Errorf("%w, Not Found", tgbot.ErrorNotFound),
+	} {
+		app, logs := noticeApp(t)
+		core := &fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"}, {UserID: 2, TelegramID: 22, Kind: "expired", Ref: "r2"}}}
+		tg := &noticeTG{errs: map[int64]error{11: broken, 22: broken}}
+		app.SendNotices(context.Background(), core, tg)
+		if len(core.marks) != 0 || strings.Count(logs.String(), `"msg":"notices_bot_broken"`) != 1 {
+			t.Fatalf("%v: marks = %+v, logs = %s", broken, core.marks, logs)
+		}
+	}
+}
+
+type cancelingTG struct {
+	noticeTG
+	cancel context.CancelFunc
+}
+
+func (f *cancelingTG) SendMessage(ctx context.Context, p *tgbot.SendMessageParams) (*models.Message, error) {
+	m, err := f.noticeTG.SendMessage(ctx, p)
+	f.cancel()
+	return m, err
+}
+
+type ctxCheckingNotices struct {
+	fakeNotices
+}
+
+func (f *ctxCheckingNotices) MarkNotice(ctx context.Context, n Notice, outcome string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("mark without a deadline")
+	}
+	return f.fakeNotices.MarkNotice(ctx, n, outcome)
+}
+
+func TestSendNoticesMarksWhatWentOutDuringShutdown(t *testing.T) {
+	app, _ := noticeApp(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	core := &ctxCheckingNotices{fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"}, {UserID: 2, TelegramID: 22, Kind: "expired", Ref: "r2"}}}}
+	tg := &cancelingTG{cancel: cancel}
+	app.SendNotices(ctx, core, tg)
+	if len(core.marks) != 1 || core.marks[0].ref != "r1" || core.marks[0].outcome != "sent" || len(tg.only(t, "sendMessage")) != 1 {
+		t.Fatalf("marks = %+v", core.marks)
 	}
 }

@@ -15,8 +15,10 @@ import (
 
 const (
 	NoticeEvery        = time.Minute
+	noticeMarkTimeout  = 10 * time.Second
 	outcomeSent        = "sent"
 	outcomeUnreachable = "unreachable"
+	outcomeFailed      = "failed"
 )
 
 type Notice struct {
@@ -70,6 +72,10 @@ func throttled(err error) bool {
 	return tgbot.IsTooManyRequestsError(err) || errors.Is(err, tgbot.ErrorTooManyRequests)
 }
 
+func botBroken(err error) bool {
+	return errors.Is(err, tgbot.ErrorUnauthorized) || errors.Is(err, tgbot.ErrorNotFound)
+}
+
 func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 	list, err := core.DueNotices(ctx)
 	if errors.Is(err, ErrNotFound) {
@@ -81,6 +87,9 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 		return
 	}
 	for i, n := range list {
+		if ctx.Err() != nil {
+			return
+		}
 		if i > 0 && a.noticePause > 0 {
 			select {
 			case <-ctx.Done():
@@ -105,11 +114,20 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 		case throttled(err):
 			a.log.LogAttrs(ctx, slog.LevelWarn, "notices_throttled", slog.String("error", err.Error()))
 			return
+		case botBroken(err):
+			a.log.LogAttrs(ctx, slog.LevelError, "notices_bot_broken", slog.String("error", err.Error()))
+			return
+		case errors.Is(err, tgbot.ErrorBadRequest):
+			outcome = outcomeFailed
+			a.log.LogAttrs(ctx, slog.LevelError, "notice_send_failed", append(attrs, slog.String("error", err.Error()))...)
 		default:
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_send_failed", append(attrs, slog.String("error", err.Error()))...)
 			continue
 		}
-		if err := core.MarkNotice(ctx, n, outcome); err != nil {
+		markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
+		err = core.MarkNotice(markCtx, n, outcome)
+		cancel()
+		if err != nil {
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
 			continue
 		}
@@ -156,7 +174,7 @@ func (a *App) trafficNotice(n Notice) string {
 	if n.PaidUntil != nil && n.PaidUntil.After(*n.PeriodEnds) {
 		fmt.Fprintf(&b, "Следующий оплаченный период начнётся %s.\nНе хочешь ждать — оплати сейчас, новый период начнётся сразу.", a.when(*n.PeriodEnds))
 	} else {
-		fmt.Fprintf(&b, "Доступ закрыт до %s.\nПродлишь — новый период начнётся сразу, с полным трафиком.", a.when(*n.PeriodEnds))
+		fmt.Fprintf(&b, "VPN не работает: трафик на этот период исчерпан, период — до %s.\nПродлишь — новый период начнётся сразу, с полным трафиком.", a.when(*n.PeriodEnds))
 	}
 	return b.String()
 }
