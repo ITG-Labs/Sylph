@@ -9,7 +9,7 @@ describe("audit", () => {
     expect(auditAction("widget", "zap")).toBe("zap widget")
     expect(auditAction("group", "update")).toBe("переименовал группу")
     expect(auditAction("group", "delete")).toBe("удалил группу")
-    expect(auditAction("settings", "update")).toBe("изменил название или поддержку подписки")
+    expect(auditAction("settings", "update")).toBe("изменил настройки")
     expect(auditEntity("settings")).toBe("настройки")
   })
   it("links entities", () => {
