@@ -69,7 +69,7 @@ func TestDueForTrafficBoundaries(t *testing.T) {
 		}
 	}
 	n := dueFor(trafficCand(800, 1000), now, allOn)[0]
-	if n.Ref != "7:1000" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.UserID != 1 || n.TelegramID != 10 {
+	if n.Ref != "7:1000" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
 		t.Fatalf("traffic notification = %+v", n)
 	}
 	off := allOn

@@ -100,7 +100,7 @@ func dueFor(c store.NotifyCandidate, now time.Time, st store.Settings) []Notific
 		}
 		if kind != "" {
 			n := base
-			n.Kind, n.Ref, n.PeriodEnds = kind, trafficRef(*c.PeriodID, limit), c.PeriodEnds
+			n.Kind, n.Ref, n.PeriodEnds, n.PaidUntil = kind, trafficRef(*c.PeriodID, limit), c.PeriodEnds, c.PaidUntil
 			n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
 			out = append(out, n)
 		}
