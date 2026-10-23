@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -378,8 +379,38 @@ func (a *App) onRotate(ctx context.Context, tg Telegram, to reply, tgID int64) s
 	return ""
 }
 
+var tgTimeTag = regexp.MustCompile(`<tg-time unix="[0-9]+" format="[A-Za-z]+">([^<]*)</tg-time>`)
+
+func dateRejected(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "ENTITY_DATE_INVALID")
+}
+
+func plainDates(text string) string {
+	return tgTimeTag.ReplaceAllString(text, "$1")
+}
+
+func sendMessage(ctx context.Context, tg Telegram, p *tgbot.SendMessageParams) (*models.Message, error) {
+	m, err := tg.SendMessage(ctx, p)
+	if dateRejected(err) && tgTimeTag.MatchString(p.Text) {
+		retry := *p
+		retry.Text = plainDates(p.Text)
+		return tg.SendMessage(ctx, &retry)
+	}
+	return m, err
+}
+
+func editMessage(ctx context.Context, tg Telegram, p *tgbot.EditMessageTextParams) (*models.Message, error) {
+	m, err := tg.EditMessageText(ctx, p)
+	if dateRejected(err) && tgTimeTag.MatchString(p.Text) {
+		retry := *p
+		retry.Text = plainDates(p.Text)
+		return tg.EditMessageText(ctx, &retry)
+	}
+	return m, err
+}
+
 func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, paidUntil *time.Time) error {
-	_, err := tg.SendMessage(ctx, &tgbot.SendMessageParams{
+	_, err := sendMessage(ctx, tg, &tgbot.SendMessageParams{
 		ChatID: telegramID, Text: a.paidText(paidUntil), ParseMode: models.ParseModeHTML,
 		ReplyMarkup: keyboard(a.statusRow()),
 	})
@@ -388,7 +419,7 @@ func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, pai
 
 func (a *App) show(ctx context.Context, tg Telegram, to reply, text string, kb *models.InlineKeyboardMarkup) {
 	if to.msgID != 0 {
-		_, err := tg.EditMessageText(ctx, &tgbot.EditMessageTextParams{
+		_, err := editMessage(ctx, tg, &tgbot.EditMessageTextParams{
 			ChatID: to.chatID, MessageID: to.msgID, Text: text, ParseMode: models.ParseModeHTML, ReplyMarkup: kb,
 			LinkPreviewOptions: noPreview(),
 		})
@@ -405,7 +436,7 @@ func (a *App) send(ctx context.Context, tg Telegram, chatID int64, text string, 
 	if kb != nil {
 		params.ReplyMarkup = kb
 	}
-	if _, err := tg.SendMessage(ctx, params); err != nil {
+	if _, err := sendMessage(ctx, tg, params); err != nil {
 		a.log.LogAttrs(ctx, slog.LevelError, "telegram_send_failed", slog.Int64("chat_id", chatID), slog.String("error", err.Error()))
 	}
 }

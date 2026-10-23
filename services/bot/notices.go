@@ -103,7 +103,7 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 			a.log.LogAttrs(ctx, slog.LevelWarn, "notice_unknown_kind", attrs...)
 			continue
 		}
-		_, err := tg.SendMessage(ctx, &tgbot.SendMessageParams{
+		_, err := sendMessage(ctx, tg, &tgbot.SendMessageParams{
 			ChatID: n.TelegramID, Text: text, ParseMode: models.ParseModeHTML, ReplyMarkup: kb, LinkPreviewOptions: noPreview(),
 		})
 		outcome := outcomeSent
