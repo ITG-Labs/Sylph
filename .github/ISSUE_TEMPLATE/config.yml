@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ❓ Вопрос или помощь с настройкой
+    url: https://github.com/ITG-Labs/sylph/discussions/categories/q-a
+    about: Спросите в Discussions — там отвечают и мейнтейнеры, и сообщество
+  - name: 🔒 Уязвимость
+    url: https://github.com/ITG-Labs/sylph/security/advisories/new
+    about: Сообщите приватно — не в открытый issue
