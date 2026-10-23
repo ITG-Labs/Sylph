@@ -1,6 +1,6 @@
 module github.com/ITG-Labs/sylph/services/panel
 
-go 1.27.1
+go 1.27.3
 
 require github.com/ITG-Labs/sylph v0.0.0-00010101000000-000000000000
 
