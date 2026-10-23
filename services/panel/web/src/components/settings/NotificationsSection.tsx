@@ -16,8 +16,9 @@ export const notifyKinds: { key: NotifyKey; title: string; hint: string }[] = [
 
 export function NotificationsSection({ settings }: { settings: Settings }) {
   const invalidate = useInvalidate()
-  const [pending, setPending] = useState<{ key: NotifyKey; on: boolean } | null>(null)
-  const kind = notifyKinds.find((k) => k.key === pending?.key)
+  const [pending, setPending] = useState<{ key: NotifyKey; on: boolean }>({ key: "notify_traffic", on: false })
+  const [open, setOpen] = useState(false)
+  const kind = notifyKinds.find((k) => k.key === pending.key) ?? notifyKinds[0]
 
   return (
     <>
@@ -29,7 +30,14 @@ export function NotificationsSection({ settings }: { settings: Settings }) {
                 <div className="text-sm font-medium">{k.title}</div>
                 <div className="text-xs text-muted-foreground">{k.hint}</div>
               </div>
-              <Switch aria-label={k.title} checked={settings[k.key]} onCheckedChange={(on) => setPending({ key: k.key, on })} />
+              <Switch
+                aria-label={k.title}
+                checked={settings[k.key]}
+                onCheckedChange={(on) => {
+                  setPending({ key: k.key, on })
+                  setOpen(true)
+                }}
+              />
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
@@ -39,13 +47,11 @@ export function NotificationsSection({ settings }: { settings: Settings }) {
       </Section>
 
       <ActionDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPending(null)
-        }}
-        title={pending?.on ? `Включить уведомления: ${kind?.title.toLowerCase()}` : `Выключить уведомления: ${kind?.title.toLowerCase()}`}
+        open={open}
+        onOpenChange={setOpen}
+        title={`${pending.on ? "Включить" : "Выключить"} уведомления: ${kind.title.toLowerCase()}`}
         consequences={
-          pending?.on ? (
+          pending.on ? (
             <p>
               Бот начнёт присылать эти предупреждения в течение минуты. Тем, кто уже за порогом, придёт одно сообщение — самое срочное на сейчас; о закончившейся подписке — только если она закончилась за последние сутки.
             </p>
@@ -53,10 +59,9 @@ export function NotificationsSection({ settings }: { settings: Settings }) {
             <p>Юзеры перестанут получать эти предупреждения. Включишь обратно — придут только актуальные на тот момент.</p>
           )
         }
-        confirmLabel={pending?.on ? "Включить" : "Выключить"}
-        success={pending?.on ? "Уведомления включены" : "Уведомления выключены"}
+        confirmLabel={pending.on ? "Включить" : "Выключить"}
+        success={pending.on ? "Уведомления включены" : "Уведомления выключены"}
         onConfirm={async () => {
-          if (!pending) return
           await core.patch("/v1/admin/settings", { [pending.key]: pending.on })
           await invalidate(["settings"], ["audit"])
         }}
