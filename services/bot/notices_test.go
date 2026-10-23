@@ -296,3 +296,52 @@ func TestSendNoticesMarksWhatWentOutDuringShutdown(t *testing.T) {
 		t.Fatalf("marks = %+v", core.marks)
 	}
 }
+
+type dateStrictTG struct {
+	fakeTelegram
+	rejected int
+}
+
+func (f *dateStrictTG) reject(text string) error {
+	if strings.Contains(text, "<tg-time") {
+		f.rejected++
+		return fmt.Errorf("%w, Bad Request: ENTITY_DATE_INVALID", tgbot.ErrorBadRequest)
+	}
+	return nil
+}
+
+func (f *dateStrictTG) SendMessage(ctx context.Context, p *tgbot.SendMessageParams) (*models.Message, error) {
+	if err := f.reject(p.Text); err != nil {
+		return nil, err
+	}
+	return f.fakeTelegram.SendMessage(ctx, p)
+}
+
+func (f *dateStrictTG) EditMessageText(ctx context.Context, p *tgbot.EditMessageTextParams) (*models.Message, error) {
+	if err := f.reject(p.Text); err != nil {
+		return nil, err
+	}
+	return f.fakeTelegram.EditMessageText(ctx, p)
+}
+
+func TestRejectedDatesFallBackToPlainText(t *testing.T) {
+	app, _ := noticeApp(t)
+	far := time.Date(2036, 10, 24, 9, 0, 0, 0, time.UTC)
+	tg := &dateStrictTG{}
+	app.show(context.Background(), tg, reply{chatID: 7, msgID: 3}, "Оплачено до "+app.when(far), nil)
+	edits := tg.only(t, "editMessageText")
+	if len(edits) != 1 || edits[0].text != "Оплачено до 24.10.2036 12:00" || tg.rejected != 1 {
+		t.Fatalf("edit = %+v, rejected %d", edits, tg.rejected)
+	}
+	if err := app.NotifyPaid(context.Background(), tg, 7, &far); err != nil || strings.Contains(tg.last(t).text, "<tg-time") {
+		t.Fatalf("paid = %v, %q", err, tg.last(t).text)
+	}
+	core := &fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expiry_3d", Ref: "r1", PaidUntil: &far}}}
+	app.SendNotices(context.Background(), core, tg)
+	if len(core.marks) != 1 || core.marks[0].outcome != "sent" || !strings.Contains(tg.last(t).text, "24.10.2036 12:00") {
+		t.Fatalf("notice marks = %+v, text %q", core.marks, tg.last(t).text)
+	}
+	if got := plainDates("a " + app.when(far) + " b"); got != "a 24.10.2036 12:00 b" {
+		t.Fatalf("plainDates = %q", got)
+	}
+}
