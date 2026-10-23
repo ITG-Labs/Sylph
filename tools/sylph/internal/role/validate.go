@@ -171,7 +171,7 @@ func BotUsername(s string) error {
 
 func XrayVersion(s string) error {
 	if !versionPattern.MatchString(s) {
-		return errors.New("версия xray вида 26.10.10")
+		return errors.New("версия xray вида 26.10.21")
 	}
 	return nil
 }
