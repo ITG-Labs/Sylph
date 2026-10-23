@@ -40,7 +40,7 @@ test-xray-down:
 	docker compose -f deploy/test/xray/docker-compose.yml down
 
 test-xray: test-xray-up
-	SYLPH_TEST_XRAY=127.0.0.1:55085 SYLPH_TEST_XRAY_IMAGE=ghcr.io/xtls/xray-core:26.10.10 go test -race -count=1 ./services/agent/...; \
+	SYLPH_TEST_XRAY=127.0.0.1:55085 SYLPH_TEST_XRAY_IMAGE=ghcr.io/xtls/xray-core:26.10.21 go test -race -count=1 ./services/agent/...; \
 	status=$$?; $(MAKE) test-xray-down; exit $$status
 
 NODE_COMPOSE := docker compose -f deploy/test/node/docker-compose.yml
@@ -53,7 +53,7 @@ test-node:
 	$(NODE_COMPOSE) run --rm agent; \
 	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
 
-SUBS_COMPOSE := SYLPH_VERSION=test XRAY_VERSION=26.10.10 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
+SUBS_COMPOSE := SYLPH_VERSION=test XRAY_VERSION=26.10.21 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
 SUBS_BIN := deploy/test/subs/bin
 SUBS_CA := go run ./tools/sylphca issue --dir $(SUBS_BIN)/ca
 
