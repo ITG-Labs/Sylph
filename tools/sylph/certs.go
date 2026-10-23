@@ -20,7 +20,7 @@ import (
 
 const certTTL = 365 * 24 * time.Hour
 
-const certsUsage = `./sylph certs <команда> — на ноуте рядом с CA
+const certsUsage = `sylph certs <команда> — на своём компьютере, рядом с CA (не на сервере)
 
   bundle <роль> [--name <имя>]   пакет сертов роли; первый запуск создаст CA
   list                           серты CA и их сроки
@@ -180,12 +180,12 @@ func ensureCA(ctx context.Context, u *ui.UI, wz wizard.Wizard, dir string, yes b
 		return nil
 	}
 	if os.Geteuid() == 0 {
-		return errors.New("CA создаю только на ноуте и без sudo: ключ CA не должен жить на машине роли")
+		return errors.New("CA создаю только на своём компьютере и без sudo: ключ CA не должен жить на сервере")
 	}
 	if projects, err := compose.Ls(ctx); err == nil {
 		for _, p := range projects {
 			if strings.HasPrefix(p.Name, "sylph-") {
-				return fmt.Errorf("на этой машине стоит роль (%s): CA создаю только на ноуте", p.Name)
+				return fmt.Errorf("на этой машине стоит роль (%s): CA создают на своём компьютере, а не на сервере", p.Name)
 			}
 		}
 	}
@@ -193,7 +193,7 @@ func ensureCA(ctx context.Context, u *ui.UI, wz wizard.Wizard, dir string, yes b
 		if !u.TTY {
 			return fmt.Errorf("CA в %s нет: создать новый — флаг --yes", dir)
 		}
-		create, err := wz.Confirm("Создать новый боевой CA в "+dir+"?", "CA ещё нет. Его ключ ca.key останется только тут, на ноуте; все серты ролей будут подписаны им", true)
+		create, err := wz.Confirm("Создать новый боевой CA в "+dir+"?", "CA ещё нет. Его ключ ca.key останется только здесь, на вашем компьютере; все серты ролей будут подписаны им", true)
 		if err != nil {
 			return err
 		}

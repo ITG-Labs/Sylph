@@ -23,7 +23,7 @@ func TestRootShellHidesCertCommands(t *testing.T) {
 	}
 	m.input.SetValue("/bundle core")
 	press(m, "enter")
-	if m.busy || !strings.Contains(m.log[len(m.log)-1], "только на ноуте") {
+	if m.busy || !strings.Contains(m.log[len(m.log)-1], "только на своём компьютере") {
 		t.Fatalf("root /bundle = %q busy=%v", m.log[len(m.log)-1], m.busy)
 	}
 }

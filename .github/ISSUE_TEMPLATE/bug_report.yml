@@ -1,0 +1,71 @@
+name: 🐞 Баг
+description: Что-то работает не так, как описано
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что сообщаете! Вопрос «как настроить» лучше задать в [Discussions](https://github.com/ITG-Labs/sylph/discussions), а уязвимость — приватно, по [SECURITY.md](https://github.com/ITG-Labs/sylph/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Версия
+      description: Вывод `sylph version` и `SYLPH_VERSION` из `.env` роли
+      placeholder: sylph 0.1.0 (образы 0.1.0)
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Где проблема
+      options:
+        - установщик sylph
+        - core — ядро
+        - panel — панель
+        - bot — бот
+        - subs — подписки
+        - node — нода
+        - monitor — алерты
+        - не знаю
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: ОС и Docker
+      placeholder: Debian 13, Docker 29.9, compose 5.6
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы делали и что увидели
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Чего ожидали
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      placeholder: |
+        1. sudo sylph install panel
+        2. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: "`docker compose logs --tail 100 <сервис>` в папке роли"
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: Поискал похожие issues
+          required: true
+        - label: Убрал из логов токены, ключи, пароли, токены подписок и адреса, которые не хочу светить
+          required: true
