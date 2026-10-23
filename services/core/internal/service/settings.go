@@ -16,6 +16,9 @@ const (
 type SettingsPatch struct {
 	SubsTitle      *string `json:"subs_title"`
 	SubsSupportURL *string `json:"subs_support_url"`
+	NotifyTraffic  *bool   `json:"notify_traffic"`
+	NotifyExpiry   *bool   `json:"notify_expiry"`
+	NotifyTrial    *bool   `json:"notify_trial"`
 }
 
 func validSupportURL(v string) error {
@@ -50,5 +53,8 @@ func (s *Service) UpdateSettings(ctx context.Context, p SettingsPatch) (store.Se
 			return store.Settings{}, err
 		}
 	}
-	return s.store.UpdateSettings(ctx, store.SettingsPatch{SubsTitle: p.SubsTitle, SubsSupportURL: p.SubsSupportURL})
+	return s.store.UpdateSettings(ctx, store.SettingsPatch{
+		SubsTitle: p.SubsTitle, SubsSupportURL: p.SubsSupportURL,
+		NotifyTraffic: p.NotifyTraffic, NotifyExpiry: p.NotifyExpiry, NotifyTrial: p.NotifyTrial,
+	})
 }

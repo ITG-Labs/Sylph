@@ -44,7 +44,7 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 			_, _ = io.WriteString(w, `{"expired":4}`)
 		case "/v1/maintenance/cleanup":
 			_ = json.NewDecoder(r.Body).Decode(&cleanupBody)
-			_, _ = io.WriteString(w, `{"deltas":120000,"batches":3000,"keys":2,"daily":7}`)
+			_, _ = io.WriteString(w, `{"deltas":120000,"batches":3000,"keys":2,"daily":7,"notifications":4}`)
 		case "/v1/maintenance/payments/poll":
 			_, _ = io.WriteString(w, `{"checked":5,"succeeded":2,"canceled":1,"mismatch":1,"failed":1}`)
 		default:
@@ -62,7 +62,7 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 	}
 	attrs, err = jobs[1].Do(context.Background())
 	got := attrsOf(attrs)
-	if err != nil || got["deltas"] != 120000 || got["batches"] != 3000 || got["keys"] != 2 || got["daily"] != 7 {
+	if err != nil || got["deltas"] != 120000 || got["batches"] != 3000 || got["keys"] != 2 || got["daily"] != 7 || got["notifications"] != 4 {
 		t.Fatalf("cleanup = %v, %v", attrs, err)
 	}
 	if len(cleanupBody) != 2 || cleanupBody["older_than_days"] != float64(45) || cleanupBody["stats_older_than_days"] != float64(365) {

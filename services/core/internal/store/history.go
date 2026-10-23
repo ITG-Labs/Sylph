@@ -6,10 +6,11 @@ import (
 )
 
 type CleanupResult struct {
-	Deltas  int64 `json:"deltas"`
-	Batches int64 `json:"batches"`
-	Keys    int64 `json:"keys"`
-	Daily   int64 `json:"daily"`
+	Deltas        int64 `json:"deltas"`
+	Batches       int64 `json:"batches"`
+	Keys          int64 `json:"keys"`
+	Daily         int64 `json:"daily"`
+	Notifications int64 `json:"notifications"`
 }
 
 type chunkedDelete struct {
@@ -41,7 +42,10 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff time.Time, chunk int)
 	if res.Batches, err = s.deleteInChunks(ctx, batchesCleanup, cutoff, chunk); err != nil {
 		return res, err
 	}
-	res.Keys, err = s.deleteInChunks(ctx, keysCleanup, cutoff, chunk)
+	if res.Keys, err = s.deleteInChunks(ctx, keysCleanup, cutoff, chunk); err != nil {
+		return res, err
+	}
+	res.Notifications, err = s.cleanupNotifications(ctx, cutoff)
 	return res, err
 }
 

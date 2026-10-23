@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 24 {
-		t.Fatalf("tables = %d, want 24", count)
+	if count != 25 {
+		t.Fatalf("tables = %d, want 25", count)
 	}
 }
 
@@ -784,5 +784,79 @@ func TestMigration011DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 011 again: %v", err)
+	}
+}
+
+func TestMigration012DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(11); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE settings SET subs_title = 'Нора'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 012: %v", err)
+	}
+	if !tableExists(t, pool, "notifications_sent") {
+		t.Fatal("up 012 did not create notifications_sent")
+	}
+	var traffic, expiry, trial bool
+	var title string
+	if err := pool.QueryRow(ctx, `SELECT notify_traffic, notify_expiry, notify_trial, subs_title FROM settings`).Scan(&traffic, &expiry, &trial, &title); err != nil {
+		t.Fatal(err)
+	}
+	if !traffic || !expiry || !trial || title != "Нора" {
+		t.Fatalf("settings after 012: %v %v %v %q", traffic, expiry, trial, title)
+	}
+	before := nodesVersion(t, pool)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO notifications_sent (user_id, kind, ref, paid_until, outcome) SELECT id, 'expired', 'r', now(), 'sent' FROM users`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE settings SET notify_trial = FALSE`); err != nil {
+		t.Fatal(err)
+	}
+	if v := nodesVersion(t, pool); v != before {
+		t.Fatalf("notification writes bumped nodes: %d -> %d", before, v)
+	}
+	for _, q := range []string{
+		`INSERT INTO notifications_sent (user_id, kind, ref, paid_until, outcome) SELECT id, 'traffic_50', 'r2', now(), 'sent' FROM users`,
+		`INSERT INTO notifications_sent (user_id, kind, ref, paid_until, outcome) SELECT id, 'expired', 'r3', now(), 'maybe' FROM users`,
+		`INSERT INTO notifications_sent (user_id, kind, ref, outcome) SELECT id, 'expired', 'r4', 'sent' FROM users`,
+		`INSERT INTO notifications_sent (user_id, kind, ref, period_id, paid_until, outcome) SELECT id, 'expired', 'r5', 1, now(), 'sent' FROM users`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 012: %v", err)
+	}
+	if tableExists(t, pool, "notifications_sent") {
+		t.Fatal("down 012 left notifications_sent")
+	}
+	for _, c := range []string{"notify_traffic", "notify_expiry", "notify_trial"} {
+		if columnExists(t, pool, "settings", c) {
+			t.Fatalf("down 012 left settings.%s", c)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 012 again: %v", err)
 	}
 }
