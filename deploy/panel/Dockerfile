@@ -5,7 +5,7 @@ RUN npm ci --no-audit --no-fund
 COPY services/panel/web/ ./
 RUN npm run build
 
-FROM golang:1.27.2-alpine AS build
+FROM golang:1.27.3-alpine AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod ./
