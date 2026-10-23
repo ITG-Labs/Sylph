@@ -206,12 +206,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="Build of main at $GITHUB_SHA. Images: sha-${GITHUB_SHA::7}. Installer: curl -fLo sylph https://github.com/$GITHUB_REPOSITORY/releases/download/edge/sylph-linux-amd64 && chmod +x sylph"
-          if gh release view edge --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload edge dist/* --repo "$GITHUB_REPOSITORY" --clobber
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/edge" -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            gh release edit edge --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --notes "$notes"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/edge -f sha="$GITHUB_SHA" >/dev/null
-            gh release create edge dist/* --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title edge --notes "$notes"
+          tag="edge-${GITHUB_SHA::7}"
+          notes="Build of main at $GITHUB_SHA. Images: sha-${GITHUB_SHA::7}. Installer: curl -fLo sylph https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sylph-linux-amd64 && chmod +x sylph"
+          draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [ "$draft" = true ]; then
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
           fi
+          if [ "$draft" != false ]; then
+            gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --latest=false --title "$tag" --notes "$notes"
+          fi
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,isDraft,isPrerelease,publishedAt \
+            --jq '[.[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith("edge-")))] | sort_by(.publishedAt) | reverse | .[3:][].tagName' |
+            while read -r old; do
+              gh release delete "$old" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            done
