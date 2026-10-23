@@ -27,7 +27,7 @@ type shellCommand struct {
 	name   string
 	args   string
 	desc   string
-	laptop bool
+	caCommand bool
 }
 
 var shellCommands = []shellCommand{
@@ -36,7 +36,7 @@ var shellCommands = []shellCommand{
 	{"status", "", "подробно о ролях машины", false},
 	{"start", "[роль]", "запустить роль и дождаться здоровья", false},
 	{"stop", "[роль]", "остановить роль", false},
-	{"bundle", "<роль>", "пакет сертов роли — на ноуте рядом с CA", true},
+	{"bundle", "<роль>", "пакет сертов роли — на своём компьютере, рядом с CA", true},
 	{"certs", "", "серты CA и их сроки", true},
 	{"revoke", "<имя>", "отозвать серт", true},
 	{"clear", "", "очистить вывод", false},
@@ -468,7 +468,7 @@ func (m *shell) execute(line string) tea.Cmd {
 		return nil
 	case "bundle", "certs", "revoke":
 		if m.root {
-			m.log = append(m.log, ui.StepLine(line, "", errors.New("серты — только на ноуте и без sudo: ключ CA не должен жить на машине роли")))
+			m.log = append(m.log, ui.StepLine(line, "", errors.New("серты — только на своём компьютере и без sudo: ключ CA не должен жить на сервере")))
 			return nil
 		}
 	}
@@ -500,7 +500,7 @@ func (m *shell) execute(line string) tea.Cmd {
 func (m *shell) commands() []shellCommand {
 	var out []shellCommand
 	for _, c := range shellCommands {
-		if m.root && c.laptop {
+		if m.root && c.caCommand {
 			continue
 		}
 		out = append(out, c)
@@ -518,7 +518,7 @@ func helpLines(commands []shellCommand, root bool) []string {
 		lines = append(lines, fmt.Sprintf("  %-18s %s", label, ui.Dimmed(c.desc)))
 	}
 	if root {
-		lines = append(lines, ui.Dimmed("  серты (/bundle, /certs, /revoke) — на ноуте: ./sylph без sudo"))
+		lines = append(lines, ui.Dimmed("  серты (/bundle, /certs, /revoke) — на своём компьютере: sylph без sudo"))
 	}
 	return append(lines,
 		ui.Dimmed("  флаги — как у отдельных команд: /install panel --dir /srv/panel, /bundle node --name node-de-1"),
