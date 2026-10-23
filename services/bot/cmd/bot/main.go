@@ -57,6 +57,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	go pulse.Run(ctx, api, logger, pulse.Every, func(b *pulse.Body) { b.TelegramConflictAt = conflicts.Last() })
+	go app.RunNotices(ctx, core, tg, bot.NoticeEvery)
 	var srv *http.Server
 	errCh := make(chan error, 1)
 	if cfg.WebhookListen != "" {
