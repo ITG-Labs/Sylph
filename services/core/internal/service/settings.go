@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"unicode"
 
@@ -14,11 +15,21 @@ const (
 )
 
 type SettingsPatch struct {
-	SubsTitle      *string `json:"subs_title"`
-	SubsSupportURL *string `json:"subs_support_url"`
-	NotifyTraffic  *bool   `json:"notify_traffic"`
-	NotifyExpiry   *bool   `json:"notify_expiry"`
-	NotifyTrial    *bool   `json:"notify_trial"`
+	SubsTitle      *string             `json:"subs_title"`
+	SubsSupportURL *string             `json:"subs_support_url"`
+	NotifyTraffic  *bool               `json:"notify_traffic"`
+	NotifyExpiry   *bool               `json:"notify_expiry"`
+	NotifyTrial    *bool               `json:"notify_trial"`
+	TermsEnabled   *bool               `json:"terms_enabled"`
+	TermsText      *string             `json:"terms_text"`
+	TermsURL       *string             `json:"terms_url"`
+	ChannelEnabled *bool               `json:"channel_enabled"`
+	ChannelChat    *string             `json:"channel_chat"`
+	ChannelURL     *string             `json:"channel_url"`
+	ChannelText    *string             `json:"channel_text"`
+	HelpEnabled    *bool               `json:"help_enabled"`
+	HelpText       *string             `json:"help_text"`
+	HelpButtons    *[]store.HelpButton `json:"help_buttons"`
 }
 
 func validSupportURL(v string) error {
@@ -53,8 +64,18 @@ func (s *Service) UpdateSettings(ctx context.Context, p SettingsPatch) (store.Se
 			return store.Settings{}, err
 		}
 	}
-	return s.store.UpdateSettings(ctx, store.SettingsPatch{
+	if err := s.checkBotPatch(ctx, &p); err != nil {
+		return store.Settings{}, err
+	}
+	st, err := s.store.UpdateSettings(ctx, store.SettingsPatch{
 		SubsTitle: p.SubsTitle, SubsSupportURL: p.SubsSupportURL,
 		NotifyTraffic: p.NotifyTraffic, NotifyExpiry: p.NotifyExpiry, NotifyTrial: p.NotifyTrial,
+		TermsEnabled: p.TermsEnabled, TermsText: p.TermsText, TermsURL: p.TermsURL,
+		ChannelEnabled: p.ChannelEnabled, ChannelChat: p.ChannelChat, ChannelURL: p.ChannelURL, ChannelText: p.ChannelText,
+		HelpEnabled: p.HelpEnabled, HelpText: p.HelpText, HelpButtons: p.HelpButtons,
 	})
+	if errors.Is(err, store.ErrConflict) {
+		return store.Settings{}, &ConflictError{Field: "settings", Message: "changed concurrently, reload and try again"}
+	}
+	return st, err
 }
