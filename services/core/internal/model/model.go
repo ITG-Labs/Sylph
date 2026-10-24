@@ -46,6 +46,13 @@ type NodeHeartbeat struct {
 	GeoStatus      json.RawMessage
 	RoutingError   *string
 	CertNotAfter   *time.Time
+	Addresses      *[]AddressReport
+}
+
+type AddressReport struct {
+	IP    string
+	OK    bool
+	Error string
 }
 
 type ServiceHeartbeat struct {
@@ -110,6 +117,7 @@ type Plan struct {
 	HWIDRequired      bool      `json:"hwid_required"`
 	Trial             bool      `json:"trial"`
 	Visibility        string    `json:"visibility"`
+	DedicatedIP       bool      `json:"dedicated_ip"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 

@@ -145,6 +145,55 @@ export interface UserCard {
   trial: { plan_id: number; period_id: number; granted_at: string } | null
   access: { plan_id: number; plan_name: string; source: string; granted_at: string; revoked_at: string | null }[]
   payments: Payment[]
+  addresses: UserAddress[]
+  dedicated_plan: boolean
+}
+
+export type AddressStatus = "ok" | "error" | "missing"
+
+export interface NodeAddress {
+  id: number
+  node_id: number
+  node_name: string
+  ip: string
+  status: AddressStatus
+  error: string | null
+  first_seen_at: string
+  last_seen_at: string
+  stale: boolean
+  assignment: {
+    user_id: number
+    telegram_id: number | null
+    telegram_username: string | null
+    telegram_name: string | null
+    source: "admin" | "purchase"
+    note: string
+    assigned_at: string
+  } | null
+  balancer_warning: boolean
+  no_direct_warning: boolean
+}
+
+export interface UserAddress {
+  address_id: number
+  node_id: number
+  node_name: string
+  ip: string
+  status: AddressStatus
+  source: "admin" | "purchase"
+  note: string
+  assigned_at: string
+  effective: boolean
+  reason?:
+    | "banned"
+    | "no_period"
+    | "node_not_in_plan"
+    | "plan_without_dedicated_ip"
+    | "traffic_exhausted"
+    | "address_error"
+    | "address_missing"
+    | "address_stale"
+    | "profile_no_direct"
 }
 
 export interface UserStats {
@@ -214,6 +263,7 @@ export interface Plan {
   hwid_required: boolean
   trial: boolean
   visibility: "public" | "private"
+  dedicated_ip: boolean
   created_at: string
   active_users?: number
 }

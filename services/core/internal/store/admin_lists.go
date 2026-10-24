@@ -131,6 +131,9 @@ type UserCard struct {
 	Trial    *TrialRow      `json:"trial"`
 	Access   []AccessRow    `json:"access"`
 	Payments []PaymentRow   `json:"payments"`
+
+	Addresses     []UserAddress `json:"addresses"`
+	DedicatedPlan bool          `json:"dedicated_plan"`
 }
 
 const closedPeriodsInCard = 10
@@ -163,6 +166,15 @@ func (s *Store) UserCard(ctx context.Context, userID int64) (*UserCard, error) {
 		return nil, err
 	}
 	if card.Payments, err = s.ListPayments(ctx, PaymentFilter{UserID: &userID, Limit: paymentsInCard}); err != nil {
+		return nil, err
+	}
+	if card.Addresses, err = s.UserAddresses(ctx, userID); err != nil {
+		return nil, err
+	}
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
+		  WHERE sub.user_id = $1 AND p.dedicated_ip AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now())`,
+		userID).Scan(&card.DedicatedPlan); err != nil {
 		return nil, err
 	}
 	return card, nil

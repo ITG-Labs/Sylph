@@ -94,5 +94,11 @@ func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, hb model.Nod
 	if err != nil {
 		return err
 	}
-	return s.store.TouchNodeHeartbeat(ctx, node.ID, hb)
+	if err := s.store.TouchNodeHeartbeat(ctx, node.ID, hb); err != nil {
+		return err
+	}
+	if hb.Addresses == nil {
+		return nil
+	}
+	return s.store.ReportNodeAddresses(ctx, node.ID, *hb.Addresses)
 }

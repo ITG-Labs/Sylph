@@ -134,6 +134,7 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 		Trial             bool   `json:"trial"`
 		Visibility        string `json:"visibility"`
 		OnSale            *bool  `json:"on_sale"`
+		DedicatedIP       bool   `json:"dedicated_ip"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -141,7 +142,7 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	p := &model.Plan{
 		Name: body.Name, PriceRub: body.PriceRub, PeriodDays: body.PeriodDays,
 		TrafficLimitBytes: body.TrafficLimitBytes, LocationGroupID: body.LocationGroupID, DeviceLimit: body.DeviceLimit,
-		HWIDRequired: body.DeviceLimit != nil, Trial: body.Trial, Visibility: body.Visibility,
+		HWIDRequired: body.DeviceLimit != nil, Trial: body.Trial, Visibility: body.Visibility, DedicatedIP: body.DedicatedIP,
 	}
 	if body.HWIDRequired != nil {
 		p.HWIDRequired = *body.HWIDRequired

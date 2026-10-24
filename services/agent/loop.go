@@ -20,10 +20,14 @@ type Loop struct {
 	logger  *slog.Logger
 	started time.Time
 	applied []Inbound
+	egress  []AddressStatus
+	checker *EgressChecker
+	held    bool
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
-	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, rules: NewPlanRules(xray, logger), cfg: cfg, logger: logger, started: time.Now()}
+	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, rules: NewPlanRules(xray, logger), cfg: cfg, logger: logger, started: time.Now(),
+		checker: NewEgressChecker(cfg.Egress)}
 }
 
 func (l *Loop) RunOnce(ctx context.Context) error {
@@ -49,6 +53,7 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
 		ConfigError:    l.node.ConfigError(),
 		RoutingError:   l.rules.Error(),
+		Addresses:      l.egress,
 	}
 	if l.node.geo != nil {
 		if st := l.node.geo.Status(); len(st) > 0 {
@@ -86,7 +91,18 @@ func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) 
 }
 
 func (l *Loop) apply(ctx context.Context) error {
-	d := l.engine.Desired()
+	l.egress = l.checker.Status(ctx)
+	for _, st := range l.egress {
+		if !st.OK {
+			l.logger.Error("egress_address_unavailable", "ip", st.IP, "error", st.Error)
+		}
+	}
+	want := l.engine.Desired(l.egress)
+	d, held := l.node.HoldEgress(want, egressCooldown)
+	if held && !l.held {
+		l.logger.Info("egress_change_deferred", "cooldown", egressCooldown.String())
+	}
+	l.held = held
 	if l.node.geo != nil {
 		var need map[string][]string
 		if d.Routing != nil {
@@ -95,6 +111,11 @@ func (l *Loop) apply(ctx context.Context) error {
 		l.node.geo.Start(ctx, d.Geo, need)
 	}
 	l.applied = l.node.ApplyDesired(ctx, d)
+	blocked := egressBlocked(l.node.AppliedEgress(), want.Egress)
+	if len(blocked) > 0 {
+		l.logger.Warn("egress_users_held_out", "users", len(blocked))
+	}
+	l.engine.Block(blocked)
 	if l.applied == nil {
 		return l.engine.Revoke(ctx, l.node.RunningTags())
 	}

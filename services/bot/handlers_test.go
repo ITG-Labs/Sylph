@@ -380,6 +380,19 @@ func TestStatusShowsTrafficDevicesPaidUntilAndTheLink(t *testing.T) {
 	}
 }
 
+func TestStatusShowsDedicatedIP(t *testing.T) {
+	st := activeStatus()
+	core := &fakeCore{status: st}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("menu:sub"))
+	if strings.Contains(tg.last(t).text, "Выделенный IP") {
+		t.Fatalf("dedicated IP shown without an address:\n%s", tg.last(t).text)
+	}
+	st.DedicatedIPs = []DedicatedIP{{IP: "203.0.113.7", NodeName: "Нидерланды <NL>"}}
+	app.Handle(context.Background(), tg, callback("menu:sub"))
+	mustContain(t, tg.last(t).text, "🌐 <b>Выделенный IP</b>\n<code>203.0.113.7</code> · Нидерланды &lt;NL&gt;\n")
+}
+
 func TestTrafficBar(t *testing.T) {
 	for _, tc := range []struct {
 		used, limit int64

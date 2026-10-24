@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 25 {
-		t.Fatalf("tables = %d, want 25", count)
+	if count != 27 {
+		t.Fatalf("tables = %d, want 27", count)
 	}
 }
 
@@ -862,5 +862,112 @@ func TestMigration012DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 012 again: %v", err)
+	}
+}
+
+func nodeVersionOf(t *testing.T, pool *pgxpool.Pool, cn string) int64 {
+	t.Helper()
+	var v int64
+	if err := pool.QueryRow(context.Background(), `SELECT users_version FROM nodes WHERE cert_cn = $1`, cn).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestMigration013DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(12); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1'), (2, 'tok2')`,
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1'), ('n2', 'n2')`,
+		`INSERT INTO plans (name, price_rub, period_days) VALUES ('p', 100, 30)`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 013: %v", err)
+	}
+	if !tableExists(t, pool, "node_addresses") || !tableExists(t, pool, "address_assignments") || !columnExists(t, pool, "plans", "dedicated_ip") {
+		t.Fatal("up 013 did not create node_addresses, address_assignments or plans.dedicated_ip")
+	}
+	var dedicated bool
+	if err := pool.QueryRow(ctx, `SELECT dedicated_ip FROM plans`).Scan(&dedicated); err != nil || dedicated {
+		t.Fatalf("existing plan dedicated_ip = %v, %v", dedicated, err)
+	}
+
+	bumps := func(t *testing.T, q string, n1, n2 bool) {
+		t.Helper()
+		b1, b2 := nodeVersionOf(t, pool, "n1"), nodeVersionOf(t, pool, "n2")
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		if got := nodeVersionOf(t, pool, "n1") != b1; got != n1 {
+			t.Fatalf("%s: n1 bumped = %v, want %v", q, got, n1)
+		}
+		if got := nodeVersionOf(t, pool, "n2") != b2; got != n2 {
+			t.Fatalf("%s: n2 bumped = %v, want %v", q, got, n2)
+		}
+	}
+	n1 := `(SELECT id FROM nodes WHERE cert_cn = 'n1')`
+	bumps(t, `INSERT INTO node_addresses (node_id, ip, status) VALUES (`+n1+`, '203.0.113.7', 'ok')`, true, false)
+	bumps(t, `UPDATE node_addresses SET last_seen_at = now() + interval '1 minute'`, false, false)
+	bumps(t, `UPDATE node_addresses SET status = 'ok', last_seen_at = now(), error = NULL`, false, false)
+	bumps(t, `UPDATE node_addresses SET status = 'error', error = 'x'`, true, false)
+	bumps(t, `UPDATE node_addresses SET status = 'error', error = 'y'`, false, false)
+	bumps(t, `INSERT INTO address_assignments (address_id, node_id, user_id) SELECT id, node_id, (SELECT id FROM users WHERE telegram_id = 1) FROM node_addresses`, true, false)
+	bumps(t, `UPDATE address_assignments SET note = 'клиент'`, false, false)
+	bumps(t, `UPDATE address_assignments SET user_id = user_id`, false, false)
+	bumps(t, `UPDATE address_assignments SET user_id = (SELECT id FROM users WHERE telegram_id = 2)`, true, false)
+	bumps(t, `UPDATE address_assignments SET user_id = (SELECT id FROM users WHERE telegram_id = 1)`, true, false)
+	bumps(t, `UPDATE plans SET dedicated_ip = TRUE`, true, true)
+	bumps(t, `UPDATE plans SET name = 'p2'`, false, false)
+
+	for _, q := range []string{
+		`INSERT INTO node_addresses (node_id, ip, status) VALUES (` + n1 + `, '203.0.113.7', 'ok')`,
+		`INSERT INTO node_addresses (node_id, ip, status) VALUES (` + n1 + `, '', 'ok')`,
+		`INSERT INTO node_addresses (node_id, ip, status) VALUES (` + n1 + `, '203.0.113.8', 'gone')`,
+		`INSERT INTO address_assignments (address_id, node_id, user_id) SELECT id, node_id, (SELECT id FROM users WHERE telegram_id = 2) FROM node_addresses`,
+		`INSERT INTO address_assignments (address_id, node_id, user_id) SELECT id, (SELECT id FROM nodes WHERE cert_cn = 'n2'), (SELECT id FROM users WHERE telegram_id = 2) FROM node_addresses`,
+		`UPDATE address_assignments SET source = 'gift'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO node_addresses (node_id, ip, status) VALUES (`+n1+`, '203.0.113.8', 'ok')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO address_assignments (address_id, node_id, user_id) SELECT id, node_id, (SELECT id FROM users WHERE telegram_id = 1) FROM node_addresses WHERE ip = '203.0.113.8'`); err == nil {
+		t.Fatal("second address for the same user on the same node accepted")
+	}
+	bumps(t, `DELETE FROM node_addresses WHERE ip = '203.0.113.7'`, true, false)
+	var left int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM address_assignments`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("assignment survived its address: %d, %v", left, err)
+	}
+
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 013: %v", err)
+	}
+	if tableExists(t, pool, "node_addresses") || tableExists(t, pool, "address_assignments") || columnExists(t, pool, "plans", "dedicated_ip") {
+		t.Fatal("down 013 left its tables or plans.dedicated_ip")
+	}
+	bumps(t, `UPDATE plans SET traffic_limit_bytes = 1`, true, true)
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 013 again: %v", err)
 	}
 }

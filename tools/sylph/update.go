@@ -116,6 +116,9 @@ func updateRole(ctx context.Context, u *ui.UI, in installed, target string) erro
 		if err != nil {
 			return "", err
 		}
+		if err := prepareEgress(in.Dir, in.Role, env); err != nil {
+			return "", err
+		}
 		if err := writeEnv(in.Dir, in.Role, env); err != nil {
 			return "", err
 		}

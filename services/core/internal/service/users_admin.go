@@ -221,5 +221,9 @@ func (s *Service) ListUsers(ctx context.Context, q UserQuery) ([]store.UserRow, 
 }
 
 func (s *Service) UserCard(ctx context.Context, userID int64) (*store.UserCard, error) {
-	return s.store.UserCard(ctx, userID)
+	card, err := s.store.UserCard(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return card, s.checkDirect(ctx, card.Addresses)
 }

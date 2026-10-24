@@ -15,6 +15,7 @@ type Engine struct {
 	logger      *slog.Logger
 	version     int64
 	desired     map[string]bool
+	blocked     map[string]bool
 	haveDesired bool
 	inbounds    []Inbound
 	users       []SyncUser
@@ -28,6 +29,7 @@ type NodeDesired struct {
 	Routing     *noderoute.Profile
 	ServiceKeys []string
 	Geo         *SyncGeo
+	Egress      []noderoute.Egress
 }
 
 func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logger) *Engine {
@@ -47,6 +49,10 @@ func (e *Engine) ActiveUsers() map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+func (e *Engine) Block(uuids map[string]bool) {
+	e.blocked = uuids
 }
 
 func (e *Engine) Inbounds() []Inbound {
@@ -69,8 +75,9 @@ func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, ge
 	e.routing, e.serviceKeys, e.geo = routing, serviceKeys, geo
 }
 
-func (e *Engine) Desired() NodeDesired {
-	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo}
+func (e *Engine) Desired(status []AddressStatus) NodeDesired {
+	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo,
+		Egress: buildEgress(status, e.users)}
 }
 
 func (e *Engine) PlanUsers() map[int64][]string {
@@ -162,7 +169,7 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 	}
 	var firstErr error
 	for uuid := range actual {
-		if e.desired[uuid] {
+		if e.desired[uuid] && !e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -178,7 +185,7 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 		return firstErr
 	}
 	for uuid := range e.desired {
-		if actual[uuid] {
+		if actual[uuid] || e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

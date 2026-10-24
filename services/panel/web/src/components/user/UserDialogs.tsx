@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { core } from "@/lib/api"
 import { fmtBytes, fmtDate, fmtRub, parseGB } from "@/lib/format"
-import type { Period, Plan, UserCard } from "@/lib/types"
+import { assignable } from "@/lib/addresses"
+import type { NodeAddress, Period, Plan, UserAddress, UserCard } from "@/lib/types"
 
 export type UserDialog =
   | { kind: "extend" }
@@ -19,12 +20,15 @@ export type UserDialog =
   | { kind: "close"; period: Period }
   | { kind: "resetDevices" }
   | { kind: "deleteDevice"; deviceId: number; name: string }
+  | { kind: "assignAddress" }
+  | { kind: "unassignAddress"; address: UserAddress }
 
 interface Props {
   dialog: UserDialog | null
   onClose: () => void
   card: UserCard
   plans: Plan[]
+  addresses: NodeAddress[]
   onDone: () => void
 }
 
@@ -47,7 +51,7 @@ function manualPaymentID() {
   return `manual-${ymd}-${rnd}`
 }
 
-export function UserDialogs({ dialog, onClose, card, plans, onDone }: Props) {
+export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }: Props) {
   const uid = card.user.id
   const current = card.periods.find((p) => p.state === "current")
   const open = (k: UserDialog["kind"]) => dialog?.kind === k
@@ -56,6 +60,8 @@ export function UserDialogs({ dialog, onClose, card, plans, onDone }: Props) {
   const [gb, setGb] = useState("")
   const [planId, setPlanId] = useState("")
   const [amount, setAmount] = useState("")
+  const [addressId, setAddressId] = useState("")
+  const [note, setNote] = useState("")
   const paymentId = useMemo(() => (dialog?.kind === "manual" ? manualPaymentID() : ""), [dialog])
 
   useEffect(() => {
@@ -63,6 +69,8 @@ export function UserDialogs({ dialog, onClose, card, plans, onDone }: Props) {
     setGb("")
     setPlanId("")
     setAmount("")
+    setAddressId("")
+    setNote("")
   }, [dialog])
 
   const run = async (p: Promise<unknown>) => {
@@ -75,6 +83,8 @@ export function UserDialogs({ dialog, onClose, card, plans, onDone }: Props) {
   const pickedPlan = plans.find((p) => String(p.id) === planId)
   const amountN = Number(amount)
   const amountOK = amount !== "" && Number.isInteger(amountN) && amountN >= 0
+  const free = assignable(addresses, card.addresses)
+  const pickedAddress = free.find((a) => String(a.id) === addressId)
 
   return (
     <>
@@ -262,6 +272,61 @@ export function UserDialogs({ dialog, onClose, card, plans, onDone }: Props) {
         confirmLabel="Отвязать все"
         success="Устройства отвязаны"
         onConfirm={() => run(core.post(`/v1/users/${uid}/devices/reset`))}
+      />
+
+      <ActionDialog
+        open={open("assignAddress")}
+        onOpenChange={close}
+        title="Закрепить выделенный IP"
+        consequences={
+          <>
+            <p>На ноде адреса юзер начнёт выходить в интернет с этого IP — если его тариф с пометкой «выделенный IP». На других нодах ничего не меняется.</p>
+            <p>Нода перезапустит xray — её открытые соединения оборвутся на пару секунд.</p>
+          </>
+        }
+        confirmLabel={pickedAddress ? `Закрепить ${pickedAddress.ip}` : "Закрепить"}
+        canConfirm={!!pickedAddress && note.length <= 200}
+        success="Адрес закреплён"
+        onConfirm={() => run(core.put(`/v1/admin/addresses/${addressId}/assignment`, { user_id: uid, note: note.trim() }))}
+      >
+        <div className="flex flex-col gap-2">
+          <Label>Адрес</Label>
+          <Select value={addressId} onValueChange={setAddressId}>
+            <SelectTrigger>
+              <SelectValue placeholder={free.length === 0 ? "свободных адресов нет" : "выбери адрес"} />
+            </SelectTrigger>
+            <SelectContent>
+              {free.map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>
+                  {a.ip} · {a.node_name}
+                  {a.status === "error" ? " · с ошибкой" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">Только свободные адреса на нодах, где у юзера ещё нет своего.</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="anote">Заметка</Label>
+          <Input id="anote" value={note} onChange={(e) => setNote(e.target.value)} placeholder="например: арендован под клиента до марта" />
+        </div>
+      </ActionDialog>
+
+      <ActionDialog
+        open={open("unassignAddress")}
+        onOpenChange={close}
+        title="Снять выделенный IP"
+        description={dialog?.kind === "unassignAddress" ? `${dialog.address.ip} · ${dialog.address.node_name}` : undefined}
+        consequences={
+          <>
+            <p>Адрес станет свободным, юзер будет выходить через общий адрес ноды.</p>
+            <p>Нода перезапустит xray — все открытые соединения на ней оборвутся на пару секунд.</p>
+          </>
+        }
+        destructive
+        confirmLabel="Снять"
+        success="Адрес снят"
+        onConfirm={() => run(dialog?.kind === "unassignAddress" ? core.del(`/v1/admin/addresses/${dialog.address.address_id}/assignment`) : Promise.resolve())}
       />
 
       <ActionDialog

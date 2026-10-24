@@ -25,6 +25,8 @@ const usage = `sylph — установка и обслуживание роле
   sudo ./sylph status           здоровье ролей машины
   sudo ./sylph start [роль]     запустить роль и дождаться здоровья
   sudo ./sylph stop [роль]      остановить роль
+  sudo ./sylph ip [list]        доп. IP ноды для выделенных адресов
+  sudo ./sylph ip add <IPv4>    подключить доп. IP к ноде (ip remove — отключить)
   sudo ./sylph                  всё то же в интерактивном режиме
 
 На своём компьютере, рядом с CA (не на сервере):
@@ -71,6 +73,8 @@ func dispatch(ctx context.Context, u *ui.UI, args []string) int {
 		err = cmdStop(ctx, u, args[1:])
 	case "certs":
 		err = cmdCerts(ctx, u, args[1:])
+	case "ip":
+		err = cmdIP(ctx, u, args[1:])
 	case "version", "--version", "-v":
 		u.Line(fmt.Sprintf("sylph %s (образы: %s)", version.Version, imageVersionOrDev()))
 		return 0

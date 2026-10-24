@@ -37,6 +37,22 @@ type RenderInput struct {
 	Profile     *Profile
 	ServiceKeys []string
 	GeoFile     func(source string) string
+	Egress      []Egress
+}
+
+type Egress struct {
+	Name        string
+	SendThrough string
+	Users       map[int64][]string
+}
+
+func EgressTag(name, tag string) string {
+	return "_egress-" + name + "-" + tag
+}
+
+func EgressDirect(name, sendThrough string) map[string]any {
+	return map[string]any{"tag": EgressTag(name, "direct"), "protocol": "freedom", "sendThrough": sendThrough,
+		"settings": map[string]any{"targetStrategy": directStrategies["ipv4"]}}
 }
 
 type Static struct {
@@ -83,6 +99,14 @@ func Render(in RenderInput) (Static, error) {
 		}
 		out.Outbounds = append(out.Outbounds, rendered)
 	}
+	direct := p.DirectTags()
+	for _, e := range in.Egress {
+		for _, tag := range direct {
+			o := EgressDirect(e.Name, e.SendThrough)
+			o["tag"] = EgressTag(e.Name, tag)
+			out.Outbounds = append(out.Outbounds, o)
+		}
+	}
 	rules := []any{
 		map[string]any{"ruleTag": GuardRuleTag, "ip": guardNets, "outboundTag": GuardOutboundTag},
 		map[string]any{"ruleTag": GuardNamesRuleTag, "domain": guardNames, "outboundTag": GuardOutboundTag},
@@ -92,30 +116,18 @@ func Render(in RenderInput) (Static, error) {
 		rules = append(rules, map[string]any{"ruleTag": ServiceRuleTag, "user": in.ServiceKeys, "outboundTag": ServiceOutboundTag})
 	}
 	strategy := "AsIs"
+	if slices.ContainsFunc(p.Rules, func(r Rule) bool { return !r.IsPlanRule() && len(r.IP) > 0 }) {
+		strategy = "IPIfNonMatch"
+	}
+	for _, e := range in.Egress {
+		rules = append(rules, p.egressRules(e, in.GeoFile)...)
+	}
 	for i, r := range p.Rules {
 		if r.IsPlanRule() {
 			continue
 		}
-		rule := map[string]any{"ruleTag": fmt.Sprintf("sylph-r%d", i+1)}
-		if len(r.Domain) > 0 {
-			rule["domain"] = geoRefs(r.Domain, in.GeoFile, "geosite")
-		}
-		if len(r.IP) > 0 {
-			rule["ip"] = geoRefs(r.IP, in.GeoFile, "geoip")
-			strategy = "IPIfNonMatch"
-		}
-		if r.Port != "" {
-			rule["port"] = r.Port
-		}
-		if r.Network != "" {
-			rule["network"] = r.Network
-		}
-		if len(r.Protocol) > 0 {
-			rule["protocol"] = r.Protocol
-		}
-		if len(r.Inbound) > 0 {
-			rule["inboundTag"] = r.Inbound
-		}
+		rule := p.matchRule(r, in.GeoFile)
+		rule["ruleTag"] = fmt.Sprintf("sylph-r%d", i+1)
 		p.target(rule, r.To)
 		rules = append(rules, rule)
 	}
@@ -154,6 +166,73 @@ func Render(in RenderInput) (Static, error) {
 		}
 	}
 	return out, nil
+}
+
+func (p *Profile) matchRule(r Rule, geoFile func(string) string) map[string]any {
+	rule := map[string]any{}
+	if len(r.Domain) > 0 {
+		rule["domain"] = geoRefs(r.Domain, geoFile, "geosite")
+	}
+	if len(r.IP) > 0 {
+		rule["ip"] = geoRefs(r.IP, geoFile, "geoip")
+	}
+	if r.Port != "" {
+		rule["port"] = r.Port
+	}
+	if r.Network != "" {
+		rule["network"] = r.Network
+	}
+	if len(r.Protocol) > 0 {
+		rule["protocol"] = r.Protocol
+	}
+	if len(r.Inbound) > 0 {
+		rule["inboundTag"] = r.Inbound
+	}
+	return rule
+}
+
+func (p *Profile) egressRules(e Egress, geoFile func(string) string) []any {
+	direct := p.DirectTags()
+	to := func(rule map[string]any, tag string) {
+		if slices.Contains(direct, tag) {
+			rule["outboundTag"] = EgressTag(e.Name, tag)
+			return
+		}
+		p.target(rule, tag)
+	}
+	plans := make([]int64, 0, len(e.Users))
+	for plan := range e.Users {
+		plans = append(plans, plan)
+	}
+	slices.Sort(plans)
+	var out []any
+	for _, plan := range plans {
+		users := slices.Clone(e.Users[plan])
+		slices.Sort(users)
+		prefix := fmt.Sprintf("sylph-e%s-p%d-", e.Name, plan)
+		for i, r := range p.Rules {
+			if r.IsPlanRule() {
+				continue
+			}
+			rule := p.matchRule(r, geoFile)
+			rule["ruleTag"] = fmt.Sprintf("%sr%d", prefix, i+1)
+			rule["user"] = users
+			to(rule, r.To)
+			out = append(out, rule)
+		}
+		last := map[string]any{"ruleTag": prefix + "default", "user": users, "network": "tcp,udp"}
+		target := p.Default
+		for i, r := range p.Rules {
+			if r.IsPlanRule() && slices.Contains(r.Plans, plan) {
+				last["ruleTag"] = fmt.Sprintf("%sr%d", prefix, i+1)
+				target = r.To
+				break
+			}
+		}
+		to(last, target)
+		out = append(out, last)
+	}
+	return out
 }
 
 func geoRefs(list []string, geoFile func(string) string, builtin string) []string {

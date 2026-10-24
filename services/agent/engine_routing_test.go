@@ -30,7 +30,7 @@ func TestSyncKeepsRoutingServiceKeysAndPlans(t *testing.T) {
 	if !active["a"] || !active["b"] || !active["svc-1"] || len(active) != 3 {
 		t.Fatalf("active = %v", active)
 	}
-	d := e.Desired()
+	d := e.Desired(nil)
 	if d.Routing == nil || d.Routing.Default != "direct" || !reflect.DeepEqual(d.ServiceKeys, []string{"svc-1"}) || d.Geo == nil || d.Geo.Generation != 2 || len(d.Geo.Sources) != 1 {
 		t.Fatalf("desired = %+v", d)
 	}
@@ -47,7 +47,7 @@ func TestSyncKeepsRoutingServiceKeysAndPlans(t *testing.T) {
 	if err := restored.LoadState(restored.cfg.CachePath); err != nil {
 		t.Fatal(err)
 	}
-	if rd := restored.Desired(); rd.Routing == nil || len(rd.ServiceKeys) != 1 || rd.Geo == nil || !restored.ActiveUsers()["svc-1"] {
+	if rd := restored.Desired(nil); rd.Routing == nil || len(rd.ServiceKeys) != 1 || rd.Geo == nil || !restored.ActiveUsers()["svc-1"] {
 		t.Fatalf("restored = %+v", rd)
 	}
 	if got := restored.PlanUsers(); !reflect.DeepEqual(got, map[int64][]string{3: {"a"}}) {

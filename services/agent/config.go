@@ -33,6 +33,7 @@ type Config struct {
 	GeoStatePath  string
 	XrayGeoPrefix string
 	SyncInterval  time.Duration
+	Egress        []EgressAddr
 }
 
 func LoadConfig() (*Config, error) {
@@ -59,6 +60,11 @@ func LoadConfig() (*Config, error) {
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
 	}
+	egress, err := ParseEgress(os.Getenv("SYLPH_EGRESS"))
+	if err != nil {
+		return nil, errors.New("SYLPH_EGRESS: " + err.Error())
+	}
+	cfg.Egress = egress
 	if cfg.TLSCert == "" || cfg.TLSKey == "" || cfg.CACert == "" {
 		return nil, errors.New("SYLPH_TLS_CERT, SYLPH_TLS_KEY and SYLPH_CA_CERT are required")
 	}

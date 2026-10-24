@@ -52,6 +52,7 @@ export function PlanFormDialog({
   const [trial, setTrial] = useState(false)
   const [priv, setPriv] = useState(false)
   const [onSale, setOnSale] = useState(true)
+  const [dedicated, setDedicated] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -65,6 +66,7 @@ export function PlanFormDialog({
     setTrial(plan?.trial ?? false)
     setPriv(plan?.visibility === "private")
     setOnSale(plan?.on_sale ?? true)
+    setDedicated(plan?.dedicated_ip ?? false)
   }, [open, plan])
 
   const priceN = Number(price)
@@ -102,6 +104,7 @@ export function PlanFormDialog({
     trial,
     visibility: priv ? "private" : "public",
     on_sale: onSale,
+    dedicated_ip: dedicated,
   }
   const changed: Record<string, unknown> = {}
   if (plan) {
@@ -115,6 +118,7 @@ export function PlanFormDialog({
     if (trial !== plan.trial) changed.trial = trial
     if (full.visibility !== plan.visibility) changed.visibility = full.visibility
     if (onSale !== plan.on_sale) changed.on_sale = onSale
+    if (dedicated !== plan.dedicated_ip) changed.dedicated_ip = dedicated
   }
   const nothingChanged = !!plan && Object.keys(changed).length === 0
   const nodes = useNodes()
@@ -123,6 +127,7 @@ export function PlanFormDialog({
       ? describePlanMove({ ...plan, active_users: plan.active_users ?? 0 }, groupID, planMoveImpact({ ...plan, active_users: plan.active_users ?? 0 }, groupID, nodes.data))
       : []
   const limitLive = !!plan && "traffic_limit_bytes" in changed
+  const dedicatedLive = !!plan && "dedicated_ip" in changed
 
   return (
     <ActionDialog
@@ -130,9 +135,16 @@ export function PlanFormDialog({
       onOpenChange={onOpenChange}
       title={plan ? `Тариф «${plan.name}»` : "Новый тариф"}
       consequences={
-        limitLive || moveLines.length > 0 ? (
+        limitLive || dedicatedLive || moveLines.length > 0 ? (
           <>
             {limitLive && <p>Новый лимит трафика действует и на текущие периоды этого тарифа — ноды пересинкуются.</p>}
+            {dedicatedLive && (
+              <p>
+                {dedicated
+                  ? "Юзеры тарифа с закреплённым адресом начнут выходить через него — ноды с такими адресами перезапустят xray."
+                  : "Закреплённые адреса юзеров тарифа перестанут работать, их трафик пойдёт через общие адреса — ноды с такими адресами перезапустят xray."}
+              </p>
+            )}
             <MoveConsequences lines={moveLines} />
           </>
         ) : undefined
@@ -189,6 +201,12 @@ export function PlanFormDialog({
         <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся кнопкой в боте новичкам, раз на аккаунт" : "только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />
         <Toggle title="Приватный" hint="виден только по приглашению или доступу по Telegram ID" checked={priv} onChange={setPriv} />
         <Toggle title="В продаже" hint="снятый не покупается, но текущие могут продлить" checked={onSale} onChange={setOnSale} />
+        <Toggle
+          title="Выделенный IP"
+          hint="юзер выходит через закреплённый за ним адрес на той ноде, где адрес есть; на остальных — через общие"
+          checked={dedicated}
+          onChange={setDedicated}
+        />
       </div>
     </ActionDialog>
   )

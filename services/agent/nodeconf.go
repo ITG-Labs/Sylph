@@ -34,6 +34,7 @@ type nodeState struct {
 	Applied            []Inbound          `json:"applied"`
 	AppliedRouting     *noderoute.Profile `json:"applied_routing,omitempty"`
 	AppliedServiceKeys []string           `json:"applied_service_keys,omitempty"`
+	AppliedEgress      []noderoute.Egress `json:"applied_egress,omitempty"`
 	XrayRejected       *rejection         `json:"xray_rejected,omitempty"`
 	CaddyRejected      *rejection         `json:"caddy_rejected,omitempty"`
 }
@@ -52,6 +53,7 @@ type NodeConfig struct {
 	state       nodeState
 	geoNames    []string
 	settled     bool
+	egressAt    time.Time
 	xrayErr     string
 	caddyErr    string
 }
@@ -75,11 +77,11 @@ func NewNodeConfig(cfg *Config, xray XrayClient, caddy CaddyAPI, logger *slog.Lo
 }
 
 func (n *NodeConfig) input(d NodeDesired) XrayInput {
-	return XrayInput{Inbounds: d.Inbounds, APIListen: n.cfg.XrayAPI, Routing: d.Routing, ServiceKeys: d.ServiceKeys, GeoPrefix: n.cfg.XrayGeoPrefix}
+	return XrayInput{Inbounds: d.Inbounds, APIListen: n.cfg.XrayAPI, Routing: d.Routing, ServiceKeys: d.ServiceKeys, GeoPrefix: n.cfg.XrayGeoPrefix, Egress: d.Egress}
 }
 
 func (n *NodeConfig) applied() NodeDesired {
-	return NodeDesired{Inbounds: n.state.Applied, Routing: n.state.AppliedRouting, ServiceKeys: n.state.AppliedServiceKeys}
+	return NodeDesired{Inbounds: n.state.Applied, Routing: n.state.AppliedRouting, ServiceKeys: n.state.AppliedServiceKeys, Egress: n.state.AppliedEgress}
 }
 
 func (n *NodeConfig) Load() error {
@@ -99,8 +101,8 @@ func (n *NodeConfig) Load() error {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return fmt.Errorf("parse node state: %w", err)
 	}
-	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys}) {
-		st.Applied, st.AppliedRouting, st.AppliedServiceKeys = nil, nil, nil
+	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys, Egress: st.AppliedEgress}) {
+		st.Applied, st.AppliedRouting, st.AppliedServiceKeys, st.AppliedEgress = nil, nil, nil, nil
 	}
 	if st.XrayRejected != nil {
 		n.xrayErr = st.XrayRejected.Error
@@ -174,6 +176,22 @@ func (n *NodeConfig) ApplyDesired(ctx context.Context, d NodeDesired) []Inbound 
 		n.ensureCaddy(ctx, n.state.Applied)
 	}
 	return n.state.Applied
+}
+
+func (n *NodeConfig) AppliedEgress() []noderoute.Egress {
+	return n.state.AppliedEgress
+}
+
+func (n *NodeConfig) HoldEgress(d NodeDesired, cooldown time.Duration) (NodeDesired, bool) {
+	st := n.state
+	if st.Applied == nil || n.egressAt.IsZero() || time.Since(n.egressAt) >= cooldown || reflect.DeepEqual(st.AppliedEgress, d.Egress) {
+		return d, false
+	}
+	if !reflect.DeepEqual(st.Applied, d.Inbounds) || !reflect.DeepEqual(st.AppliedRouting, d.Routing) || !slices.Equal(st.AppliedServiceKeys, d.ServiceKeys) {
+		return d, false
+	}
+	d.Egress = st.AppliedEgress
+	return d, true
 }
 
 func (n *NodeConfig) Settled() bool {
@@ -430,9 +448,13 @@ func (n *NodeConfig) acceptXray(desired NodeDesired) {
 	if reflect.DeepEqual(n.applied(), desired) && n.state.XrayRejected == nil {
 		return
 	}
+	if n.state.Applied != nil && !reflect.DeepEqual(n.state.AppliedEgress, desired.Egress) {
+		n.egressAt = time.Now()
+	}
 	n.state.Applied = slices.Clone(desired.Inbounds)
 	n.state.AppliedRouting = desired.Routing
 	n.state.AppliedServiceKeys = slices.Clone(desired.ServiceKeys)
+	n.state.AppliedEgress = desired.Egress
 	n.state.XrayRejected = nil
 	n.saveState()
 }

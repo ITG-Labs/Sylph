@@ -341,6 +341,13 @@ func (a *App) statusText(st *Status) string {
 	} else {
 		fmt.Fprintf(&b, "%d · без лимита\n\n", st.Devices)
 	}
+	if len(st.DedicatedIPs) > 0 {
+		fmt.Fprintf(&b, "%s <b>Выделенный IP</b>\n", a.ic(icGlobe))
+		for _, d := range st.DedicatedIPs {
+			fmt.Fprintf(&b, "<code>%s</code> · %s\n", html.EscapeString(d.IP), html.EscapeString(d.NodeName))
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "%s <b>Текущий период до</b>\n%s\n\n", a.ic(icClock), a.when(sub.ExpiresAt))
 	if sub.PaidUntil != nil {
 		fmt.Fprintf(&b, "%s <b>Оплачено до</b>\n%s\n\n", a.ic(icCalendar), a.when(*sub.PaidUntil))

@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
-import { ArrowLeft, Ban, CalendarPlus, ChevronRight, Gift, Gauge, History, KeyRound, MoreHorizontal, Repeat, ShieldCheck, Smartphone, Trash2 } from "lucide-react"
+import { ArrowLeft, Ban, CalendarPlus, ChevronRight, Gift, Gauge, Globe, History, KeyRound, MoreHorizontal, Plus, Repeat, ShieldCheck, Smartphone, Trash2, TriangleAlert } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { CopyButton } from "@/components/common/CopyButton"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
@@ -16,7 +16,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { core, qs } from "@/lib/api"
 import { fmtBytes, fmtDate, fmtDateTime, fmtRelative, fmtRub } from "@/lib/format"
-import { useInvalidate, usePlans } from "@/lib/queries"
+import { addressReason, assignable, needsAddress } from "@/lib/addresses"
+import { useAddresses, useInvalidate, usePlans } from "@/lib/queries"
 import type { AuditPage, Period, UserCard, UserStats } from "@/lib/types"
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -52,6 +53,7 @@ export function UserPage() {
   const { id } = useParams()
   const invalidate = useInvalidate()
   const plans = usePlans()
+  const addresses = useAddresses()
   const [dialog, setDialog] = useState<UserDialog | null>(null)
   const card = useQuery({ queryKey: ["user", id], queryFn: () => core.get<UserCard>(`/v1/admin/users/${id}`) })
   const banned = card.data?.user.status === "banned"
@@ -80,7 +82,9 @@ export function UserPage() {
   const closed = c.periods.filter((p) => p.state !== "current" && p.state !== "queued")
   const paidUntil = queued.length > 0 ? queued[queued.length - 1].expires_at : current?.expires_at
   const open = (d: UserDialog) => () => setDialog(d)
-  const refresh = () => invalidate(["user", id], ["users"], ["overview"], ["audit"], ["payments"])
+  const refresh = () => invalidate(["user", id], ["users"], ["overview"], ["audit"], ["payments"], ["addresses"])
+  const myAddresses = c.addresses ?? []
+  const freeAddresses = assignable(addresses.data ?? [], myAddresses)
 
   return (
     <>
@@ -378,6 +382,59 @@ export function UserPage() {
             </div>
           </Section>
 
+          <Section
+            title="Выделенный IP"
+            description="на тарифе с пометкой «выделенный IP»"
+            action={
+              !banned && (
+                <Button variant="ghost" size="sm" onClick={open({ kind: "assignAddress" })} disabled={freeAddresses.length === 0}>
+                  <Plus />
+                  Закрепить
+                </Button>
+              )
+            }
+          >
+            <div className="flex flex-col gap-2">
+              {needsAddress(c.dedicated_plan, c.addresses) && (
+                <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+                  <span>Тариф обещает выделенный IP, а рабочего адреса нет — юзер выходит через общие адреса нод.</span>
+                </div>
+              )}
+              {myAddresses.length === 0 ? (
+                <Empty>Не закреплён</Empty>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {myAddresses.map((a) => (
+                    <li key={a.address_id} className="well flex items-start gap-3 rounded-xl p-3">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground">
+                        <Globe className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm">{a.ip}</span>
+                          <Badge variant={a.effective ? "success" : "outline"}>{a.effective ? "действует" : "не действует"}</Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          <Link to={`/nodes/${a.node_id}`} className="hover:underline">
+                            {a.node_name}
+                          </Link>
+                          {" · закреплён "}
+                          {fmtDate(a.assigned_at)}
+                        </div>
+                        {a.reason && <div className="text-xs text-warning">{addressReason[a.reason]}</div>}
+                        {a.note && <div className="text-xs text-muted-foreground">{a.note}</div>}
+                      </div>
+                      <Button variant="ghost" size="icon-sm" aria-label="Снять адрес" onClick={open({ kind: "unassignAddress", address: a })}>
+                        <Trash2 />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Section>
+
           <Section title="История действий" description="бан, продление, трафик, тариф, ссылка и устройства; платежи и периоды — в общем аудите">
             {history.isPending ? (
               <LoadingBlock rows={2} />
@@ -406,7 +463,7 @@ export function UserPage() {
         </div>
       </div>
 
-      <UserDialogs dialog={dialog} onClose={() => setDialog(null)} card={c} plans={plans.data ?? []} onDone={refresh} />
+      <UserDialogs dialog={dialog} onClose={() => setDialog(null)} card={c} plans={plans.data ?? []} addresses={addresses.data ?? []} onDone={refresh} />
     </>
   )
 }

@@ -29,8 +29,9 @@ type ProfileRow struct {
 }
 
 type NodeKey struct {
-	UUID   string
-	PlanID int64
+	UUID     string
+	PlanID   int64
+	EgressIP string
 }
 
 type GeoSource struct {
@@ -293,12 +294,14 @@ func (s *Store) BumpNodesCascadingTo(ctx context.Context, nodeID int64) error {
 
 func (s *Store) ListNodeKeys(ctx context.Context, nodeID int64) ([]NodeKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT ON (uk.uuid) uk.uuid, p.id
+		`SELECT DISTINCT ON (uk.uuid) uk.uuid, p.id, COALESCE(na.ip, '')
 		 FROM user_keys uk
 		 JOIN users u ON u.id = uk.user_id
 		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
 		 JOIN plans p ON p.id = sub.plan_id
 		 JOIN nodes n ON n.id = $1
+		 LEFT JOIN address_assignments aa ON aa.user_id = u.id AND aa.node_id = n.id AND p.dedicated_ip
+		 LEFT JOIN node_addresses na ON na.id = aa.address_id AND na.status = 'ok'
 		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
 		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes)
 		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)
@@ -311,7 +314,7 @@ func (s *Store) ListNodeKeys(ctx context.Context, nodeID int64) ([]NodeKey, erro
 	var keys []NodeKey
 	for rows.Next() {
 		var k NodeKey
-		if err := rows.Scan(&k.UUID, &k.PlanID); err != nil {
+		if err := rows.Scan(&k.UUID, &k.PlanID, &k.EgressIP); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)

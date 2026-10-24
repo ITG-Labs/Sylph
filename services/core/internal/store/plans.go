@@ -85,13 +85,13 @@ func (s *Store) ListLocationGroups(ctx context.Context) ([]model.LocationGroup, 
 	return groups, rows.Err()
 }
 
-const planColumns = `id, name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, on_sale, hwid_required, trial, visibility, created_at`
+const planColumns = `id, name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, on_sale, hwid_required, trial, visibility, dedicated_ip, created_at`
 
-const planColumnsP = `p.id, p.name, p.price_rub, p.period_days, p.traffic_limit_bytes, p.location_group_id, p.device_limit, p.on_sale, p.hwid_required, p.trial, p.visibility, p.created_at`
+const planColumnsP = `p.id, p.name, p.price_rub, p.period_days, p.traffic_limit_bytes, p.location_group_id, p.device_limit, p.on_sale, p.hwid_required, p.trial, p.visibility, p.dedicated_ip, p.created_at`
 
 func (s *Store) scanPlan(row pgxRow) (*model.Plan, error) {
 	p := &model.Plan{}
-	err := row.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit, &p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit, &p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.DedicatedIP, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -110,9 +110,9 @@ func (s *Store) CreatePlanWith(ctx context.Context, p *model.Plan, onSale bool) 
 		p.Visibility = model.VisibilityPublic
 	}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, hwid_required, trial, visibility, on_sale)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, on_sale, created_at`,
-		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.HWIDRequired, p.Trial, p.Visibility, onSale,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id, device_limit, hwid_required, trial, visibility, on_sale, dedicated_ip)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, on_sale, created_at`,
+		p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.HWIDRequired, p.Trial, p.Visibility, onSale, p.DedicatedIP,
 	).Scan(&p.ID, &p.OnSale, &p.CreatedAt)
 	return mapWriteErr(err)
 }
@@ -120,8 +120,8 @@ func (s *Store) CreatePlanWith(ctx context.Context, p *model.Plan, onSale bool) 
 func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE plans SET name = $2, price_rub = $3, period_days = $4, traffic_limit_bytes = $5,
-		 location_group_id = $6, device_limit = $7, on_sale = $8, hwid_required = $9, trial = $10, visibility = $11 WHERE id = $1`,
-		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.OnSale, p.HWIDRequired, p.Trial, p.Visibility)
+		 location_group_id = $6, device_limit = $7, on_sale = $8, hwid_required = $9, trial = $10, visibility = $11, dedicated_ip = $12 WHERE id = $1`,
+		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.TrafficLimitBytes, p.LocationGroupID, p.DeviceLimit, p.OnSale, p.HWIDRequired, p.Trial, p.Visibility, p.DedicatedIP)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -163,7 +163,7 @@ func (s *Store) ListAdminPlans(ctx context.Context) ([]PlanRow, error) {
 		var r PlanRow
 		p := &r.Plan
 		if err := rows.Scan(&p.ID, &p.Name, &p.PriceRub, &p.PeriodDays, &p.TrafficLimitBytes, &p.LocationGroupID, &p.DeviceLimit,
-			&p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.CreatedAt, &r.ActiveUsers); err != nil {
+			&p.OnSale, &p.HWIDRequired, &p.Trial, &p.Visibility, &p.DedicatedIP, &p.CreatedAt, &r.ActiveUsers); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

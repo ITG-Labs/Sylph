@@ -10,8 +10,9 @@ import (
 )
 
 type NodeUser struct {
-	UUID   string `json:"uuid"`
-	PlanID int64  `json:"plan_id"`
+	UUID     string `json:"uuid"`
+	PlanID   int64  `json:"plan_id"`
+	EgressIP string `json:"egress_ip,omitempty"`
 }
 
 type SyncGeoSource struct {
@@ -72,7 +73,7 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 	}
 	nodeUsers := make([]NodeUser, 0, len(keys))
 	for _, k := range keys {
-		nodeUsers = append(nodeUsers, NodeUser{UUID: k.UUID, PlanID: k.PlanID})
+		nodeUsers = append(nodeUsers, NodeUser{UUID: k.UUID, PlanID: k.PlanID, EgressIP: k.EgressIP})
 	}
 	stored, err := s.store.ListNodeInbounds(ctx, node.ID)
 	if err != nil {

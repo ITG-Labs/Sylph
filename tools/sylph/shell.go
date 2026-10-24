@@ -36,6 +36,7 @@ var shellCommands = []shellCommand{
 	{"status", "", "подробно о ролях машины", false},
 	{"start", "[роль]", "запустить роль и дождаться здоровья", false},
 	{"stop", "[роль]", "остановить роль", false},
+	{"ip", "[list|add|remove] <IPv4>", "доп. IP ноды для выделенных адресов", false},
 	{"bundle", "<роль>", "пакет сертов роли — на своём компьютере, рядом с CA", true},
 	{"certs", "", "серты CA и их сроки", true},
 	{"revoke", "<имя>", "отозвать серт", true},
@@ -422,6 +423,8 @@ func (m *shell) suggestions() []suggestion {
 		names = role.Names()
 	case "start", "stop":
 		names = m.installed
+	case "ip":
+		names = []string{"list", "add", "remove"}
 	}
 	for _, n := range names {
 		if !strings.HasPrefix(n, rest) {
@@ -431,7 +434,7 @@ func (m *shell) suggestions() []suggestion {
 		if r, err := role.Get(n); err == nil {
 			_, desc, _ = strings.Cut(r.Title, " — ")
 		}
-		out = append(out, suggestion{value: "/" + name + " " + n, label: n, desc: desc, more: name == "bundle" && n == "node"})
+		out = append(out, suggestion{value: "/" + name + " " + n, label: n, desc: desc, more: (name == "bundle" && n == "node") || (name == "ip" && n != "list")})
 	}
 	return out
 }
@@ -481,7 +484,7 @@ func (m *shell) execute(line string) tea.Cmd {
 		if len(args) == 1 || strings.HasPrefix(args[1], "-") {
 			args = append([]string{"certs", "list"}, args[1:]...)
 		}
-	case "install", "update", "status", "start", "stop", "version":
+	case "install", "update", "status", "start", "stop", "version", "ip":
 	default:
 		m.log = append(m.log, ui.StepLine(line, "", fmt.Errorf("нет такой команды — набери /help")))
 		return nil
