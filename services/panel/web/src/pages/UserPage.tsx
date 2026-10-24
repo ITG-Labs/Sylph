@@ -383,7 +383,7 @@ export function UserPage() {
 
           <Section
             title="Выделенный IP"
-            description="адрес выхода на ноде, где он есть; работает на тарифе с пометкой «выделенный IP»"
+            description="на тарифе с пометкой «выделенный IP»"
             action={
               !banned && (
                 <Button variant="ghost" size="sm" onClick={open({ kind: "assignAddress" })} disabled={freeAddresses.length === 0}>
@@ -414,7 +414,7 @@ export function UserPage() {
                           <span className="font-mono text-sm">{a.ip}</span>
                           <Badge variant={a.effective ? "success" : "outline"}>{a.effective ? "действует" : "не действует"}</Badge>
                         </div>
-                        <div className="truncate text-xs text-muted-foreground">
+                        <div className="text-xs text-muted-foreground">
                           <Link to={`/nodes/${a.node_id}`} className="hover:underline">
                             {a.node_name}
                           </Link>

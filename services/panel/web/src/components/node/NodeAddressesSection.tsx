@@ -27,44 +27,46 @@ export function NodeAddressesSection({ nodeId }: { nodeId: number }) {
       ) : list.length === 0 ? (
         <Empty>Доп. адресов нет — нода сообщит их сама, когда их подключат</Empty>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {list.map((a) => {
-            const st = addressStatus[a.status]
-            return (
-              <li key={a.id} className="well flex flex-col gap-2 rounded-xl p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm font-medium">{a.ip}</span>
-                  <Badge variant={st.variant}>{st.label}</Badge>
-                  <span className="ml-auto text-sm">
-                    {a.assignment ? (
-                      <Link to={`/users/${a.assignment.user_id}`} className="hover:underline">
-                        {holderLabel(a.assignment)}
-                      </Link>
-                    ) : (
-                      <span className="text-muted-foreground">свободен</span>
+        <div className="flex flex-col gap-2">
+          {list.some((a) => a.balancer_warning) && (
+            <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+              <span>В профиле маршрутизации ноды часть трафика уходит в балансировщик с прямым выходом — эта часть у владельцев адресов пойдёт через общий адрес ноды.</span>
+            </div>
+          )}
+          <ul className="flex flex-col gap-2">
+            {list.map((a) => {
+              const st = addressStatus[a.status]
+              return (
+                <li key={a.id} className="well flex flex-col gap-2 rounded-xl p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm font-medium">{a.ip}</span>
+                    <Badge variant={st.variant}>{st.label}</Badge>
+                    <span className="ml-auto text-sm">
+                      {a.assignment ? (
+                        <Link to={`/users/${a.assignment.user_id}`} className="hover:underline">
+                          {holderLabel(a.assignment)}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">свободен</span>
+                      )}
+                    </span>
+                    {a.status === "missing" && (
+                      <Button variant="ghost" size="icon-sm" aria-label="Удалить адрес" onClick={() => setDeleting(a)}>
+                        <Trash2 />
+                      </Button>
                     )}
-                  </span>
-                  {a.status === "missing" && (
-                    <Button variant="ghost" size="icon-sm" aria-label="Удалить адрес" onClick={() => setDeleting(a)}>
-                      <Trash2 />
-                    </Button>
-                  )}
-                </div>
-                {a.assignment?.note && <div className="text-xs text-muted-foreground">{a.assignment.note}</div>}
-                {a.error && <div className="font-mono text-xs break-words text-destructive">{a.error}</div>}
-                {a.balancer_warning && (
-                  <div className="flex gap-2 text-xs text-warning">
-                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                    <span>В профиле маршрутизации ноды трафик уходит в балансировщик с прямым выходом — эта часть трафика пойдёт через общий адрес.</span>
                   </div>
-                )}
-                <div className="text-xs text-muted-foreground" title={fmtDateTime(a.last_seen_at)}>
-                  нода сообщала {fmtRelative(a.last_seen_at)}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                  {a.assignment?.note && <div className="text-xs text-muted-foreground">{a.assignment.note}</div>}
+                  {a.error && <div className="font-mono text-xs break-words text-destructive">{a.error}</div>}
+                  <div className="text-xs text-muted-foreground" title={fmtDateTime(a.last_seen_at)}>
+                    нода сообщала {fmtRelative(a.last_seen_at)}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       )}
       <ActionDialog
         open={deleting !== null}
