@@ -15,6 +15,7 @@ type Engine struct {
 	logger      *slog.Logger
 	version     int64
 	desired     map[string]bool
+	blocked     map[string]bool
 	haveDesired bool
 	inbounds    []Inbound
 	users       []SyncUser
@@ -48,6 +49,10 @@ func (e *Engine) ActiveUsers() map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+func (e *Engine) Block(uuids map[string]bool) {
+	e.blocked = uuids
 }
 
 func (e *Engine) Inbounds() []Inbound {
@@ -164,7 +169,7 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 	}
 	var firstErr error
 	for uuid := range actual {
-		if e.desired[uuid] {
+		if e.desired[uuid] && !e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -180,7 +185,7 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 		return firstErr
 	}
 	for uuid := range e.desired {
-		if actual[uuid] {
+		if actual[uuid] || e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

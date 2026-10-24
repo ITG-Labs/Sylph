@@ -53,6 +53,7 @@ type NodeConfig struct {
 	state       nodeState
 	geoNames    []string
 	settled     bool
+	egressAt    time.Time
 	xrayErr     string
 	caddyErr    string
 }
@@ -175,6 +176,22 @@ func (n *NodeConfig) ApplyDesired(ctx context.Context, d NodeDesired) []Inbound 
 		n.ensureCaddy(ctx, n.state.Applied)
 	}
 	return n.state.Applied
+}
+
+func (n *NodeConfig) AppliedEgress() []noderoute.Egress {
+	return n.state.AppliedEgress
+}
+
+func (n *NodeConfig) HoldEgress(d NodeDesired, cooldown time.Duration) (NodeDesired, bool) {
+	st := n.state
+	if st.Applied == nil || n.egressAt.IsZero() || time.Since(n.egressAt) >= cooldown || reflect.DeepEqual(st.AppliedEgress, d.Egress) {
+		return d, false
+	}
+	if !reflect.DeepEqual(st.Applied, d.Inbounds) || !reflect.DeepEqual(st.AppliedRouting, d.Routing) || !slices.Equal(st.AppliedServiceKeys, d.ServiceKeys) {
+		return d, false
+	}
+	d.Egress = st.AppliedEgress
+	return d, true
 }
 
 func (n *NodeConfig) Settled() bool {
@@ -430,6 +447,9 @@ func (n *NodeConfig) acceptXray(desired NodeDesired) {
 	desired.Geo = nil
 	if reflect.DeepEqual(n.applied(), desired) && n.state.XrayRejected == nil {
 		return
+	}
+	if n.state.Applied != nil && !reflect.DeepEqual(n.state.AppliedEgress, desired.Egress) {
+		n.egressAt = time.Now()
 	}
 	n.state.Applied = slices.Clone(desired.Inbounds)
 	n.state.AppliedRouting = desired.Routing

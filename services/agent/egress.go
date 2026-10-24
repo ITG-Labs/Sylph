@@ -1,12 +1,18 @@
 package agent
 
 import (
+	"bufio"
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
@@ -50,6 +56,9 @@ func ParseEgress(v string) ([]EgressAddr, error) {
 		}
 		if !ifacePattern.MatchString(iface) {
 			return nil, fmt.Errorf("%q: %q is not an interface name", item, iface)
+		}
+		if len(out) == maxEgress {
+			return nil, fmt.Errorf("at most %d addresses", maxEgress)
 		}
 		if seen["ip "+pub] || seen["if "+iface] {
 			return nil, fmt.Errorf("%q: address or interface used twice", item)
@@ -105,6 +114,9 @@ func buildEgress(status []AddressStatus, users []SyncUser) []noderoute.Egress {
 		}
 		groups[u.EgressIP][u.PlanID] = append(groups[u.EgressIP][u.PlanID], u.UUID)
 	}
+	if len(groups) == 0 {
+		return nil
+	}
 	ips := make([]string, 0, len(groups))
 	for ip := range groups {
 		ips = append(ips, ip)
@@ -116,6 +128,122 @@ func buildEgress(status []AddressStatus, users []SyncUser) []noderoute.Egress {
 			slices.Sort(groups[ip][plan])
 		}
 		out = append(out, noderoute.Egress{Name: EgressName(ip), SendThrough: source[ip], Users: groups[ip]})
+	}
+	return out
+}
+
+const (
+	egressProbeEvery = 5 * time.Minute
+	egressProbeRetry = time.Minute
+	egressProbeURL   = "https://1.1.1.1/cdn-cgi/trace"
+	egressCooldown   = 5 * time.Minute
+	maxEgress        = 32
+)
+
+var egressProbe = func(ctx context.Context, source string) (string, error) {
+	dialer := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(source)}, Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: 5 * time.Second}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, egressProbeURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(io.LimitReader(resp.Body, 16<<10))
+	for sc.Scan() {
+		if v, ok := strings.CutPrefix(sc.Text(), "ip="); ok {
+			return v, nil
+		}
+	}
+	return "", errors.New("no ip in the trace answer")
+}
+
+type probeResult struct {
+	source string
+	err    string
+	at     time.Time
+}
+
+type EgressChecker struct {
+	addrs []EgressAddr
+	cache map[string]probeResult
+	now   func() time.Time
+	retry time.Duration
+}
+
+func NewEgressChecker(addrs []EgressAddr) *EgressChecker {
+	return &EgressChecker{addrs: addrs, cache: map[string]probeResult{}, now: time.Now, retry: 2 * time.Second}
+}
+
+func (c *EgressChecker) Status(ctx context.Context) []AddressStatus {
+	out := egressStatus(c.addrs)
+	for i := range out {
+		st := &out[i]
+		if !st.OK {
+			delete(c.cache, st.IP)
+			continue
+		}
+		r, ok := c.cache[st.IP]
+		ttl := egressProbeEvery
+		if r.err != "" {
+			ttl = egressProbeRetry
+		}
+		if !ok || r.source != st.Source || c.now().Sub(r.at) >= ttl {
+			r = probeResult{source: st.Source, err: c.probe(ctx, st.Source, st.IP), at: c.now()}
+			c.cache[st.IP] = r
+		}
+		if r.err != "" {
+			st.OK, st.Error = false, r.err
+		}
+	}
+	return out
+}
+
+func (c *EgressChecker) probe(ctx context.Context, source, ip string) string {
+	var msg string
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "egress_probe_failed: " + ctx.Err().Error()
+			case <-time.After(c.retry):
+			}
+		}
+		seen, err := egressProbe(ctx, source)
+		switch {
+		case err != nil:
+			msg = "egress_probe_failed: " + err.Error()
+		case seen != ip:
+			return "egress_probe_mismatch: the internet sees " + seen + " instead of " + ip
+		default:
+			return ""
+		}
+	}
+	return msg
+}
+
+func egressNames(list []noderoute.Egress) map[string]string {
+	out := map[string]string{}
+	for _, e := range list {
+		for _, users := range e.Users {
+			for _, u := range users {
+				out[u] = e.Name
+			}
+		}
+	}
+	return out
+}
+
+func egressBlocked(applied, desired []noderoute.Egress) map[string]bool {
+	want := egressNames(desired)
+	out := map[string]bool{}
+	for uuid, name := range egressNames(applied) {
+		if want[uuid] != name {
+			out[uuid] = true
+		}
 	}
 	return out
 }

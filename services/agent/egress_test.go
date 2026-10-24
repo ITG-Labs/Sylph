@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"reflect"
@@ -134,12 +136,30 @@ func TestBuildXrayEgressWithoutProfile(t *testing.T) {
 	}
 }
 
+func fakeProbe(t *testing.T, seen map[string]string) *int {
+	t.Helper()
+	prev := egressProbe
+	t.Cleanup(func() { egressProbe = prev })
+	calls := 0
+	egressProbe = func(ctx context.Context, source string) (string, error) {
+		calls++
+		ip, ok := seen[source]
+		if !ok {
+			return "", errors.New("dial tcp 1.1.1.1:443: i/o timeout")
+		}
+		return ip, nil
+	}
+	return &calls
+}
+
 func TestLoopAppliesEgressAndReportsAddresses(t *testing.T) {
 	fakeInterfaces(t, map[string][]string{"eth0": {"172.18.0.2/16"}, "egress1": {"172.31.226.10/24"}})
+	fakeProbe(t, map[string]string{"172.31.226.10": "203.0.113.7"})
 	fx := newFakeXray()
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1", PlanID: 3, EgressIP: "203.0.113.7"}, {UUID: "u-2", PlanID: 3}}, syncInbounds: mainIn}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	loop.cfg.Egress = []EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}, {IP: "203.0.113.8", Iface: "egress2"}}
+	loop.checker = NewEgressChecker(loop.cfg.Egress)
 	preapply(t, loop, mainIn)
 	tick(t, loop)
 
@@ -176,5 +196,156 @@ func TestHeartbeatSendsEmptyAddressesWithoutEgress(t *testing.T) {
 	hb, _ := lastHeartbeat(fc)
 	if got, ok := hb["addresses"].([]any); !ok || len(got) != 0 {
 		t.Fatalf("addresses = %#v, want [] so the core marks removed addresses missing", hb["addresses"])
+	}
+}
+
+func TestParseEgressCap(t *testing.T) {
+	items := make([]string, maxEgress+1)
+	for i := range items {
+		items[i] = fmt.Sprintf("203.0.113.%d=eg%d", i+1, i+1)
+	}
+	if _, err := ParseEgress(strings.Join(items[:maxEgress], ",")); err != nil {
+		t.Fatalf("the cap itself refused: %v", err)
+	}
+	if _, err := ParseEgress(strings.Join(items, ",")); err == nil {
+		t.Fatal("more than the cap accepted")
+	}
+}
+
+func TestEgressCheckerProbesFromTheSource(t *testing.T) {
+	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.226.10/24"}, "egress2": {"172.31.227.10/24"}, "egress3": {"172.31.228.10/24"}})
+	calls := fakeProbe(t, map[string]string{"172.31.226.10": "203.0.113.7", "172.31.227.10": "198.51.100.99"})
+	now := time.Now()
+	c := NewEgressChecker([]EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}, {IP: "203.0.113.8", Iface: "egress2"}, {IP: "203.0.113.9", Iface: "egress3"}})
+	c.now = func() time.Time { return now }
+	c.retry = time.Millisecond
+	st := c.Status(context.Background())
+	if !st[0].OK || st[0].Source != "172.31.226.10" {
+		t.Fatalf("working address = %+v", st[0])
+	}
+	if st[1].OK || !strings.Contains(st[1].Error, "egress_probe_mismatch") || !strings.Contains(st[1].Error, "198.51.100.99") {
+		t.Fatalf("address the hoster rewrites = %+v", st[1])
+	}
+	if st[2].OK || !strings.HasPrefix(st[2].Error, "egress_probe_failed") {
+		t.Fatalf("address without egress = %+v", st[2])
+	}
+	if *calls != 4 {
+		t.Fatalf("probes = %d, want one per address and a retry for the dead one", *calls)
+	}
+	c.Status(context.Background())
+	if *calls != 4 {
+		t.Fatalf("probes repeated within the cache: %d", *calls)
+	}
+	now = now.Add(egressProbeRetry)
+	c.Status(context.Background())
+	if *calls != 7 {
+		t.Fatalf("failing addresses not re-probed after a minute, or the working one re-probed early: %d probes", *calls)
+	}
+	now = now.Add(egressProbeEvery)
+	c.Status(context.Background())
+	if *calls != 11 {
+		t.Fatalf("working address not re-probed after five minutes: %d probes", *calls)
+	}
+	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.240.10/24"}, "egress2": {"172.31.227.10/24"}, "egress3": {"172.31.228.10/24"}})
+	before := *calls
+	if st := c.Status(context.Background()); st[0].OK || st[0].Source != "172.31.240.10" || *calls != before+2 {
+		t.Fatalf("new container address not probed at once: %+v, %d probes", st[0], *calls-before)
+	}
+}
+
+func TestEgressBlocked(t *testing.T) {
+	applied := []noderoute.Egress{{Name: "a", Users: map[int64][]string{3: {"u1", "u2"}}}, {Name: "b", Users: map[int64][]string{3: {"u3"}}}}
+	desired := []noderoute.Egress{{Name: "a", Users: map[int64][]string{5: {"u1"}}}, {Name: "c", Users: map[int64][]string{3: {"u3"}}}, {Name: "b", Users: map[int64][]string{3: {"u4"}}}}
+	got := egressBlocked(applied, desired)
+	if !reflect.DeepEqual(got, map[string]bool{"u2": true, "u3": true}) {
+		t.Fatalf("blocked = %v: u2 lost its address, u3 moved; u1 only changed plan, u4 is new", got)
+	}
+	if got := egressBlocked(nil, desired); len(got) != 0 {
+		t.Fatalf("nothing applied yet, blocked = %v", got)
+	}
+}
+
+func TestBlockedUsersAreKeptOutOfXray(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u1", "u2"), syncInbounds: mainIn}
+	e := testEngine(t, fx, fc)
+	if _, err := e.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	e.Block(map[string]bool{"u1": true})
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasUser("main", "u1") || !fx.hasUser("main", "u2") {
+		t.Fatal("blocked user still served, or the other one dropped")
+	}
+	e.Block(nil)
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("main", "u1") {
+		t.Fatal("unblocked user not let back in")
+	}
+
+	fresh := newFakeXray()
+	again := testEngine(t, fresh, fc)
+	if _, err := again.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	again.Block(map[string]bool{"u1": true})
+	if err := again.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.hasUser("main", "u1") || !fresh.hasUser("main", "u2") {
+		t.Fatal("blocked user added to an xray that did not have it yet")
+	}
+}
+
+func TestEgressChangesAreSpacedAndHeldOutMeanwhile(t *testing.T) {
+	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.226.10/24"}})
+	fakeProbe(t, map[string]string{"172.31.226.10": "203.0.113.7"})
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1", PlanID: 3}, {UUID: "u-2", PlanID: 3}}, syncInbounds: mainIn}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	loop.cfg.Egress = []EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}}
+	loop.checker = NewEgressChecker(loop.cfg.Egress)
+	preapply(t, loop, mainIn)
+	tick(t, loop)
+	if loop.node.AppliedEgress() != nil {
+		t.Fatalf("egress without bound users: %+v", loop.node.AppliedEgress())
+	}
+
+	fc.mu.Lock()
+	fc.syncVersion, fc.syncUsers = 3, []SyncUser{{UUID: "u-1", PlanID: 3, EgressIP: "203.0.113.7"}, {UUID: "u-2", PlanID: 3}}
+	fc.mu.Unlock()
+	tick(t, loop)
+	if names := egressNames(loop.node.AppliedEgress()); names["u-1"] != "203-0-113-7" {
+		t.Fatalf("first binding not applied at once: %+v", loop.node.AppliedEgress())
+	}
+
+	fc.mu.Lock()
+	fc.syncVersion, fc.syncUsers = 4, []SyncUser{{UUID: "u-1", PlanID: 3}, {UUID: "u-2", PlanID: 3, EgressIP: "203.0.113.7"}}
+	fc.mu.Unlock()
+	tick(t, loop)
+	if names := egressNames(loop.node.AppliedEgress()); names["u-1"] != "203-0-113-7" || names["u-2"] != "" {
+		t.Fatalf("second change within the cooldown applied: %+v", loop.node.AppliedEgress())
+	}
+	if fx.hasUser("main", "u-1") {
+		t.Fatal("u-1 still served while the running config sends it through an address that is no longer its own")
+	}
+	if !fx.hasUser("main", "u-2") {
+		t.Fatal("u-2 cut off while its address is pending")
+	}
+
+	loop.node.egressAt = time.Now().Add(-egressCooldown)
+	tick(t, loop)
+	if names := egressNames(loop.node.AppliedEgress()); names["u-2"] != "203-0-113-7" || names["u-1"] != "" {
+		t.Fatalf("change not applied after the cooldown: %+v", loop.node.AppliedEgress())
+	}
+	if !fx.hasUser("main", "u-1") {
+		t.Fatal("u-1 not let back in once the config moved on")
 	}
 }
