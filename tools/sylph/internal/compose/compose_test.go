@@ -140,3 +140,59 @@ func TestEvaluateStoppedContainer(t *testing.T) {
 		t.Fatalf("stopped = %+v", v)
 	}
 }
+
+func TestParsePlan(t *testing.T) {
+	services := []Service{{Name: "perms", OneShot: true}, {Name: "caddy"}, {Name: "bootstrap", OneShot: true}, {Name: "xray"}, {Name: "agent"}, {Name: "new-svc"}}
+	out := []byte(`{"id":"Container sylph-node-xray-1","status":"Done","text":"Running"}
+{"id":"Container sylph-node-caddy-1","status":"Done","text":"Running"}
+{"id":"Container sylph-node-agent-1","status":"Working","text":"Recreate"}
+{"id":"Container sylph-node-bootstrap-1","status":"Working","text":"Recreate"}
+{"id":"Container sylph-node-new-svc-1","status":"Working","text":"Create"}
+{"id":"Container 1eca61bca558_sylph-node-agent-1","status":"Working","text":"Starting"}
+{"id":"Container sylph-node-perms-1","status":"Working","text":"Starting"}
+{"id":"Image ghcr.io/itg-labs/sylph-agent:0.3.0","status":"Done","text":"Pulled"}
+`)
+	got, err := parsePlan(out, "sylph-node", services)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, s := range got {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, ",") != "agent,bootstrap,new-svc" {
+		t.Fatalf("recreated = %v", names)
+	}
+	if got[1].OneShot != true || got[0].OneShot {
+		t.Fatalf("one-shot flags lost: %+v", got)
+	}
+}
+
+func TestParsePlanErrors(t *testing.T) {
+	services := []Service{{Name: "caddy"}}
+	out := []byte(`{"id":"Container sylph-node-caddy-1","status":"Working","text":"Recreate"}
+{"id":"Container sylph-node-caddy-1","status":"Error","text":"Error response from daemon: No such image: x"}
+{"error":true,"message":"Error response from daemon: No such image: x"}
+`)
+	if _, err := parsePlan(out, "sylph-node", services); err == nil || !strings.Contains(err.Error(), "No such image") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := parsePlan([]byte(" Container sylph-node-caddy-1 Recreate \n"), "sylph-node", services); err == nil {
+		t.Fatal("plain progress output must not pass as an empty plan")
+	}
+}
+
+func TestParseProjectName(t *testing.T) {
+	name, svcs, err := parseProject([]byte(`{"name":"sylph-node","services":{"caddy":{"restart":"unless-stopped"}}}`))
+	if err != nil || name != "sylph-node" || len(svcs) != 1 || svcs[0].OneShot {
+		t.Fatalf("%q %+v %v", name, svcs, err)
+	}
+}
+
+func TestFilesArgs(t *testing.T) {
+	f := Files{ProjectDir: "/root/sylph-node", EnvFile: "/tmp/s/.env", Files: []string{"/tmp/s/compose.yml", "/root/sylph-node/compose.override.yml"}}
+	got := strings.Join(f.flags(), " ")
+	if got != "--project-directory /root/sylph-node --env-file /tmp/s/.env -f /tmp/s/compose.yml -f /root/sylph-node/compose.override.yml" {
+		t.Fatal(got)
+	}
+}

@@ -162,20 +162,123 @@ func Services(ctx context.Context, dir string) ([]Service, error) {
 }
 
 func parseConfig(out []byte) ([]Service, error) {
+	_, services, err := parseProject(out)
+	return services, err
+}
+
+func parseProject(out []byte) (string, []Service, error) {
 	var cfg struct {
+		Name     string `json:"name"`
 		Services map[string]struct {
 			Restart string `json:"restart"`
 		} `json:"services"`
 	}
 	if err := json.Unmarshal(out, &cfg); err != nil {
-		return nil, fmt.Errorf("docker compose config: %w", err)
+		return "", nil, fmt.Errorf("docker compose config: %w", err)
 	}
 	var services []Service
 	for name, s := range cfg.Services {
 		services = append(services, Service{Name: name, OneShot: s.Restart == "" || s.Restart == "no"})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
-	return services, nil
+	return cfg.Name, services, nil
+}
+
+type Files struct {
+	ProjectDir string
+	EnvFile    string
+	Files      []string
+}
+
+func (f Files) flags() []string {
+	args := []string{"--project-directory", f.ProjectDir, "--env-file", f.EnvFile}
+	for _, file := range f.Files {
+		args = append(args, "-f", file)
+	}
+	return args
+}
+
+var ExecCombined = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
+}
+
+func PullFiles(ctx context.Context, f Files) error {
+	_, err := Exec(ctx, f.ProjectDir, append(append([]string{"compose"}, f.flags()...), "pull", "--policy", "missing", "--quiet")...)
+	return err
+}
+
+func Plan(ctx context.Context, f Files) ([]Service, error) {
+	out, err := Exec(ctx, f.ProjectDir, append(append([]string{"compose"}, f.flags()...), "config", "--format", "json")...)
+	if err != nil {
+		return nil, err
+	}
+	name, services, err := parseProject(out)
+	if err != nil {
+		return nil, err
+	}
+	out, err = ExecCombined(ctx, f.ProjectDir, append(append([]string{"compose", "--progress", "json"}, f.flags()...), "up", "-d", "--remove-orphans", "--dry-run")...)
+	plan, perr := parsePlan(out, name, services)
+	if perr != nil {
+		return nil, perr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("docker compose up --dry-run: %w", err)
+	}
+	return plan, nil
+}
+
+func parsePlan(out []byte, project string, services []Service) ([]Service, error) {
+	byName := map[string]Service{}
+	for _, s := range services {
+		byName[s.Name] = s
+	}
+	seen := map[string]bool{}
+	records := 0
+	var plan []Service
+	sc := bufio.NewScanner(bytes.NewReader(out))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var ev struct {
+			ID      string `json:"id"`
+			Text    string `json:"text"`
+			Error   bool   `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(sc.Bytes()), &ev) != nil {
+			continue
+		}
+		records++
+		if ev.Error {
+			return nil, fmt.Errorf("docker compose up --dry-run: %s", summarize(ev.Message))
+		}
+		if ev.Text != "Recreate" && ev.Text != "Create" {
+			continue
+		}
+		rest, ok := strings.CutPrefix(ev.ID, "Container "+project+"-")
+		if !ok {
+			continue
+		}
+		i := strings.LastIndex(rest, "-")
+		if i < 0 {
+			continue
+		}
+		if _, err := strconv.Atoi(rest[i+1:]); err != nil {
+			continue
+		}
+		s, ok := byName[rest[:i]]
+		if !ok || seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		plan = append(plan, s)
+	}
+	if records == 0 {
+		return nil, errors.New("docker compose не отдал план в JSON (нужен --progress json)")
+	}
+	sort.Slice(plan, func(i, j int) bool { return plan[i].Name < plan[j].Name })
+	return plan, nil
 }
 
 func Snapshot(ctx context.Context, dir string) ([]Container, error) {
