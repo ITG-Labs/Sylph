@@ -126,6 +126,7 @@ type XrayInput struct {
 	Routing     *noderoute.Profile
 	ServiceKeys []string
 	GeoPrefix   string
+	Egress      []noderoute.Egress
 }
 
 func BuildXray(inbounds []Inbound, apiListen string) ([]byte, error) {
@@ -151,7 +152,7 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 	var sniffing *xraySniffing
 	if in.Routing != nil {
 		profile := *in.Routing
-		static, err := noderoute.Render(noderoute.RenderInput{Profile: &profile, ServiceKeys: in.ServiceKeys, GeoFile: geoFile(in.GeoPrefix)})
+		static, err := noderoute.Render(noderoute.RenderInput{Profile: &profile, ServiceKeys: in.ServiceKeys, GeoFile: geoFile(in.GeoPrefix), Egress: in.Egress})
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", errRouting, err)
 		}
@@ -167,6 +168,18 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 			cfg.Observatory = static.Observatory
 		}
 		sniffing = &xraySniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}, RouteOnly: true}
+	} else if len(in.Egress) > 0 {
+		var rules []any
+		for _, e := range in.Egress {
+			cfg.Outbounds = append(cfg.Outbounds, noderoute.EgressDirect(e.Name, e.SendThrough))
+			var users []string
+			for _, list := range e.Users {
+				users = append(users, list...)
+			}
+			slices.Sort(users)
+			rules = append(rules, map[string]any{"ruleTag": "sylph-e" + e.Name, "user": users, "outboundTag": noderoute.EgressTag(e.Name, "direct")})
+		}
+		cfg.Routing = map[string]any{"domainStrategy": "AsIs", "rules": rules}
 	}
 	for i, in := range sorted {
 		cfg.Inbounds = append(cfg.Inbounds, xrayInbound{

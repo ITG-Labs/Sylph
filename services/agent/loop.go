@@ -20,6 +20,7 @@ type Loop struct {
 	logger  *slog.Logger
 	started time.Time
 	applied []Inbound
+	egress  []AddressStatus
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
@@ -49,6 +50,7 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		AgentUptimeSec: int64(time.Since(l.started) / time.Second),
 		ConfigError:    l.node.ConfigError(),
 		RoutingError:   l.rules.Error(),
+		Addresses:      l.egress,
 	}
 	if l.node.geo != nil {
 		if st := l.node.geo.Status(); len(st) > 0 {
@@ -86,7 +88,13 @@ func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) 
 }
 
 func (l *Loop) apply(ctx context.Context) error {
-	d := l.engine.Desired()
+	l.egress = egressStatus(l.cfg.Egress)
+	for _, st := range l.egress {
+		if !st.OK {
+			l.logger.Error("egress_address_unavailable", "ip", st.IP, "error", st.Error)
+		}
+	}
+	d := l.engine.Desired(l.egress)
 	if l.node.geo != nil {
 		var need map[string][]string
 		if d.Routing != nil {

@@ -13,8 +13,9 @@ import (
 )
 
 type SyncUser struct {
-	UUID   string `json:"uuid"`
-	PlanID int64  `json:"plan_id,omitempty"`
+	UUID     string `json:"uuid"`
+	PlanID   int64  `json:"plan_id,omitempty"`
+	EgressIP string `json:"egress_ip,omitempty"`
 }
 
 type GeoSource struct {
@@ -71,6 +72,7 @@ type Heartbeat struct {
 	ConfigError    *string              `json:"config_error"`
 	GeoStatus      map[string]GeoStatus `json:"geo_status,omitempty"`
 	RoutingError   *string              `json:"routing_error,omitempty"`
+	Addresses      []AddressStatus      `json:"addresses"`
 }
 
 type CoreClient struct {

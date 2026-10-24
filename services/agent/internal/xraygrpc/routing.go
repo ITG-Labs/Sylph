@@ -71,10 +71,14 @@ func (c *Client) RuleTags(ctx context.Context) ([]string, error) {
 }
 
 func (c *Client) TestRoute(ctx context.Context, inboundTag, user string) (string, error) {
+	return c.TestRouteTo(ctx, inboundTag, user, "example.com")
+}
+
+func (c *Client) TestRouteTo(ctx context.Context, inboundTag, user, domain string) (string, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
 	resp, err := c.routing.TestRoute(ctx, &routercmd.TestRouteRequest{RoutingContext: &routercmd.RoutingContext{
-		InboundTag: inboundTag, User: user, Network: xnet.Network_TCP, TargetDomain: "example.com", TargetPort: 443,
+		InboundTag: inboundTag, User: user, Network: xnet.Network_TCP, TargetDomain: domain, TargetPort: 443,
 	}})
 	if err != nil {
 		if strings.Contains(err.Error(), "not enough information") {

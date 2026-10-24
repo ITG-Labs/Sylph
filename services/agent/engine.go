@@ -28,6 +28,7 @@ type NodeDesired struct {
 	Routing     *noderoute.Profile
 	ServiceKeys []string
 	Geo         *SyncGeo
+	Egress      []noderoute.Egress
 }
 
 func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logger) *Engine {
@@ -69,8 +70,9 @@ func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, ge
 	e.routing, e.serviceKeys, e.geo = routing, serviceKeys, geo
 }
 
-func (e *Engine) Desired() NodeDesired {
-	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo}
+func (e *Engine) Desired(status []AddressStatus) NodeDesired {
+	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo,
+		Egress: buildEgress(e.cfg.Egress, status, e.users)}
 }
 
 func (e *Engine) PlanUsers() map[int64][]string {

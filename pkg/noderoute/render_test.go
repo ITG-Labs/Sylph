@@ -157,3 +157,131 @@ func TestRenderGuardsInternalNetworksFirst(t *testing.T) {
 		t.Fatalf("the guard must not switch the domain strategy: %v", s.Routing["domainStrategy"])
 	}
 }
+
+func egressProfile() Profile {
+	return Profile{
+		Outbounds: []Outbound{
+			{Tag: "direct", Kind: KindDirect, Direct: &Direct{IP: "auto"}},
+			{Tag: "v6", Kind: KindDirect, Direct: &Direct{IP: "ipv6"}},
+			{Tag: "block", Kind: KindBlock},
+			{Tag: "de", Kind: KindProxy, Proxy: &Proxy{Protocol: "socks", Address: "de.example.com", Port: 1080}},
+		},
+		Balancers: []Balancer{{Tag: "bal", Strategy: StrategyRandom, Outbounds: []string{"direct", "de"}}},
+		Rules: []Rule{
+			{Domain: []string{"geosite:category-ru"}, To: "block"},
+			{IP: []string{"1.1.1.1"}, To: "v6"},
+			{Domain: []string{"domain:example.org"}, To: "bal"},
+			{Protocol: []string{"bittorrent"}, To: "direct"},
+			{Plans: []int64{7}, To: "de"},
+		},
+		Default: "direct",
+	}
+}
+
+func ruleTags(t *testing.T, s Static) []string {
+	t.Helper()
+	var tags []string
+	for _, r := range s.Routing["rules"].([]any) {
+		tags = append(tags, r.(map[string]any)["ruleTag"].(string))
+	}
+	return tags
+}
+
+func ruleByTag(t *testing.T, s Static, tag string) map[string]any {
+	t.Helper()
+	for _, r := range s.Routing["rules"].([]any) {
+		if m := r.(map[string]any); m["ruleTag"] == tag {
+			return m
+		}
+	}
+	t.Fatalf("rule %s not rendered", tag)
+	return nil
+}
+
+func TestRenderEgress(t *testing.T) {
+	p := egressProfile()
+	plain, err := Render(RenderInput{Profile: &p, GeoFile: geoFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := Egress{Name: "203-0-113-7", SendThrough: "172.31.226.10", Users: map[int64][]string{7: {"u-b", "u-a"}, 3: {"u-c"}}}
+	s, err := Render(RenderInput{Profile: &p, ServiceKeys: []string{"svc"}, GeoFile: geoFile, Egress: []Egress{e}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var clones []map[string]any
+	for _, o := range s.Outbounds {
+		if o["sendThrough"] != nil {
+			clones = append(clones, o)
+		}
+	}
+	if len(clones) != 2 || clones[0]["tag"] != "_egress-203-0-113-7-direct" || clones[1]["tag"] != "_egress-203-0-113-7-v6" {
+		t.Fatalf("clones = %v", clones)
+	}
+	for _, c := range clones {
+		if c["protocol"] != "freedom" || c["sendThrough"] != "172.31.226.10" || c["settings"].(map[string]any)["targetStrategy"] != "ForceIPv4" {
+			t.Fatalf("clone = %v", c)
+		}
+	}
+	if len(s.Outbounds) != len(plain.Outbounds)+3 {
+		t.Fatalf("outbounds %d, plain %d: only clones and the service outbound may be added", len(s.Outbounds), len(plain.Outbounds))
+	}
+
+	want := []string{GuardRuleTag, GuardNamesRuleTag, ServiceRuleTag,
+		"sylph-e203-0-113-7-p3-r1", "sylph-e203-0-113-7-p3-r2", "sylph-e203-0-113-7-p3-r3", "sylph-e203-0-113-7-p3-r4", "sylph-e203-0-113-7-p3-default",
+		"sylph-e203-0-113-7-p7-r1", "sylph-e203-0-113-7-p7-r2", "sylph-e203-0-113-7-p7-r3", "sylph-e203-0-113-7-p7-r4", "sylph-e203-0-113-7-p7-r5",
+		"sylph-r1", "sylph-r2", "sylph-r3", "sylph-r4"}
+	if got := ruleTags(t, s); !slices.Equal(got, want) {
+		t.Fatalf("rule order:\n got %v\nwant %v", got, want)
+	}
+	if got := ruleTags(t, plain); !slices.Equal(got, []string{GuardRuleTag, GuardNamesRuleTag, "sylph-r1", "sylph-r2", "sylph-r3", "sylph-r4"}) {
+		t.Fatalf("plain rules changed: %v", got)
+	}
+
+	checks := map[string]map[string]any{
+		"sylph-e203-0-113-7-p7-r1":      {"outboundTag": "block"},
+		"sylph-e203-0-113-7-p7-r2":      {"outboundTag": "_egress-203-0-113-7-v6"},
+		"sylph-e203-0-113-7-p7-r3":      {"balancerTag": "bal"},
+		"sylph-e203-0-113-7-p7-r4":      {"outboundTag": "_egress-203-0-113-7-direct"},
+		"sylph-e203-0-113-7-p7-r5":      {"outboundTag": "de", "network": "tcp,udp"},
+		"sylph-e203-0-113-7-p3-default": {"outboundTag": "_egress-203-0-113-7-direct", "network": "tcp,udp"},
+	}
+	for tag, fields := range checks {
+		rule := ruleByTag(t, s, tag)
+		for k, v := range fields {
+			if rule[k] != v {
+				t.Errorf("%s.%s = %v, want %v", tag, k, rule[k], v)
+			}
+		}
+	}
+	if users := ruleByTag(t, s, "sylph-e203-0-113-7-p7-r1")["user"]; !slices.Equal(users.([]string), []string{"u-a", "u-b"}) {
+		t.Fatalf("p7 users = %v", users)
+	}
+	if users := ruleByTag(t, s, "sylph-e203-0-113-7-p3-default")["user"]; !slices.Equal(users.([]string), []string{"u-c"}) {
+		t.Fatalf("p3 users = %v", users)
+	}
+	mirror, orig := ruleByTag(t, s, "sylph-e203-0-113-7-p7-r2"), ruleByTag(t, s, "sylph-r2")
+	if !slices.Equal(mirror["ip"].([]string), orig["ip"].([]string)) || ruleByTag(t, s, "sylph-e203-0-113-7-p7-r1")["domain"].([]string)[0] != ruleByTag(t, s, "sylph-r1")["domain"].([]string)[0] {
+		t.Fatal("mirrored rules lost their conditions")
+	}
+	if s.Routing["domainStrategy"] != "IPIfNonMatch" {
+		t.Fatalf("domain strategy = %v", s.Routing["domainStrategy"])
+	}
+	for _, r := range s.Routing["rules"].([]any) {
+		m := r.(map[string]any)
+		if m["outboundTag"] != nil && len(m["outboundTag"].(string)) > 8 && m["outboundTag"].(string)[:8] == "_egress-" && m["user"] == nil {
+			t.Fatalf("rule %v sends unscoped traffic to a dedicated address", m)
+		}
+	}
+
+	bal := egressProfile()
+	bal.Default = "bal"
+	s, err = Render(RenderInput{Profile: &bal, GeoFile: geoFile, Egress: []Egress{e}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ruleByTag(t, s, "sylph-e203-0-113-7-p3-default"); got["balancerTag"] != "bal" || got["outboundTag"] != nil {
+		t.Fatalf("balancer default = %v", got)
+	}
+}

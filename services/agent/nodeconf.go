@@ -34,6 +34,7 @@ type nodeState struct {
 	Applied            []Inbound          `json:"applied"`
 	AppliedRouting     *noderoute.Profile `json:"applied_routing,omitempty"`
 	AppliedServiceKeys []string           `json:"applied_service_keys,omitempty"`
+	AppliedEgress      []noderoute.Egress `json:"applied_egress,omitempty"`
 	XrayRejected       *rejection         `json:"xray_rejected,omitempty"`
 	CaddyRejected      *rejection         `json:"caddy_rejected,omitempty"`
 }
@@ -75,11 +76,11 @@ func NewNodeConfig(cfg *Config, xray XrayClient, caddy CaddyAPI, logger *slog.Lo
 }
 
 func (n *NodeConfig) input(d NodeDesired) XrayInput {
-	return XrayInput{Inbounds: d.Inbounds, APIListen: n.cfg.XrayAPI, Routing: d.Routing, ServiceKeys: d.ServiceKeys, GeoPrefix: n.cfg.XrayGeoPrefix}
+	return XrayInput{Inbounds: d.Inbounds, APIListen: n.cfg.XrayAPI, Routing: d.Routing, ServiceKeys: d.ServiceKeys, GeoPrefix: n.cfg.XrayGeoPrefix, Egress: d.Egress}
 }
 
 func (n *NodeConfig) applied() NodeDesired {
-	return NodeDesired{Inbounds: n.state.Applied, Routing: n.state.AppliedRouting, ServiceKeys: n.state.AppliedServiceKeys}
+	return NodeDesired{Inbounds: n.state.Applied, Routing: n.state.AppliedRouting, ServiceKeys: n.state.AppliedServiceKeys, Egress: n.state.AppliedEgress}
 }
 
 func (n *NodeConfig) Load() error {
@@ -99,8 +100,8 @@ func (n *NodeConfig) Load() error {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return fmt.Errorf("parse node state: %w", err)
 	}
-	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys}) {
-		st.Applied, st.AppliedRouting, st.AppliedServiceKeys = nil, nil, nil
+	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys, Egress: st.AppliedEgress}) {
+		st.Applied, st.AppliedRouting, st.AppliedServiceKeys, st.AppliedEgress = nil, nil, nil, nil
 	}
 	if st.XrayRejected != nil {
 		n.xrayErr = st.XrayRejected.Error
@@ -433,6 +434,7 @@ func (n *NodeConfig) acceptXray(desired NodeDesired) {
 	n.state.Applied = slices.Clone(desired.Inbounds)
 	n.state.AppliedRouting = desired.Routing
 	n.state.AppliedServiceKeys = slices.Clone(desired.ServiceKeys)
+	n.state.AppliedEgress = desired.Egress
 	n.state.XrayRejected = nil
 	n.saveState()
 }
