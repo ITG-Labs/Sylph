@@ -72,7 +72,7 @@ func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, ge
 
 func (e *Engine) Desired(status []AddressStatus) NodeDesired {
 	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo,
-		Egress: buildEgress(e.cfg.Egress, status, e.users)}
+		Egress: buildEgress(status, e.users)}
 }
 
 func (e *Engine) PlanUsers() map[int64][]string {

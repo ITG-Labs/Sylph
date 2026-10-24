@@ -13,11 +13,15 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
-func fakeInterfaces(t *testing.T, addrs ...string) {
+func fakeInterfaces(t *testing.T, ifaces map[string][]string) {
 	t.Helper()
-	prev := interfaceAddrs
-	t.Cleanup(func() { interfaceAddrs = prev })
-	interfaceAddrs = func() ([]net.Addr, error) {
+	prev := ifaceAddrs
+	t.Cleanup(func() { ifaceAddrs = prev })
+	ifaceAddrs = func(name string) ([]net.Addr, error) {
+		addrs, ok := ifaces[name]
+		if !ok {
+			return nil, errors.New("route ip+net: no such network interface")
+		}
 		out := make([]net.Addr, 0, len(addrs))
 		for _, a := range addrs {
 			ip, n, err := net.ParseCIDR(a)
@@ -32,8 +36,8 @@ func fakeInterfaces(t *testing.T, addrs ...string) {
 }
 
 func TestParseEgress(t *testing.T) {
-	got, err := ParseEgress(" 203.0.113.7=172.31.226.10, 203.0.113.8=172.31.227.10 ,")
-	want := []EgressAddr{{IP: "203.0.113.7", Source: "172.31.226.10"}, {IP: "203.0.113.8", Source: "172.31.227.10"}}
+	got, err := ParseEgress(" 203.0.113.7=egress1, 203.0.113.8=egress2 ,")
+	want := []EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}, {IP: "203.0.113.8", Iface: "egress2"}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("parse = %+v %v", got, err)
 	}
@@ -43,11 +47,13 @@ func TestParseEgress(t *testing.T) {
 	for _, bad := range []string{
 		"203.0.113.7",
 		"203.0.113.7=",
-		"2001:db8::1=172.31.226.10",
-		"203.0.113.7=fe80::1",
-		"203.0.113.07=172.31.226.10",
-		"203.0.113.7=172.31.226.10,203.0.113.7=172.31.227.10",
-		"203.0.113.7=172.31.226.10,203.0.113.8=172.31.226.10",
+		"2001:db8::1=egress1",
+		"203.0.113.7=Egress1",
+		"203.0.113.7=egress-1",
+		"203.0.113.7=averyverylongname",
+		"203.0.113.07=egress1",
+		"203.0.113.7=egress1,203.0.113.7=egress2",
+		"203.0.113.7=egress1,203.0.113.8=egress1",
 	} {
 		if _, err := ParseEgress(bad); err == nil {
 			t.Errorf("%q accepted", bad)
@@ -56,26 +62,26 @@ func TestParseEgress(t *testing.T) {
 }
 
 func TestEgressStatus(t *testing.T) {
-	fakeInterfaces(t, "127.0.0.1/8", "172.18.0.2/16", "172.31.226.10/24")
-	addrs := []EgressAddr{{IP: "203.0.113.7", Source: "172.31.226.10"}, {IP: "203.0.113.8", Source: "172.31.227.10"}}
+	fakeInterfaces(t, map[string][]string{"egress1": {"fe80::1/64", "172.19.0.2/16"}, "egress3": {"fe80::3/64"}})
+	addrs := []EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}, {IP: "203.0.113.8", Iface: "egress2"}, {IP: "203.0.113.9", Iface: "egress3"}}
 	got := egressStatus(addrs)
-	if len(got) != 2 || !got[0].OK || got[0].IP != "203.0.113.7" || got[0].Error != "" ||
-		got[1].OK || !strings.HasPrefix(got[1].Error, "egress_network_missing") || !strings.Contains(got[1].Error, "172.31.227.10") {
-		t.Fatalf("status = %+v", got)
+	if len(got) != 3 || !got[0].OK || got[0].IP != "203.0.113.7" || got[0].Source != "172.19.0.2" || got[0].Error != "" {
+		t.Fatalf("present = %+v", got)
+	}
+	if got[1].OK || got[1].Source != "" || !strings.HasPrefix(got[1].Error, "egress_network_missing: interface egress2") {
+		t.Fatalf("missing = %+v", got[1])
+	}
+	if got[2].OK || !strings.Contains(got[2].Error, "no IPv4 address") {
+		t.Fatalf("without IPv4 = %+v", got[2])
 	}
 	if got := egressStatus(nil); got == nil || len(got) != 0 {
 		t.Fatalf("no addresses = %#v, want an empty list", got)
 	}
-	interfaceAddrs = func() ([]net.Addr, error) { return nil, errors.New("boom") }
-	if got := egressStatus(addrs); got[0].OK || !strings.HasPrefix(got[0].Error, "egress_interfaces_unreadable") {
-		t.Fatalf("unreadable = %+v", got)
-	}
 }
 
 func TestBuildEgress(t *testing.T) {
-	addrs := []EgressAddr{{IP: "203.0.113.8", Source: "172.31.227.10"}, {IP: "203.0.113.7", Source: "172.31.226.10"}, {IP: "203.0.113.9", Source: "172.31.228.10"}}
-	status := []AddressStatus{{IP: "203.0.113.8", OK: true}, {IP: "203.0.113.7", OK: true}, {IP: "203.0.113.9"}}
-	got := buildEgress(addrs, status, []SyncUser{
+	status := []AddressStatus{{IP: "203.0.113.8", OK: true, Source: "172.31.227.10"}, {IP: "203.0.113.7", OK: true, Source: "172.31.226.10"}, {IP: "203.0.113.9", Source: "172.31.228.10"}}
+	got := buildEgress(status, []SyncUser{
 		{UUID: "k2", PlanID: 3, EgressIP: "203.0.113.7"},
 		{UUID: "k1", PlanID: 3, EgressIP: "203.0.113.7"},
 		{UUID: "k3", PlanID: 5, EgressIP: "203.0.113.7"},
@@ -91,7 +97,7 @@ func TestBuildEgress(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("egress =\n%+v\nwant\n%+v", got, want)
 	}
-	if got := buildEgress(addrs, status, []SyncUser{{UUID: "k7", PlanID: 3}}); len(got) != 0 {
+	if got := buildEgress(status, []SyncUser{{UUID: "k7", PlanID: 3}}); len(got) != 0 {
 		t.Fatalf("egress without bound users = %+v", got)
 	}
 }
@@ -129,11 +135,11 @@ func TestBuildXrayEgressWithoutProfile(t *testing.T) {
 }
 
 func TestLoopAppliesEgressAndReportsAddresses(t *testing.T) {
-	fakeInterfaces(t, "172.18.0.2/16", "172.31.226.10/24")
+	fakeInterfaces(t, map[string][]string{"eth0": {"172.18.0.2/16"}, "egress1": {"172.31.226.10/24"}})
 	fx := newFakeXray()
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1", PlanID: 3, EgressIP: "203.0.113.7"}, {UUID: "u-2", PlanID: 3}}, syncInbounds: mainIn}
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
-	loop.cfg.Egress = []EgressAddr{{IP: "203.0.113.7", Source: "172.31.226.10"}, {IP: "203.0.113.8", Source: "172.31.227.10"}}
+	loop.cfg.Egress = []EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}, {IP: "203.0.113.8", Iface: "egress2"}}
 	preapply(t, loop, mainIn)
 	tick(t, loop)
 
@@ -147,7 +153,7 @@ func TestLoopAppliesEgressAndReportsAddresses(t *testing.T) {
 	}
 	hb, _ := lastHeartbeat(fc)
 	got, _ := json.Marshal(hb["addresses"])
-	if string(got) != `[{"ip":"203.0.113.7","ok":true},{"error":"egress_network_missing: no interface of this container has address 172.31.227.10","ip":"203.0.113.8","ok":false}]` {
+	if string(got) != `[{"ip":"203.0.113.7","ok":true},{"error":"egress_network_missing: interface egress2: route ip+net: no such network interface","ip":"203.0.113.8","ok":false}]` {
 		t.Fatalf("heartbeat addresses = %s", got)
 	}
 

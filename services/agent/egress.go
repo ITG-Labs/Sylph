@@ -4,26 +4,34 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
 
-const egressMissing = "egress_network_missing: no interface of this container has address "
+var ifacePattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,14}$`)
 
 type EgressAddr struct {
-	IP     string
-	Source string
+	IP    string
+	Iface string
 }
 
 type AddressStatus struct {
-	IP    string `json:"ip"`
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	IP     string `json:"ip"`
+	OK     bool   `json:"ok"`
+	Error  string `json:"error,omitempty"`
+	Source string `json:"-"`
 }
 
-var interfaceAddrs = net.InterfaceAddrs
+var ifaceAddrs = func(name string) ([]net.Addr, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return iface.Addrs()
+}
 
 func ParseEgress(v string) ([]EgressAddr, error) {
 	var out []EgressAddr
@@ -33,21 +41,21 @@ func ParseEgress(v string) ([]EgressAddr, error) {
 		if item == "" {
 			continue
 		}
-		pub, src, ok := strings.Cut(item, "=")
+		pub, iface, ok := strings.Cut(item, "=")
 		if !ok {
-			return nil, fmt.Errorf("%q: want <public IPv4>=<container IPv4>", item)
+			return nil, fmt.Errorf("%q: want <public IPv4>=<interface>", item)
 		}
-		for _, ip := range []string{pub, src} {
-			a, err := netip.ParseAddr(ip)
-			if err != nil || !a.Is4() || a.String() != ip {
-				return nil, fmt.Errorf("%q: %q is not an IPv4 address", item, ip)
-			}
+		if a, err := netip.ParseAddr(pub); err != nil || !a.Is4() || a.String() != pub {
+			return nil, fmt.Errorf("%q: %q is not an IPv4 address", item, pub)
 		}
-		if seen[pub] || seen[src] {
-			return nil, fmt.Errorf("%q: address used twice", item)
+		if !ifacePattern.MatchString(iface) {
+			return nil, fmt.Errorf("%q: %q is not an interface name", item, iface)
 		}
-		seen[pub], seen[src] = true, true
-		out = append(out, EgressAddr{IP: pub, Source: src})
+		if seen["ip "+pub] || seen["if "+iface] {
+			return nil, fmt.Errorf("%q: address or interface used twice", item)
+		}
+		seen["ip "+pub], seen["if "+iface] = true, true
+		out = append(out, EgressAddr{IP: pub, Iface: iface})
 	}
 	return out, nil
 }
@@ -58,34 +66,33 @@ func EgressName(ip string) string {
 
 func egressStatus(addrs []EgressAddr) []AddressStatus {
 	out := make([]AddressStatus, 0, len(addrs))
-	if len(addrs) == 0 {
-		return out
-	}
-	local := map[string]bool{}
-	list, err := interfaceAddrs()
-	for _, a := range list {
-		if p, perr := netip.ParsePrefix(a.String()); perr == nil {
-			local[p.Addr().String()] = true
-		}
-	}
 	for _, a := range addrs {
-		st := AddressStatus{IP: a.IP, OK: local[a.Source]}
-		switch {
-		case err != nil:
-			st.OK, st.Error = false, "egress_interfaces_unreadable: "+err.Error()
-		case !st.OK:
-			st.Error = egressMissing + a.Source
+		st := AddressStatus{IP: a.IP}
+		list, err := ifaceAddrs(a.Iface)
+		if err != nil {
+			st.Error = "egress_network_missing: interface " + a.Iface + ": " + err.Error()
+			out = append(out, st)
+			continue
+		}
+		for _, addr := range list {
+			if p, perr := netip.ParsePrefix(addr.String()); perr == nil && p.Addr().Is4() {
+				st.OK, st.Source = true, p.Addr().String()
+				break
+			}
+		}
+		if !st.OK {
+			st.Error = "egress_network_missing: interface " + a.Iface + " has no IPv4 address"
 		}
 		out = append(out, st)
 	}
 	return out
 }
 
-func buildEgress(addrs []EgressAddr, status []AddressStatus, users []SyncUser) []noderoute.Egress {
+func buildEgress(status []AddressStatus, users []SyncUser) []noderoute.Egress {
 	source := map[string]string{}
-	for i, a := range addrs {
-		if i < len(status) && status[i].OK {
-			source[a.IP] = a.Source
+	for _, st := range status {
+		if st.OK {
+			source[st.IP] = st.Source
 		}
 	}
 	groups := map[string]map[int64][]string{}
