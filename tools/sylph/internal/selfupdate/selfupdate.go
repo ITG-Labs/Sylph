@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -172,6 +173,9 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 		err = errors.New("новый бинарь лежит не рядом со старым: подмена не будет атомарной")
 	}
 	if err == nil {
+		err = sameOwner(tmp, exe)
+	}
+	if err == nil {
 		err = os.Rename(tmp, exe)
 	}
 	if err != nil {
@@ -179,4 +183,16 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 		return fmt.Errorf("новый бинарь не встал: %w", err)
 	}
 	return nil
+}
+
+func sameOwner(tmp string, exe string) error {
+	st, err := os.Stat(exe)
+	if err != nil {
+		return err
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	return os.Lchown(tmp, int(sys.Uid), int(sys.Gid))
 }
