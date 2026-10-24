@@ -153,3 +153,42 @@ func TestAdminNames(t *testing.T) {
 		t.Fatal("duplicates should fail")
 	}
 }
+
+func TestPinOverridesOurVersionsOnly(t *testing.T) {
+	node, err := Get("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, _, err := node.Template()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := tmpl.Get(KeyCaddyVersion)
+	if want == "" {
+		t.Fatal("node template has no CADDY_VERSION")
+	}
+	env, err := envfile.Parse([]byte("SYLPH_VERSION=0.2.0\nCADDY_VERSION=old\nXRAY_VERSION=26.1.1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.Pin(env, "0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if env.Get(KeyVersion) != "0.3.0" || env.Get(KeyCaddyVersion) != want || env.Get("XRAY_VERSION") != "26.1.1" {
+		t.Fatalf("pinned: %s=%q %s=%q XRAY_VERSION=%q", KeyVersion, env.Get(KeyVersion), KeyCaddyVersion, env.Get(KeyCaddyVersion), env.Get("XRAY_VERSION"))
+	}
+	panel, err := Get("panel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe, err := envfile.Parse([]byte("SYLPH_VERSION=0.2.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Pin(pe, "0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := pe.Lookup(KeyCaddyVersion); ok || pe.Get(KeyVersion) != "0.3.0" {
+		t.Fatalf("panel env after pin: %v", pe.Keys())
+	}
+}

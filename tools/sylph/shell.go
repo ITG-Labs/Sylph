@@ -32,7 +32,7 @@ type shellCommand struct {
 
 var shellCommands = []shellCommand{
 	{"install", "[роль]", "поставить или перенастроить роль", false},
-	{"update", "", "обновить роли машины до версии этого бинаря", false},
+	{"update", "", "обновить sylph до свежего релиза и роли машины до него", false},
 	{"status", "", "подробно о ролях машины", false},
 	{"start", "[роль]", "запустить роль и дождаться здоровья", false},
 	{"stop", "[роль]", "остановить роль", false},
@@ -54,6 +54,7 @@ type (
 	stepDoneMsg   string
 	clipboardMsg  string
 	cmdDoneMsg    struct{}
+	restartMsg    struct{ r *restartRequest }
 	headerTickMsg struct{}
 	formMsg       struct {
 		form *huh.Form
@@ -135,6 +136,7 @@ type shell struct {
 	bg         tea.Msg
 	refreshing bool
 	quitting   bool
+	restart    *restartRequest
 }
 
 func runShell(ctx context.Context, term *ui.UI) int {
@@ -168,6 +170,10 @@ func runShell(ctx context.Context, term *ui.UI) int {
 	_, err = p.Run()
 	if m.cancel != nil {
 		m.cancel()
+	}
+	if m.restart != nil {
+		term.Info("sylph обновился — дальше обновление идёт в обычном режиме, потом снова sudo ./sylph")
+		return m.restart.run(term)
 	}
 	if err != nil && !errors.Is(err, tea.ErrProgramKilled) && !errors.Is(err, context.Canceled) {
 		term.Fail(err.Error())
@@ -236,6 +242,9 @@ func (m *shell) update(msg tea.Msg) tea.Cmd {
 	case cmdDoneMsg:
 		m.busy, m.running, m.cancel, m.step = false, "", nil, nil
 		return tea.Batch(m.input.Focus(), m.refreshHeader())
+	case restartMsg:
+		m.restart, m.quitting = msg.r, true
+		return tea.Quit
 	case spinner.TickMsg:
 		if !m.busy {
 			m.ticking = false
@@ -493,8 +502,14 @@ func (m *shell) execute(line string) tea.Cmd {
 	m.busy, m.running, m.cancel = true, line, cancel
 	m.input.Blur()
 	go func() {
-		dispatch(ctx, m.u, args)
+		code, err := command(ctx, m.u, args)
 		cancel()
+		var restart *restartRequest
+		if errors.As(err, &restart) {
+			m.sink.p.Send(restartMsg{restart})
+			return
+		}
+		finish(m.u, code, err)
 		m.sink.p.Send(cmdDoneMsg{})
 	}()
 	return m.startSpinner()

@@ -21,7 +21,7 @@ const usage = `sylph — установка и обслуживание роле
 
 На машине роли (от root):
   sudo ./sylph install [роль]   мастер: настройки, серты, запуск, ожидание здоровья
-  sudo ./sylph update           обновить роли машины до версии этого бинаря
+  sudo ./sylph update           обновить sylph до свежего релиза и роли машины до него
   sudo ./sylph status           здоровье ролей машины
   sudo ./sylph start [роль]     запустить роль и дождаться здоровья
   sudo ./sylph stop [роль]      остановить роль
@@ -40,7 +40,7 @@ const usage = `sylph — установка и обслуживание роле
 Подробности по флагам: sylph <команда> -h`
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	code := run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)
@@ -59,36 +59,46 @@ func run(ctx context.Context, args []string) int {
 }
 
 func dispatch(ctx context.Context, u *ui.UI, args []string) int {
-	var err error
+	code, err := command(ctx, u, args)
+	var restart *restartRequest
+	if errors.As(err, &restart) {
+		return restart.run(u)
+	}
+	return finish(u, code, err)
+}
+
+func command(ctx context.Context, u *ui.UI, args []string) (int, error) {
 	switch args[0] {
 	case "install":
-		err = cmdInstall(ctx, u, args[1:])
+		return 0, cmdInstall(ctx, u, args[1:])
 	case "update":
-		err = cmdUpdate(ctx, u, args[1:])
+		return 0, cmdUpdate(ctx, u, args[1:])
 	case "status":
-		return cmdStatus(ctx, u, args[1:])
+		return cmdStatus(ctx, u, args[1:]), nil
 	case "start":
-		err = cmdStart(ctx, u, args[1:])
+		return 0, cmdStart(ctx, u, args[1:])
 	case "stop":
-		err = cmdStop(ctx, u, args[1:])
+		return 0, cmdStop(ctx, u, args[1:])
 	case "certs":
-		err = cmdCerts(ctx, u, args[1:])
+		return 0, cmdCerts(ctx, u, args[1:])
 	case "ip":
-		err = cmdIP(ctx, u, args[1:])
+		return 0, cmdIP(ctx, u, args[1:])
 	case "version", "--version", "-v":
 		u.Line(fmt.Sprintf("sylph %s (образы: %s)", version.Version, imageVersionOrDev()))
-		return 0
+		return 0, nil
 	case "help", "-h", "--help":
 		u.Line(usage)
-		return 0
-	default:
-		u.Fail(fmt.Sprintf("неизвестная команда %q", args[0]))
-		u.Line(usage)
-		return 2
+		return 0, nil
 	}
+	u.Fail(fmt.Sprintf("неизвестная команда %q", args[0]))
+	u.Line(usage)
+	return 2, nil
+}
+
+func finish(u *ui.UI, code int, err error) int {
 	switch {
 	case err == nil:
-		return 0
+		return code
 	case errors.Is(err, flag.ErrHelp):
 		return 0
 	case errors.Is(err, wizard.ErrAborted), errors.Is(err, context.Canceled):

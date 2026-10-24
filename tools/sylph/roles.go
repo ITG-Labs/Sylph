@@ -370,18 +370,18 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func runningAt(ctx context.Context, dir string, tag string) bool {
+func runningAt(ctx context.Context, dir string, tag string, caddy string) bool {
 	containers, err := compose.Snapshot(ctx, dir)
 	if err != nil {
 		return false
 	}
 	found := false
 	for _, c := range containers {
-		t, ok := sylphTag(c.Image)
+		t, want, ok := sylphTag(c.Image, tag, caddy)
 		if !ok || c.State != "running" {
 			continue
 		}
-		if t != tag {
+		if t != want {
 			return false
 		}
 		found = true

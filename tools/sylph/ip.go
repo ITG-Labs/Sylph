@@ -119,6 +119,10 @@ func renderEgressCompose(ips []string) []byte {
 }
 
 func prepareEgress(dir string, r *role.Role, env *envfile.Env) error {
+	return prepareEgressIn(dir, dir, r, env)
+}
+
+func prepareEgressIn(dir string, out string, r *role.Role, env *envfile.Env) error {
 	if r.Name != "node" {
 		return nil
 	}
@@ -128,7 +132,7 @@ func prepareEgress(dir string, r *role.Role, env *envfile.Env) error {
 	}
 	cur := env.Get(keyComposeFile)
 	ours := cur == "" || strings.HasSuffix(cur, ":"+egressFile)
-	path := filepath.Join(dir, egressFile)
+	path := filepath.Join(out, egressFile)
 	if len(ips) == 0 {
 		if ours {
 			env.Delete(keyComposeFile)
