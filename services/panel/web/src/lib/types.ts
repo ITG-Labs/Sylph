@@ -160,6 +160,7 @@ export interface NodeAddress {
   error: string | null
   first_seen_at: string
   last_seen_at: string
+  stale: boolean
   assignment: {
     user_id: number
     telegram_id: number | null
@@ -170,6 +171,7 @@ export interface NodeAddress {
     assigned_at: string
   } | null
   balancer_warning: boolean
+  no_direct_warning: boolean
 }
 
 export interface UserAddress {
@@ -182,7 +184,16 @@ export interface UserAddress {
   note: string
   assigned_at: string
   effective: boolean
-  reason?: "banned" | "no_period" | "node_not_in_plan" | "plan_without_dedicated_ip" | "address_error" | "address_missing"
+  reason?:
+    | "banned"
+    | "no_period"
+    | "node_not_in_plan"
+    | "plan_without_dedicated_ip"
+    | "traffic_exhausted"
+    | "address_error"
+    | "address_missing"
+    | "address_stale"
+    | "profile_no_direct"
 }
 
 export interface UserStats {

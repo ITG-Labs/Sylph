@@ -319,8 +319,8 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         description={dialog?.kind === "unassignAddress" ? `${dialog.address.ip} · ${dialog.address.node_name}` : undefined}
         consequences={
           <>
-            <p>Новые соединения юзера пойдут через общий адрес ноды, адрес станет свободным. Уже открытые доживут своё.</p>
-            <p>Нода перезапустит xray — её открытые соединения оборвутся на пару секунд.</p>
+            <p>Адрес станет свободным, юзер будет выходить через общий адрес ноды.</p>
+            <p>Нода перезапустит xray — все открытые соединения на ней оборвутся на пару секунд.</p>
           </>
         }
         destructive

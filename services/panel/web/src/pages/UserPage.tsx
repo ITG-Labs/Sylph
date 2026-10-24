@@ -83,7 +83,8 @@ export function UserPage() {
   const paidUntil = queued.length > 0 ? queued[queued.length - 1].expires_at : current?.expires_at
   const open = (d: UserDialog) => () => setDialog(d)
   const refresh = () => invalidate(["user", id], ["users"], ["overview"], ["audit"], ["payments"], ["addresses"])
-  const freeAddresses = assignable(addresses.data ?? [], c.addresses)
+  const myAddresses = c.addresses ?? []
+  const freeAddresses = assignable(addresses.data ?? [], myAddresses)
 
   return (
     <>
@@ -400,11 +401,11 @@ export function UserPage() {
                   <span>Тариф обещает выделенный IP, а рабочего адреса нет — юзер выходит через общие адреса нод.</span>
                 </div>
               )}
-              {c.addresses.length === 0 ? (
+              {myAddresses.length === 0 ? (
                 <Empty>Не закреплён</Empty>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {c.addresses.map((a) => (
+                  {myAddresses.map((a) => (
                     <li key={a.address_id} className="well flex items-start gap-3 rounded-xl p-3">
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-muted-foreground">
                         <Globe className="size-4" />
