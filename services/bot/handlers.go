@@ -19,6 +19,7 @@ type Telegram interface {
 	SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*models.Message, error)
 	EditMessageText(ctx context.Context, params *tgbot.EditMessageTextParams) (*models.Message, error)
 	AnswerCallbackQuery(ctx context.Context, params *tgbot.AnswerCallbackQueryParams) (bool, error)
+	GetChatMember(ctx context.Context, params *tgbot.GetChatMemberParams) (*models.ChatMember, error)
 }
 
 type App struct {
@@ -31,10 +32,23 @@ type App struct {
 	checkedMu     sync.Mutex
 	lastCheck     map[string]time.Time
 	noticePause   time.Duration
+
+	cfgMu     sync.Mutex
+	cfg       *BotConfig
+	cfgAt     time.Time
+	configTTL time.Duration
+	memMu     sync.Mutex
+	members   map[int64]time.Time
+	memberTTL time.Duration
+	chanErrAt time.Time
 }
 
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
-	return &App{core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log, checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond}
+	return &App{
+		core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log,
+		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond,
+		configTTL: defaultConfigTTL, members: map[int64]time.Time{}, memberTTL: defaultMemberTTL,
+	}
 }
 
 func (a *App) checkTooSoon(tgID int64, paymentID string) bool {
@@ -86,13 +100,8 @@ func (a *App) onMessage(ctx context.Context, tg Telegram, m *models.Message) {
 		a.send(ctx, tg, m.Chat.ID, textFailed, nil)
 		return
 	}
-	if code, ok := startCode(m.Text); ok {
-		text, kb := a.onInvite(ctx, m.From.ID, u.ID, code)
-		a.send(ctx, tg, m.Chat.ID, text, kb)
-		return
-	}
-	text, kb := a.menu(ctx, m.From.ID)
-	a.send(ctx, tg, m.Chat.ID, text, kb)
+	code, _ := startCode(m.Text)
+	a.afterGates(ctx, tg, reply{chatID: m.Chat.ID}, m.From.ID, u, code)
 }
 
 func cleanProfileText(v string) string {
@@ -120,10 +129,41 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 		return
 	}
 	tgID := q.From.ID
-	if _, err := a.core.Register(ctx, tgID, profileOf(&q.From)); errors.Is(err, ErrBanned) {
+	u, err := a.core.Register(ctx, tgID, profileOf(&q.From))
+	if errors.Is(err, ErrBanned) {
 		return
 	}
+	if err != nil {
+		u = nil
+	}
 	data := q.Data
+	var alert string
+	switch {
+	case strings.HasPrefix(data, cbTermsPref):
+		alert = a.onTermsAccept(ctx, tg, to, tgID, u, strings.TrimPrefix(data, cbTermsPref))
+	case strings.HasPrefix(data, cbJoinedPref):
+		alert = a.onJoined(ctx, tg, to, tgID, u, strings.TrimPrefix(data, cbJoinedPref))
+	case data == cbHelp:
+		a.onHelp(ctx, tg, to, tgID)
+	case strings.HasPrefix(data, cbChkPrefix):
+		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
+	default:
+		if text, kb, gated := a.gate(ctx, tg, tgID, u, "", false); gated {
+			a.show(ctx, tg, to, text, kb)
+			break
+		}
+		alert = a.route(ctx, tg, to, tgID, data)
+	}
+	params := &tgbot.AnswerCallbackQueryParams{CallbackQueryID: q.ID}
+	if alert != "" {
+		params.Text, params.ShowAlert = alert, true
+	}
+	if _, err := tg.AnswerCallbackQuery(ctx, params); err != nil {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "telegram_answer_failed", slog.String("error", err.Error()))
+	}
+}
+
+func (a *App) route(ctx context.Context, tg Telegram, to reply, tgID int64, data string) string {
 	var alert string
 	switch {
 	case data == cbMenu:
@@ -141,8 +181,6 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 		alert = a.onPlans(ctx, tg, to, tgID)
 	case strings.HasPrefix(data, cbPlanPrefix):
 		alert = a.onBuy(ctx, tg, to, tgID, strings.TrimPrefix(data, cbPlanPrefix))
-	case strings.HasPrefix(data, cbChkPrefix):
-		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
 	case data == cbDevices:
 		alert = a.onDevices(ctx, tg, to, tgID, "")
 	case strings.HasPrefix(data, cbDevicePref):
@@ -158,13 +196,7 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 	case data == cbLinkOK:
 		alert = a.onRotate(ctx, tg, to, tgID)
 	}
-	params := &tgbot.AnswerCallbackQueryParams{CallbackQueryID: q.ID}
-	if alert != "" {
-		params.Text, params.ShowAlert = alert, true
-	}
-	if _, err := tg.AnswerCallbackQuery(ctx, params); err != nil {
-		a.log.LogAttrs(ctx, slog.LevelWarn, "telegram_answer_failed", slog.String("error", err.Error()))
-	}
+	return alert
 }
 
 func (a *App) status(ctx context.Context, tgID int64) (*Status, error) {

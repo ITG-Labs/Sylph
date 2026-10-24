@@ -20,9 +20,41 @@ var (
 )
 
 type User struct {
-	ID         int64  `json:"id"`
-	TelegramID int64  `json:"telegram_id"`
-	SubToken   string `json:"sub_token"`
+	ID           int64  `json:"id"`
+	TelegramID   int64  `json:"telegram_id"`
+	SubToken     string `json:"sub_token"`
+	TermsVersion int    `json:"terms_version"`
+}
+
+type BotConfig struct {
+	Terms   TermsConfig   `json:"terms"`
+	Channel ChannelConfig `json:"channel"`
+	Help    HelpConfig    `json:"help"`
+}
+
+type TermsConfig struct {
+	Enabled bool   `json:"enabled"`
+	Text    string `json:"text"`
+	URL     string `json:"url"`
+	Version int    `json:"version"`
+}
+
+type ChannelConfig struct {
+	Enabled bool   `json:"enabled"`
+	Chat    string `json:"chat"`
+	URL     string `json:"url"`
+	Text    string `json:"text"`
+}
+
+type HelpConfig struct {
+	Enabled bool         `json:"enabled"`
+	Text    string       `json:"text"`
+	Buttons []HelpButton `json:"buttons"`
+}
+
+type HelpButton struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
 }
 
 type Plan struct {
@@ -115,6 +147,8 @@ type Core interface {
 	GrantTrial(ctx context.Context, userID int64) (time.Time, error)
 	Stats(ctx context.Context, userID int64) (*Stats, error)
 	RedeemInvite(ctx context.Context, userID int64, code string) (*Redeem, error)
+	BotConfig(ctx context.Context) (*BotConfig, error)
+	AcceptTerms(ctx context.Context, userID int64, version int) error
 }
 
 type CoreClient struct {
@@ -199,6 +233,15 @@ func (c *CoreClient) Devices(ctx context.Context, userID int64) ([]Device, error
 
 func (c *CoreClient) RemoveDevice(ctx context.Context, userID, deviceID int64) error {
 	return c.do(ctx, http.MethodDelete, fmt.Sprintf("/v1/users/%d/devices/%d", userID, deviceID), nil, nil)
+}
+
+func (c *CoreClient) BotConfig(ctx context.Context) (*BotConfig, error) {
+	var cfg BotConfig
+	return &cfg, c.do(ctx, http.MethodGet, "/v1/bot/config", nil, &cfg)
+}
+
+func (c *CoreClient) AcceptTerms(ctx context.Context, userID int64, version int) error {
+	return c.do(ctx, http.MethodPost, fmt.Sprintf("/v1/users/%d/terms", userID), map[string]int{"version": version}, nil)
 }
 
 func (c *CoreClient) do(ctx context.Context, method, path string, in, out any) error {

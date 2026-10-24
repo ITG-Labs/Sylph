@@ -26,6 +26,9 @@ const (
 	cbTrialAsk   = "trial:ask"
 	cbTrialOK    = "trial:ok"
 	cbStatsPref  = "stats:"
+	cbTermsPref  = "tos:"
+	cbJoinedPref = "join:"
+	cbHelp       = "help"
 )
 
 const (
@@ -83,6 +86,9 @@ var (
 	icUnlock   = icon{"🔓", "6037496202990194718"}
 	icGlobe    = icon{"🌐", "5776233299424843260"}
 	icID       = icon{"🆔", "6032693626394382504"}
+	icHelp     = icon{"❓", "6030848053177486888"}
+	icChannel  = icon{"📣", "6039422865189638057"}
+	icTerms    = icon{"📄", "6050643982646513651"}
 )
 
 func (a *App) UseCustomEmoji(on bool) {
@@ -126,17 +132,25 @@ func (a *App) header(i icon, title string) string {
 	return a.ic(i) + " <b>" + title + "</b>\n" + rule + "\n\n"
 }
 
-func (a *App) menuKeyboard(trial bool) *models.InlineKeyboardMarkup {
+func (a *App) menuKeyboard(trial bool, help bool) *models.InlineKeyboardMarkup {
 	var rows [][]models.InlineKeyboardButton
 	if trial {
 		rows = append(rows, row(styled(a.btn(icGift, "Попробовать бесплатно", cbTrialAsk), styleSuccess)))
 	}
-	return keyboard(append(rows,
+	rows = append(rows,
 		row(styled(a.btn(icShield, "Моя подписка", cbStatus), stylePrimary)),
 		row(styled(a.btn(icDiamond, "Купить / продлить", cbBuy), styleSuccess)),
 		row(a.btn(icChart, "Статистика", cbStatsPref)),
 		row(a.btn(icDevice, "Устройства", cbDevices), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
-	)...)
+	)
+	if help {
+		rows = append(rows, a.helpRow())
+	}
+	return keyboard(rows...)
+}
+
+func (a *App) helpRow() []models.InlineKeyboardButton {
+	return row(a.btn(icHelp, "Помощь", cbHelp))
 }
 
 func (a *App) buyRow() []models.InlineKeyboardButton {
