@@ -120,3 +120,23 @@ func (p *Profile) BalancesDirect() bool {
 	}
 	return false
 }
+
+func (p *Profile) ReachesDirect(plan int64) bool {
+	direct := p.DirectTags()
+	for _, r := range p.Rules {
+		if !r.IsPlanRule() && slices.Contains(direct, r.To) {
+			return true
+		}
+	}
+	for _, r := range p.Rules {
+		if r.IsPlanRule() && slices.Contains(r.Plans, plan) {
+			return slices.Contains(direct, r.To)
+		}
+	}
+	return slices.Contains(direct, p.Default)
+}
+
+func (p *Profile) ReachesDirectAny() bool {
+	direct := p.DirectTags()
+	return slices.Contains(direct, p.Default) || slices.ContainsFunc(p.Rules, func(r Rule) bool { return slices.Contains(direct, r.To) })
+}

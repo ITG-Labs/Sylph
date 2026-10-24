@@ -52,3 +52,35 @@ func TestBalancesDirect(t *testing.T) {
 		}
 	}
 }
+
+func TestReachesDirect(t *testing.T) {
+	p := &Profile{
+		Outbounds: []Outbound{
+			{Tag: "direct", Kind: KindDirect, Direct: &Direct{IP: "auto"}},
+			{Tag: "block", Kind: KindBlock},
+			{Tag: "de", Kind: KindProxy, Proxy: &Proxy{Protocol: "socks", Address: "de.example.com", Port: 1080}},
+		},
+		Balancers: []Balancer{{Tag: "bal", Strategy: StrategyRandom, Outbounds: []string{"direct", "de"}}},
+		Default:   "de",
+	}
+	if p.ReachesDirect(3) || p.ReachesDirectAny() {
+		t.Fatal("everything goes to a proxy, yet direct is reached")
+	}
+	p.Default = "bal"
+	if p.ReachesDirect(3) || p.ReachesDirectAny() {
+		t.Fatal("a balancer default never uses the dedicated clone")
+	}
+	p.Rules = []Rule{{Plans: []int64{3}, To: "direct"}}
+	if !p.ReachesDirect(3) || p.ReachesDirect(4) || !p.ReachesDirectAny() {
+		t.Fatal("plan rule to direct must count only for its plan")
+	}
+	p.Rules = []Rule{{Domain: []string{"geosite:category-ru"}, To: "direct"}, {Plans: []int64{3}, To: "de"}}
+	if !p.ReachesDirect(3) || !p.ReachesDirect(4) {
+		t.Fatal("a plain rule to direct is reached by every plan")
+	}
+	p.Rules = []Rule{{Plans: []int64{3}, To: "de"}}
+	p.Default = "direct"
+	if p.ReachesDirect(3) || !p.ReachesDirect(4) {
+		t.Fatal("plan 3 is caught by its proxy rule, plan 4 falls to the direct default")
+	}
+}

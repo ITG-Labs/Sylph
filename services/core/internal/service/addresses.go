@@ -5,6 +5,7 @@ import (
 	"errors"
 	"unicode/utf8"
 
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
@@ -15,33 +16,58 @@ func (s *Service) ListAddresses(ctx context.Context) ([]store.NodeAddress, error
 	if err != nil {
 		return nil, err
 	}
-	warn := map[int64]bool{}
+	profiles := map[int64]*noderoute.Profile{}
 	for i := range list {
-		id := list[i].NodeID
-		if _, done := warn[id]; !done {
-			if warn[id], err = s.balancesDirect(ctx, id); err != nil {
-				return nil, err
-			}
+		p, err := s.addressProfile(ctx, profiles, list[i].NodeID)
+		if err != nil {
+			return nil, err
 		}
-		list[i].BalancerWarning = warn[id]
+		if p != nil {
+			list[i].BalancerWarning = p.BalancesDirect()
+			list[i].NoDirectWarning = !p.ReachesDirectAny()
+		}
 	}
 	return list, nil
 }
 
-func (s *Service) balancesDirect(ctx context.Context, nodeID int64) (bool, error) {
+func (s *Service) addressProfile(ctx context.Context, cache map[int64]*noderoute.Profile, nodeID int64) (*noderoute.Profile, error) {
+	if p, ok := cache[nodeID]; ok {
+		return p, nil
+	}
 	node, err := s.store.GetNode(ctx, nodeID)
-	if err != nil || node.ProfileID == nil {
-		return false, err
-	}
-	row, err := s.store.GetProfile(ctx, *node.ProfileID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	p, err := parseProfile(row.Doc)
-	if err != nil {
-		return false, err
+	var p *noderoute.Profile
+	if node.ProfileID != nil {
+		row, err := s.store.GetProfile(ctx, *node.ProfileID)
+		if err != nil {
+			return nil, err
+		}
+		if p, err = parseProfile(row.Doc); err != nil {
+			return nil, err
+		}
 	}
-	return p.BalancesDirect(), nil
+	cache[nodeID] = p
+	return p, nil
+}
+
+func (s *Service) checkDirect(ctx context.Context, list []store.UserAddress) error {
+	profiles := map[int64]*noderoute.Profile{}
+	for i := range list {
+		a := &list[i]
+		if !a.Effective || a.PlanID == nil {
+			continue
+		}
+		p, err := s.addressProfile(ctx, profiles, a.NodeID)
+		if err != nil {
+			return err
+		}
+		if p != nil && !p.ReachesDirect(*a.PlanID) {
+			a.Effective, a.Reason = false, store.AddressReasonNoDirect
+		}
+	}
+	return nil
 }
 
 func (s *Service) AssignAddress(ctx context.Context, addressID, userID int64, note string) (*store.NodeAddress, error) {
@@ -86,6 +112,9 @@ func (s *Service) DeleteAddress(ctx context.Context, addressID int64) error {
 func (s *Service) effectiveAddresses(ctx context.Context, userID int64) ([]DedicatedIP, error) {
 	all, err := s.store.UserAddresses(ctx, userID)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkDirect(ctx, all); err != nil {
 		return nil, err
 	}
 	out := []DedicatedIP{}

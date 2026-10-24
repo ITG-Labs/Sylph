@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -168,6 +170,24 @@ func TestDeleteAddressOnlyWhenMissing(t *testing.T) {
 	if err := s.DeleteAddress(ctx, a.ID); !errors.Is(err, ErrAddressPresent) {
 		t.Fatalf("delete address with error: %v", err)
 	}
+	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	if _, err := s.pool.Exec(ctx, `UPDATE node_addresses SET last_seen_at = now() - interval '11 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAddress(ctx, a.ID); !got.Stale || got.Status != AddressOK {
+		t.Fatalf("silent node's address = %+v, want stale", got)
+	}
+	if err := s.DeleteAddress(ctx, a.ID); err != nil {
+		t.Fatalf("delete an address of a silent node: %v", err)
+	}
+	if _, err := s.GetAddress(ctx, a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted address: %v", err)
+	}
+	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	a = addressByIP(t, s, n.ID, "203.0.113.7")
+	if err := s.AssignAddress(ctx, a.ID, u.ID, ""); err != nil {
+		t.Fatal(err)
+	}
 	report(t, s, n.ID)
 	if err := s.DeleteAddress(ctx, a.ID); err != nil {
 		t.Fatal(err)
@@ -312,9 +332,103 @@ func TestUserAddressReasons(t *testing.T) {
 	report(t, s, n.ID)
 	reason(AddressReasonMissing)
 	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	if _, err := s.pool.Exec(ctx, `UPDATE node_addresses SET last_seen_at = now() - interval '11 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	reason(AddressReasonStale)
+	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	reason("")
+
+	limited := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, LocationGroupID: &g.ID, DedicatedIP: true, TrafficLimitBytes: new(int64(1000))}
+	if err := s.CreatePlan(ctx, limited); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET plan_id = $2, traffic_used_bytes = 1000 WHERE id = $1`, first.PeriodID, limited.ID); err != nil {
+		t.Fatal(err)
+	}
+	reason(AddressReasonTraffic)
+	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET plan_id = $2, traffic_used_bytes = 0 WHERE id = $1`, first.PeriodID, right.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.UserAddresses(ctx, u.ID); list[0].PlanID == nil || *list[0].PlanID != right.ID {
+		t.Fatalf("plan of the address = %v, want %d", list[0].PlanID, right.ID)
+	}
 
 	if _, err := s.pool.Exec(ctx, `UPDATE users SET status = 'banned' WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	reason(AddressReasonBanned)
+}
+
+func TestReportNodeAddressesCapsAndForgets(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	n := mkNode(t, s, "n1")
+	reports := make([]model.AddressReport, MaxNodeAddresses)
+	for i := range reports {
+		reports[i] = model.AddressReport{IP: fmt.Sprintf("10.0.%d.%d", i/200, i%200+1), OK: true}
+	}
+	report(t, s, n.ID, reports...)
+	report(t, s, n.ID, append(reports, model.AddressReport{IP: "203.0.113.200", OK: true})...)
+	var rows int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM node_addresses WHERE node_id = $1`, n.ID).Scan(&rows); err != nil || rows != MaxNodeAddresses {
+		t.Fatalf("rows = %d %v, want the cap %d", rows, err, MaxNodeAddresses)
+	}
+
+	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	u := mkUser(t, s)
+	kept := addressByIP(t, s, n.ID, "10.0.0.1")
+	if err := s.AssignAddress(ctx, kept.ID, u.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE node_addresses SET last_seen_at = now() - interval '31 days' WHERE status = 'missing'`); err != nil {
+		t.Fatal(err)
+	}
+	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
+	list, err := s.ListAddresses(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("after forgetting = %+v, want the reported and the assigned one", list)
+	}
+}
+
+func TestAddressWritesDoNotDeadlockWithHeartbeats(t *testing.T) {
+	s := setupStore(t)
+	warmPool(t, s)
+	ctx := context.Background()
+	n := mkNode(t, s, "n1")
+	ips := []model.AddressReport{{IP: "203.0.113.7", OK: true}, {IP: "203.0.113.8", OK: true}, {IP: "203.0.113.9", OK: true}}
+	report(t, s, n.ID, ips...)
+	a, b := addressByIP(t, s, n.ID, "203.0.113.8"), addressByIP(t, s, n.ID, "203.0.113.9")
+	u, w := mkUser(t, s), mkUser(t, s)
+	var wg sync.WaitGroup
+	errs := make(chan error, 400)
+	for i := range 40 {
+		wg.Go(func() {
+			flip := []model.AddressReport{ips[0], {IP: "203.0.113.8", OK: i%2 == 0, Error: "x"}, {IP: "203.0.113.9", OK: i%3 == 0, Error: "y"}}
+			errs <- s.ReportNodeAddresses(ctx, n.ID, flip)
+		})
+		wg.Go(func() {
+			if err := s.AssignAddress(ctx, a.ID, u.ID, ""); err != nil && !errors.Is(err, ErrAddressTaken) {
+				errs <- err
+			}
+			if err := s.UnassignAddress(ctx, a.ID); err != nil && !errors.Is(err, ErrNotFound) {
+				errs <- err
+			}
+		})
+		wg.Go(func() {
+			if err := s.AssignAddress(ctx, b.ID, w.ID, ""); err != nil && !errors.Is(err, ErrAddressTaken) {
+				errs <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent address writes: %v", err)
+		}
+	}
 }

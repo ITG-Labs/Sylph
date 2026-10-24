@@ -22,8 +22,17 @@ const (
 	AddressReasonNoPeriod = "no_period"
 	AddressReasonLocation = "node_not_in_plan"
 	AddressReasonPlan     = "plan_without_dedicated_ip"
+	AddressReasonTraffic  = "traffic_exhausted"
 	AddressReasonError    = "address_error"
 	AddressReasonMissing  = "address_missing"
+	AddressReasonStale    = "address_stale"
+	AddressReasonNoDirect = "profile_no_direct"
+)
+
+const (
+	MaxNodeAddresses   = 64
+	addressStaleAfter  = "10 minutes"
+	addressForgetAfter = "30 days"
 )
 
 var ErrAddressTaken = errors.New("address is assigned to another user")
@@ -51,9 +60,11 @@ type NodeAddress struct {
 	Error       *string            `json:"error"`
 	FirstSeenAt time.Time          `json:"first_seen_at"`
 	LastSeenAt  time.Time          `json:"last_seen_at"`
+	Stale       bool               `json:"stale"`
 	Assignment  *AddressAssignment `json:"assignment"`
 
 	BalancerWarning bool `json:"balancer_warning"`
+	NoDirectWarning bool `json:"no_direct_warning"`
 }
 
 type UserAddress struct {
@@ -67,6 +78,7 @@ type UserAddress struct {
 	AssignedAt time.Time `json:"assigned_at"`
 	Effective  bool      `json:"effective"`
 	Reason     string    `json:"reason,omitempty"`
+	PlanID     *int64    `json:"-"`
 }
 
 func (s *Store) ReportNodeAddresses(ctx context.Context, nodeID int64, reports []model.AddressReport) error {
@@ -75,6 +87,20 @@ func (s *Store) ReportNodeAddresses(ctx context.Context, nodeID int64, reports [
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockNode(ctx, tx, nodeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM node_addresses na WHERE na.node_id = $1 AND na.status = 'missing'
+		 AND na.last_seen_at < now() - interval '`+addressForgetAfter+`'
+		 AND NOT EXISTS (SELECT 1 FROM address_assignments aa WHERE aa.address_id = na.id)`,
+		nodeID); err != nil {
+		return err
+	}
+	var rows int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM node_addresses WHERE node_id = $1`, nodeID).Scan(&rows); err != nil {
+		return err
+	}
 	ips := make([]string, 0, len(reports))
 	for _, r := range reports {
 		status, msg := AddressOK, (*string)(nil)
@@ -83,11 +109,22 @@ func (s *Store) ReportNodeAddresses(ctx context.Context, nodeID int64, reports [
 			e := r.Error
 			msg = &e
 		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO node_addresses (node_id, ip, status, error) VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (node_id, ip) DO UPDATE SET status = EXCLUDED.status, error = EXCLUDED.error, last_seen_at = now()`,
-			nodeID, r.IP, status, msg); err != nil {
+		tag, err := tx.Exec(ctx,
+			`UPDATE node_addresses SET status = $3, error = $4, last_seen_at = now() WHERE node_id = $1 AND ip = $2`,
+			nodeID, r.IP, status, msg)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 {
+			if rows >= MaxNodeAddresses {
+				continue
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO node_addresses (node_id, ip, status, error) VALUES ($1, $2, $3, $4)`,
+				nodeID, r.IP, status, msg); err != nil {
+				return err
+			}
+			rows++
 		}
 		ips = append(ips, r.IP)
 	}
@@ -100,7 +137,36 @@ func (s *Store) ReportNodeAddresses(ctx context.Context, nodeID int64, reports [
 	return tx.Commit(ctx)
 }
 
+func lockNode(ctx context.Context, tx pgx.Tx, nodeID int64) error {
+	var id int64
+	err := tx.QueryRow(ctx, `SELECT id FROM nodes WHERE id = $1 FOR UPDATE`, nodeID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func lockAddressNode(ctx context.Context, tx pgx.Tx, addressID int64) (int64, error) {
+	var nodeID int64
+	err := tx.QueryRow(ctx, `SELECT node_id FROM node_addresses WHERE id = $1`, addressID).Scan(&nodeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := lockNode(ctx, tx, nodeID); err != nil {
+		return 0, err
+	}
+	err = tx.QueryRow(ctx, `SELECT node_id FROM node_addresses WHERE id = $1 FOR UPDATE`, addressID).Scan(&nodeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return nodeID, err
+}
+
 const addressSelect = `SELECT na.id, na.node_id, n.name, na.ip, na.status, na.error, na.first_seen_at, na.last_seen_at,
+	na.last_seen_at < now() - interval '` + addressStaleAfter + `',
 	aa.user_id, u.telegram_id, tp.username, ` + telegramNameSQL + `, aa.source, aa.note, aa.assigned_at
 	FROM node_addresses na
 	JOIN nodes n ON n.id = na.node_id
@@ -114,7 +180,7 @@ func scanAddress(row pgxRow) (*NodeAddress, error) {
 	var source, note *string
 	var assignedAt *time.Time
 	var as AddressAssignment
-	err := row.Scan(&a.ID, &a.NodeID, &a.NodeName, &a.IP, &a.Status, &a.Error, &a.FirstSeenAt, &a.LastSeenAt,
+	err := row.Scan(&a.ID, &a.NodeID, &a.NodeName, &a.IP, &a.Status, &a.Error, &a.FirstSeenAt, &a.LastSeenAt, &a.Stale,
 		&userID, &as.TelegramID, &as.TelegramUsername, &as.TelegramName, &source, &note, &assignedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -156,11 +222,7 @@ func (s *Store) AssignAddress(ctx context.Context, addressID, userID int64, note
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var nodeID int64
-	err = tx.QueryRow(ctx, `SELECT node_id FROM node_addresses WHERE id = $1 FOR UPDATE`, addressID).Scan(&nodeID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
+	nodeID, err := lockAddressNode(ctx, tx, addressID)
 	if err != nil {
 		return err
 	}
@@ -191,14 +253,22 @@ func (s *Store) AssignAddress(ctx context.Context, addressID, userID int64, note
 }
 
 func (s *Store) UnassignAddress(ctx context.Context, addressID int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM address_assignments WHERE address_id = $1`, addressID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := lockAddressNode(ctx, tx, addressID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM address_assignments WHERE address_id = $1`, addressID)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteAddress(ctx context.Context, id int64) error {
@@ -207,15 +277,16 @@ func (s *Store) DeleteAddress(ctx context.Context, id int64) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM node_addresses WHERE id = $1 FOR UPDATE`, id).Scan(&status)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
+	if _, err := lockAddressNode(ctx, tx, id); err != nil {
 		return err
 	}
-	if status != AddressMissing {
+	var gone bool
+	if err := tx.QueryRow(ctx,
+		`SELECT status = 'missing' OR last_seen_at < now() - interval '`+addressStaleAfter+`' FROM node_addresses WHERE id = $1`,
+		id).Scan(&gone); err != nil {
+		return err
+	}
+	if !gone {
 		return ErrAddressPresent
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM node_addresses WHERE id = $1`, id); err != nil {
@@ -229,13 +300,15 @@ func (s *Store) UserAddresses(ctx context.Context, userID int64) ([]UserAddress,
 		`SELECT na.id, na.node_id, n.name, na.ip, na.status, aa.source, aa.note, aa.assigned_at, u.status,
 		        EXISTS (SELECT 1 FROM subscriptions sub
 		                WHERE sub.user_id = aa.user_id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()),
-		        cur.dedicated_ip
+		        cur.dedicated_ip, cur.traffic_ok, cur.plan_id, na.last_seen_at < now() - interval '`+addressStaleAfter+`'
 		 FROM address_assignments aa
 		 JOIN node_addresses na ON na.id = aa.address_id
 		 JOIN nodes n ON n.id = na.node_id
 		 JOIN users u ON u.id = aa.user_id
 		 LEFT JOIN LATERAL (
-		   SELECT p.dedicated_ip FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
+		   SELECT p.dedicated_ip, p.id AS plan_id,
+		          (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes) AS traffic_ok
+		   FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
 		   WHERE sub.user_id = aa.user_id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
 		     AND (n.group_id IS NULL OR p.location_group_id = n.group_id)
 		   ORDER BY sub.starts_at DESC, sub.id DESC LIMIT 1) cur ON TRUE
@@ -250,9 +323,10 @@ func (s *Store) UserAddresses(ctx context.Context, userID int64) ([]UserAddress,
 		var a UserAddress
 		var userStatus string
 		var anyPeriod bool
-		var dedicated *bool
+		var dedicated, trafficOK *bool
+		var stale bool
 		if err := rows.Scan(&a.AddressID, &a.NodeID, &a.NodeName, &a.IP, &a.Status, &a.Source, &a.Note, &a.AssignedAt,
-			&userStatus, &anyPeriod, &dedicated); err != nil {
+			&userStatus, &anyPeriod, &dedicated, &trafficOK, &a.PlanID, &stale); err != nil {
 			return nil, err
 		}
 		switch {
@@ -264,10 +338,14 @@ func (s *Store) UserAddresses(ctx context.Context, userID int64) ([]UserAddress,
 			a.Reason = AddressReasonLocation
 		case !*dedicated:
 			a.Reason = AddressReasonPlan
+		case !*trafficOK:
+			a.Reason = AddressReasonTraffic
 		case a.Status == AddressError:
 			a.Reason = AddressReasonError
 		case a.Status == AddressMissing:
 			a.Reason = AddressReasonMissing
+		case stale:
+			a.Reason = AddressReasonStale
 		default:
 			a.Effective = true
 		}

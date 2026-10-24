@@ -19,8 +19,6 @@ const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
 
-const maxNodeAddresses = 64
-
 func truncateRunes(s *string, n int) *string {
 	if s == nil {
 		return nil
@@ -172,13 +170,14 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		RoutingError:   truncateRunes(body.RoutingError, maxConfigErrorRunes),
 	}
 	if body.Addresses != nil {
-		if len(*body.Addresses) > maxNodeAddresses {
-			writeError(w, http.StatusBadRequest, "bad_request", "too many addresses")
-			return
+		list := *body.Addresses
+		if len(list) > store.MaxNodeAddresses {
+			s.log.Warn("heartbeat_addresses_truncated", "node", cn, "count", len(list))
+			list = list[:store.MaxNodeAddresses]
 		}
-		reports := make([]model.AddressReport, 0, len(*body.Addresses))
+		reports := make([]model.AddressReport, 0, len(list))
 		seen := map[string]bool{}
-		for _, a := range *body.Addresses {
+		for _, a := range list {
 			ip, err := netip.ParseAddr(a.IP)
 			if err != nil || !ip.Is4() || ip.String() != a.IP || seen[a.IP] {
 				writeError(w, http.StatusBadRequest, "bad_request", "addresses must be distinct IPv4 addresses")

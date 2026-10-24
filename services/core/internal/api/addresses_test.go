@@ -22,6 +22,8 @@ type addressView struct {
 		Source string `json:"source"`
 	} `json:"assignment"`
 	BalancerWarning bool `json:"balancer_warning"`
+	NoDirectWarning bool `json:"no_direct_warning"`
+	Stale           bool `json:"stale"`
 }
 
 func (e *adminEnv) addresses(t *testing.T) []addressView {
@@ -83,11 +85,17 @@ func TestHeartbeatReportsAddresses(t *testing.T) {
 		"not canonical": []map[string]any{{"ip": "203.0.113.07", "ok": true}},
 		"not an ip":     []map[string]any{{"ip": "node.example.com", "ok": true}},
 		"duplicate":     []map[string]any{{"ip": "203.0.113.7", "ok": true}, {"ip": "203.0.113.7", "ok": false}},
-		"too many":      many,
 	} {
 		if status := postJSON(t, node, url, heartbeatWith(addrs), nil); status != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", name, status)
 		}
+	}
+	if status := postJSON(t, node, url, heartbeatWith(many), nil); status != http.StatusOK {
+		t.Fatalf("too many addresses must not fail the heartbeat: %d", status)
+	}
+	var stored int
+	if err := e.pool.QueryRow(t.Context(), `SELECT count(*) FROM node_addresses`).Scan(&stored); err != nil || stored != 64 {
+		t.Fatalf("stored addresses = %d %v, want the 64 kept", stored, err)
 	}
 }
 
@@ -238,14 +246,58 @@ func TestAddressBalancerWarning(t *testing.T) {
 	var p profileResp
 	r.decode(t, &p)
 	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", nodeID), map[string]any{"profile_id": p.ID}), http.StatusOK)
-	if a := e.addresses(t); a[0].BalancerWarning {
-		t.Fatalf("warning on a profile without balancers: %+v", a)
+	if a := e.addresses(t); a[0].BalancerWarning || a[0].NoDirectWarning {
+		t.Fatalf("warning on a profile that exits direct: %+v", a)
 	}
 	balanced := profileDoc(map[string]any{"tag": "de", "kind": "proxy", "proxy": map[string]any{"protocol": "socks", "address": "de.example.com", "port": 1080}})
 	balanced["balancers"] = []any{map[string]any{"tag": "bal", "strategy": "random", "outbounds": []string{"direct", "de"}}}
 	balanced["default"] = "bal"
 	mustStatus(t, e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/profiles/%d", p.ID), map[string]any{"name": "plain", "doc": balanced, "revision": 1}), http.StatusOK)
-	if a := e.addresses(t); !a[0].BalancerWarning {
-		t.Fatalf("no warning with a direct balancer as default: %+v", a)
+	if a := e.addresses(t); !a[0].BalancerWarning || !a[0].NoDirectWarning {
+		t.Fatalf("no warnings with a direct balancer as default and no direct rule: %+v", a)
+	}
+
+	bot := e.client(t, "bot", mtls.RoleBot)
+	var user struct {
+		ID int64 `json:"id"`
+	}
+	if status := postJSON(t, bot, e.ts.URL+"/v1/users", map[string]any{"telegram_id": 5001}, &user); status != http.StatusOK {
+		t.Fatalf("create user = %d", status)
+	}
+	r = e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "IP", "price_rub": 900, "period_days": 30, "dedicated_ip": true})
+	mustStatus(t, r, http.StatusOK)
+	var plan struct {
+		ID int64 `json:"id"`
+	}
+	r.decode(t, &plan)
+	if _, err := e.pool.Exec(t.Context(),
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES ($1, $2, now(), now() + interval '30 days')`, user.ID, plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/addresses/%d/assignment", e.addresses(t)[0].ID), map[string]any{"user_id": user.ID}), http.StatusOK)
+	var card struct {
+		Addresses []struct {
+			Effective bool   `json:"effective"`
+			Reason    string `json:"reason"`
+		} `json:"addresses"`
+	}
+	e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/users/%d", user.ID), nil).decode(t, &card)
+	if len(card.Addresses) != 1 || card.Addresses[0].Effective || card.Addresses[0].Reason != "profile_no_direct" {
+		t.Fatalf("card on a profile without direct exits = %+v", card.Addresses)
+	}
+	var status struct {
+		DedicatedIPs []any `json:"dedicated_ips"`
+	}
+	if code := getJSON(t, bot, e.ts.URL+"/v1/users/5001", &status); code != http.StatusOK || len(status.DedicatedIPs) != 0 {
+		t.Fatalf("bot shows an address that is never used: %d %+v", code, status)
+	}
+	balanced["rules"] = []any{map[string]any{"plans": []int64{plan.ID}, "to": "direct"}}
+	mustStatus(t, e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/profiles/%d", p.ID), map[string]any{"name": "plain", "doc": balanced, "revision": 2}), http.StatusOK)
+	e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/users/%d", user.ID), nil).decode(t, &card)
+	if !card.Addresses[0].Effective {
+		t.Fatalf("plan rule to direct must make the address effective: %+v", card.Addresses)
+	}
+	if code := getJSON(t, bot, e.ts.URL+"/v1/users/5001", &status); code != http.StatusOK || len(status.DedicatedIPs) != 1 {
+		t.Fatalf("bot hides a working address: %+v", status)
 	}
 }
