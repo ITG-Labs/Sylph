@@ -8,6 +8,7 @@ import { CopyButton } from "@/components/common/CopyButton"
 import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
+import { NodeAddressesSection } from "@/components/node/NodeAddressesSection"
 import { InboundFormDialog, NodeFormDialog } from "@/components/node/NodeDialogs"
 import { NodeRoutingSection } from "@/components/node/NodeRoutingSection"
 import { NodeTrafficSection } from "@/components/node/NodeTrafficSection"
@@ -167,6 +168,10 @@ export function NodePage() {
 
       <div className="mt-4">
         <NodeRoutingSection node={n} />
+      </div>
+
+      <div className="mt-4">
+        <NodeAddressesSection nodeId={n.id} />
       </div>
 
       <NodeTrafficSection nodeId={n.id} />

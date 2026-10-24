@@ -48,11 +48,17 @@ type Period struct {
 }
 
 type Status struct {
-	User         User    `json:"user"`
-	Subscription *Period `json:"subscription"`
-	Plan         *Plan   `json:"plan"`
-	Devices      int     `json:"devices"`
-	Trial        *Plan   `json:"trial"`
+	User         User          `json:"user"`
+	Subscription *Period       `json:"subscription"`
+	Plan         *Plan         `json:"plan"`
+	Devices      int           `json:"devices"`
+	Trial        *Plan         `json:"trial"`
+	DedicatedIPs []DedicatedIP `json:"dedicated_ips"`
+}
+
+type DedicatedIP struct {
+	IP       string `json:"ip"`
+	NodeName string `json:"node_name"`
 }
 
 type NodeStats struct {
