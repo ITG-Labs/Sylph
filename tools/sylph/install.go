@@ -541,10 +541,10 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		if err != nil {
 			return "", err
 		}
-		if err := writeEnv(p.dir, p.r, p.env); err != nil {
+		if err := prepareEgress(p.dir, p.r, p.env); err != nil {
 			return "", err
 		}
-		if err := writeEgressOverride(p.dir, p.r, p.env); err != nil {
+		if err := writeEnv(p.dir, p.r, p.env); err != nil {
 			return "", err
 		}
 		if len(backups) > 0 {

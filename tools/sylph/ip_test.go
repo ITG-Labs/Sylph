@@ -42,11 +42,11 @@ func TestParseEgressIPs(t *testing.T) {
 	}
 }
 
-func TestRenderEgressOverride(t *testing.T) {
-	if renderEgressOverride(nil) != nil {
+func TestRenderEgressCompose(t *testing.T) {
+	if renderEgressCompose(nil) != nil {
 		t.Fatal("override without addresses")
 	}
-	got := string(renderEgressOverride([]string{"203.0.113.7", "198.51.100.4"}))
+	got := string(renderEgressCompose([]string{"203.0.113.7", "198.51.100.4"}))
 	for _, want := range []string{
 		"      default:\n        gw_priority: 100\n",
 		"      egress-203-0-113-7:\n        interface_name: egress1\n",
@@ -78,28 +78,59 @@ func nodeEnv(t *testing.T, ips string) (*role.Role, *envfile.Env) {
 	return r, env
 }
 
-func TestWriteEgressOverride(t *testing.T) {
+func TestPrepareEgress(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, overrideFile)
+	path := filepath.Join(dir, egressFile)
 	r, env := nodeEnv(t, "203.0.113.7")
-	if err := writeEgressOverride(dir, r, env); err != nil {
+	if err := prepareEgress(dir, r, env); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(path); err != nil || !strings.Contains(string(data), "host_ipv4: 203.0.113.7") {
-		t.Fatalf("override = %s %v", data, err)
+		t.Fatalf("egress compose = %s %v", data, err)
 	}
+	if got := env.Get(keyComposeFile); got != "compose.yml:compose.egress.yml" {
+		t.Fatalf("COMPOSE_FILE = %q", got)
+	}
+
+	operator := []byte("services:\n  caddy:\n    mem_limit: 256m\n")
+	if err := os.WriteFile(filepath.Join(dir, operatorOverride), operator, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareEgress(dir, r, env); err != nil {
+		t.Fatal(err)
+	}
+	if got := env.Get(keyComposeFile); got != "compose.yml:compose.override.yml:compose.egress.yml" {
+		t.Fatalf("COMPOSE_FILE with an operator override = %q", got)
+	}
+
 	env.Set(keyEgressIPs, "")
-	if err := writeEgressOverride(dir, r, env); err != nil {
+	if err := prepareEgress(dir, r, env); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("override left without addresses: %v", err)
+		t.Fatalf("egress compose left without addresses: %v", err)
 	}
-	if err := writeEgressOverride(dir, r, env); err != nil {
-		t.Fatalf("removing a missing override: %v", err)
+	if _, ok := env.Lookup(keyComposeFile); ok {
+		t.Fatal("COMPOSE_FILE left without addresses: compose would stop loading the operator override")
 	}
+	if data, err := os.ReadFile(filepath.Join(dir, operatorOverride)); err != nil || string(data) != string(operator) {
+		t.Fatalf("operator override touched: %q %v", data, err)
+	}
+	if err := prepareEgress(dir, r, env); err != nil {
+		t.Fatalf("again without addresses: %v", err)
+	}
+
+	env.Set(keyComposeFile, "compose.yml:compose.prod.yml")
+	if err := prepareEgress(dir, r, env); err != nil || env.Get(keyComposeFile) != "compose.yml:compose.prod.yml" {
+		t.Fatalf("hand-made COMPOSE_FILE without addresses: %q %v", env.Get(keyComposeFile), err)
+	}
+	env.Set(keyEgressIPs, "203.0.113.7")
+	if err := prepareEgress(dir, r, env); err == nil || env.Get(keyComposeFile) != "compose.yml:compose.prod.yml" {
+		t.Fatalf("hand-made COMPOSE_FILE overwritten: %q %v", env.Get(keyComposeFile), err)
+	}
+	env.Delete(keyComposeFile)
 	env.Set(keyEgressIPs, "nope")
-	if err := writeEgressOverride(dir, r, env); err == nil {
+	if err := prepareEgress(dir, r, env); err == nil {
 		t.Fatal("bad value accepted")
 	}
 	panel, err := role.Get("panel")
@@ -108,11 +139,11 @@ func TestWriteEgressOverride(t *testing.T) {
 	}
 	pe := envfile.New()
 	pe.Set(keyEgressIPs, "203.0.113.7")
-	if err := writeEgressOverride(dir, panel, pe); err != nil {
+	if err := prepareEgress(dir, panel, pe); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("override written for a role that is not a node")
+		t.Fatal("egress compose written for a role that is not a node")
 	}
 }
 
@@ -198,7 +229,7 @@ func TestEgressChecks(t *testing.T) {
 	}
 }
 
-func TestEgressOverrideMergesWithNodeCompose(t *testing.T) {
+func TestEgressComposeMergesWithNodeCompose(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is not installed")
 	}
@@ -208,10 +239,13 @@ func TestEgressOverrideMergesWithNodeCompose(t *testing.T) {
 	if _, err := writeDeployFiles(dir, r); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeEnv(dir, r, env); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, operatorOverride), []byte("services:\n  caddy:\n    mem_limit: 256m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeEgressOverride(dir, r, env); err != nil {
+	if err := prepareEgress(dir, r, env); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnv(dir, r, env); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("docker", "compose", "config", "--format", "json")
@@ -222,6 +256,7 @@ func TestEgressOverrideMergesWithNodeCompose(t *testing.T) {
 	}
 	var cfg struct {
 		Services map[string]struct {
+			MemLimit    string `json:"mem_limit"`
 			NetworkMode string `json:"network_mode"`
 			Environment map[string]string
 			Networks    map[string]*struct {
@@ -244,6 +279,9 @@ func TestEgressOverrideMergesWithNodeCompose(t *testing.T) {
 	agent := cfg.Services["agent"]
 	if agent.Environment["SYLPH_EGRESS"] != "203.0.113.7=egress1" || agent.Environment["SYLPH_CORE_URL"] == "" || agent.NetworkMode != "service:caddy" {
 		t.Fatalf("agent = %+v", agent)
+	}
+	if caddy.MemLimit == "" {
+		t.Fatal("operator override dropped from the merged config")
 	}
 	if cfg.Services["xray"].NetworkMode != "service:caddy" {
 		t.Fatalf("xray left the caddy namespace: %+v", cfg.Services["xray"])
@@ -303,8 +341,11 @@ func TestIPAddAndRemove(t *testing.T) {
 	if in.Env.Get(keyEgressIPs) != "203.0.113.7" {
 		t.Fatalf(".env %s = %q", keyEgressIPs, in.Env.Get(keyEgressIPs))
 	}
-	if data, err := os.ReadFile(filepath.Join(dir, overrideFile)); err != nil || !strings.Contains(string(data), "SYLPH_EGRESS: 203.0.113.7=egress1") {
-		t.Fatalf("override = %s %v", data, err)
+	if data, err := os.ReadFile(filepath.Join(dir, egressFile)); err != nil || !strings.Contains(string(data), "SYLPH_EGRESS: 203.0.113.7=egress1") {
+		t.Fatalf("egress compose = %s %v", data, err)
+	}
+	if in.Env.Get(keyComposeFile) != "compose.yml:compose.egress.yml" {
+		t.Fatalf("COMPOSE_FILE = %q", in.Env.Get(keyComposeFile))
 	}
 	if !slices.Contains(calls, "compose up -d --remove-orphans") {
 		t.Fatalf("role not brought up: %v", calls)
@@ -327,10 +368,55 @@ func TestIPAddAndRemove(t *testing.T) {
 	if got := load().Env.Get(keyEgressIPs); got != "" {
 		t.Fatalf(".env after remove = %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, overrideFile)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("override left after the last address: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, egressFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("egress compose left after the last address: %v", err)
+	}
+	if _, ok := load().Env.Lookup(keyComposeFile); ok {
+		t.Fatal("COMPOSE_FILE left after the last address")
 	}
 	if !slices.Contains(calls, "compose up -d --remove-orphans") || !slices.Contains(calls, "network rm sylph-node_egress-203-0-113-7") {
 		t.Fatalf("remove calls = %v", calls)
+	}
+}
+
+func TestIPAddRollsBackWhenTheRoleDoesNotComeUp(t *testing.T) {
+	fakeHost(t, "203.0.113.2", "203.0.113.7/32")
+	probeEgress = func(ctx context.Context, ip string) (string, error) { return ip, nil }
+	old := compose.Exec
+	t.Cleanup(func() { compose.Exec = old })
+	ups := 0
+	compose.Exec = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "compose up -d --remove-orphans" {
+			ups++
+			if ups == 1 {
+				return nil, errors.New("docker compose up: all predefined address pools have been fully subnetted")
+			}
+		}
+		return nil, nil
+	}
+	dir := t.TempDir()
+	r, env := nodeEnv(t, "")
+	if _, err := writeDeployFiles(dir, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnv(dir, r, env); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ipAdd(context.Background(), &ui.UI{Out: &bytes.Buffer{}}, installed{Role: r, Dir: dir, Env: env}, nil, "203.0.113.7", true, false); err == nil {
+		t.Fatal("failed compose up reported as success")
+	}
+	after, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf(".env not restored:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, egressFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("egress compose left after a failed add: %v", err)
+	}
+	if ups != 2 {
+		t.Fatalf("compose up calls = %d, want the failed one and one with the old files", ups)
 	}
 }

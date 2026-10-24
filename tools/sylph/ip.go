@@ -24,8 +24,10 @@ import (
 
 const (
 	keyEgressIPs     = "SYLPH_EGRESS_IPS"
-	overrideFile     = "compose.override.yml"
-	maxEgressIPs     = 32
+	keyComposeFile   = "COMPOSE_FILE"
+	egressFile       = "compose.egress.yml"
+	operatorOverride = "compose.override.yml"
+	maxEgressIPs     = 8
 	minEgressDocker  = "28.1.0"
 	minEgressCompose = "2.36.0"
 	nodeProject      = "sylph-node"
@@ -94,12 +96,13 @@ func egressNetwork(ip string) string {
 	return "egress-" + strings.ReplaceAll(ip, ".", "-")
 }
 
-func renderEgressOverride(ips []string) []byte {
+func renderEgressCompose(ips []string) []byte {
 	if len(ips) == 0 {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("# Сгенерировано sylph из SYLPH_EGRESS_IPS в .env: не правь руками, меняй через sudo ./sylph ip\n")
+	b.WriteString("# Сгенерировано sylph из SYLPH_EGRESS_IPS в .env: не правь руками, меняй через sudo ./sylph ip;\n")
+	b.WriteString("# свои правки compose — в compose.override.yml, он подключён в COMPOSE_FILE раньше этого файла\n")
 	b.WriteString("services:\n  caddy:\n    networks:\n      default:\n        gw_priority: 100\n")
 	pairs := make([]string, len(ips))
 	for i, ip := range ips {
@@ -115,8 +118,7 @@ func renderEgressOverride(ips []string) []byte {
 	return []byte(b.String())
 }
 
-func writeEgressOverride(dir string, r *role.Role, env *envfile.Env) error {
-	path := filepath.Join(dir, overrideFile)
+func prepareEgress(dir string, r *role.Role, env *envfile.Env) error {
 	if r.Name != "node" {
 		return nil
 	}
@@ -124,13 +126,27 @@ func writeEgressOverride(dir string, r *role.Role, env *envfile.Env) error {
 	if err != nil {
 		return err
 	}
-	data := renderEgressOverride(ips)
-	if data == nil {
+	cur := env.Get(keyComposeFile)
+	ours := cur == "" || strings.HasSuffix(cur, ":"+egressFile)
+	path := filepath.Join(dir, egressFile)
+	if len(ips) == 0 {
+		if ours {
+			env.Delete(keyComposeFile)
+		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
+	if !ours {
+		return fmt.Errorf("%s в .env задан руками (%s): допиши в конец :%s сам или убери переменную — sylph её не трогает", keyComposeFile, cur, egressFile)
+	}
+	files := []string{"compose.yml"}
+	if exists(filepath.Join(dir, operatorOverride)) {
+		files = append(files, operatorOverride)
+	}
+	env.Set(keyComposeFile, strings.Join(append(files, egressFile), ":"))
+	data := renderEgressCompose(ips)
 	if sameFile(path, data) {
 		return nil
 	}
@@ -317,7 +333,8 @@ func ipAdd(ctx context.Context, u *ui.UI, in installed, ips []string, ip string,
 		ip + " подключён к ноде. Через полминуты он появится в панели, в карточке ноды —",
 		"там его можно закрепить за юзером с тарифом «выделенный IP».",
 		"",
-		ui.Colored(ui.Yellow, "Порт ноды открыт и на "+ip+": если вход на нём не нужен, закрой его файрволом."),
+		ui.Colored(ui.Yellow, "Порт ноды открыт и на "+ip+". ufw и цепочка INPUT его не закроют — Docker публикует"),
+		ui.Colored(ui.Yellow, "порты в обход них; если вход на этом адресе не нужен, закрывай правилом в цепочке DOCKER-USER."),
 	}, "\n"), ui.Green)
 	return nil
 }
@@ -355,27 +372,75 @@ func confirmRecreate(u *ui.UI, title string, yes bool) error {
 	return nil
 }
 
+type savedFile struct {
+	path string
+	data []byte
+	mode os.FileMode
+	had  bool
+}
+
+func saveFiles(dir string, names ...string) []savedFile {
+	out := make([]savedFile, 0, len(names))
+	for _, n := range names {
+		p := filepath.Join(dir, n)
+		data, err := os.ReadFile(p)
+		f := savedFile{path: p, data: data, had: err == nil, mode: 0o600}
+		if st, err := os.Stat(p); err == nil {
+			f.mode = st.Mode().Perm()
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func restoreFiles(files []savedFile) error {
+	var errs []error
+	for _, f := range files {
+		if f.had {
+			errs = append(errs, writeFileAtomic(f.path, f.data, f.mode))
+			continue
+		}
+		if err := os.Remove(f.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func applyEgress(ctx context.Context, u *ui.UI, in installed, ips []string) error {
 	env := in.Env.Clone()
 	env.Set(keyEgressIPs, strings.Join(ips, ","))
+	saved := saveFiles(in.Dir, ".env", egressFile)
 	if _, err := u.Step(ctx, "Файлы роли", func(ctx context.Context, set func(string)) (string, error) {
+		if err := prepareEgress(in.Dir, in.Role, env); err != nil {
+			return "", err
+		}
 		if err := writeEnv(in.Dir, in.Role, env); err != nil {
 			return "", err
 		}
-		if err := writeEgressOverride(in.Dir, in.Role, env); err != nil {
-			return "", err
-		}
 		if len(ips) == 0 {
-			return ".env, " + overrideFile + " удалён", nil
+			return ".env, " + egressFile + " удалён", nil
 		}
-		return ".env, " + overrideFile, nil
+		return ".env, " + egressFile, nil
 	}); err != nil {
-		return shown(err)
+		return shown(errors.Join(err, restoreFiles(saved)))
 	}
-	if _, err := u.Step(ctx, "Запуск", func(ctx context.Context, set func(string)) (string, error) {
+	_, err := u.Step(ctx, "Запуск", func(ctx context.Context, set func(string)) (string, error) {
 		return "docker compose up -d", compose.Up(ctx, in.Dir)
-	}); err != nil {
+	})
+	if err == nil {
+		err = waitHealthy(ctx, u, in.Dir)
+	}
+	if err == nil {
+		return nil
+	}
+	if rerr := restoreFiles(saved); rerr != nil {
+		u.Fail("прежние .env и " + egressFile + " вернуть не вышло: " + rerr.Error())
 		return shown(err)
 	}
-	return waitHealthy(ctx, u, in.Dir)
+	u.Warn("вернул прежние .env и " + egressFile + " и поднимаю роль как была")
+	if uerr := compose.Up(context.WithoutCancel(ctx), in.Dir); uerr != nil {
+		u.Fail("не поднялась и с прежними файлами: " + uerr.Error())
+	}
+	return shown(err)
 }
