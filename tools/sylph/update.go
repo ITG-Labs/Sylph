@@ -104,7 +104,9 @@ func updateRole(ctx context.Context, u *ui.UI, in installed, target string) erro
 	}
 	env := defaults.Clone()
 	env.Merge(in.Env)
-	env.Set(role.KeyVersion, target)
+	if err := in.Role.Pin(env, target); err != nil {
+		return err
+	}
 	if errs := in.Role.Validate(env); len(errs) > 0 {
 		for _, e := range errs {
 			u.Fail(e.Error())

@@ -52,11 +52,12 @@ type Role struct {
 }
 
 const (
-	KeyVersion  = "SYLPH_VERSION"
-	KeyCoreURL  = "SYLPH_CORE_URL"
-	KeyCoreName = "SYLPH_CORE_NAME"
-	KeyPort     = "SYLPH_HTTPS_PORT"
-	KeyPassword = "POSTGRES_PASSWORD"
+	KeyVersion      = "SYLPH_VERSION"
+	KeyCaddyVersion = "CADDY_VERSION"
+	KeyCoreURL      = "SYLPH_CORE_URL"
+	KeyCoreName     = "SYLPH_CORE_NAME"
+	KeyPort         = "SYLPH_HTTPS_PORT"
+	KeyPassword     = "POSTGRES_PASSWORD"
 
 	DefaultCoreName = "core.sylph.internal"
 )
@@ -262,6 +263,18 @@ func (r *Role) Defaults() (*envfile.Env, []byte, error) {
 		}
 	}
 	return env, raw, nil
+}
+
+func (r *Role) Pin(env *envfile.Env, version string) error {
+	tmpl, _, err := r.Template()
+	if err != nil {
+		return err
+	}
+	env.Set(KeyVersion, version)
+	if v, ok := tmpl.Lookup(KeyCaddyVersion); ok {
+		env.Set(KeyCaddyVersion, v)
+	}
+	return nil
 }
 
 func (r *Role) Field(key string) (Field, bool) {

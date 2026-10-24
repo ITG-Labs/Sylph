@@ -146,6 +146,19 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: stable
+        if: matrix.image == 'sylph-caddy'
+        run: |
+          tag=$(sed -n 's/^CADDY_VERSION=//p' deploy/prod/node/.env.example)
+          ref="ghcr.io/itg-labs/sylph-caddy:$tag"
+          if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
+            echo "$ref is already published: never re-push it, nodes would recreate Caddy and xray"
+          elif grep -qi "not found" <<<"$out"; then
+            echo "tags=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "$out"
+            exit 1
+          fi
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: ${{ matrix.context }}
@@ -155,7 +168,9 @@ jobs:
             SERVICE=${{ matrix.service }}
             VERSION=${{ steps.version.outputs.value }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.stable.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}

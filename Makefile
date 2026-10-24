@@ -53,7 +53,7 @@ test-node:
 	$(NODE_COMPOSE) run --rm agent; \
 	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
 
-SUBS_COMPOSE := SYLPH_VERSION=test XRAY_VERSION=26.10.21 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
+SUBS_COMPOSE := SYLPH_VERSION=test CADDY_VERSION=test XRAY_VERSION=26.10.21 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
 SUBS_BIN := deploy/test/subs/bin
 SUBS_CA := go run ./tools/sylphca issue --dir $(SUBS_BIN)/ca
 

@@ -295,6 +295,16 @@ func TestRunningAt(t *testing.T) {
 	}
 }
 
+func TestRunningAtIgnoresCaddyTag(t *testing.T) {
+	fakeDocker(t, map[string]string{
+		"compose ps -a --format json": `{"ID":"a","Service":"agent","State":"running","Image":"ghcr.io/itg-labs/sylph-agent:0.3.0"}
+{"ID":"b","Service":"caddy","State":"running","Image":"ghcr.io/itg-labs/sylph-caddy:2.11.7-l4.0.1.2"}`,
+	})
+	if !runningAt(context.Background(), "/x", "0.3.0") {
+		t.Fatal("caddy has its own tag and must not make the node look outdated")
+	}
+}
+
 func TestPlanKeepsPasswordFromEmptyEnvValue(t *testing.T) {
 	dir := t.TempDir()
 	r, _ := role.Get("core")

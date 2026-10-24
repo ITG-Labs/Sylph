@@ -255,7 +255,9 @@ func (p *plan) load(imgVer string) error {
 	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
 		return fmt.Errorf("в %s есть база Postgres, но в .env нет её пароля: пароль базы не восстановить — верни .env", p.dir)
 	}
-	p.env.Set(role.KeyVersion, imgVer)
+	if err := p.r.Pin(p.env, imgVer); err != nil {
+		return err
+	}
 	if p.r.Name == "core" && p.env.Get(role.KeyPassword) == "" {
 		pw, err := randomHex(32)
 		if err != nil {
@@ -288,7 +290,9 @@ func (p *plan) fromFile(o installOpts, imgVer string) error {
 		file.Delete(role.KeyPassword)
 	}
 	p.env.Merge(file)
-	p.env.Set(role.KeyVersion, imgVer)
+	if err := p.r.Pin(p.env, imgVer); err != nil {
+		return err
+	}
 	if p.r.Name == "core" && !p.firstInstall && p.env.Get(role.KeyPassword) != password {
 		return errors.New("POSTGRES_PASSWORD менять нельзя: база создана со старым паролем")
 	}

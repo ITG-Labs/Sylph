@@ -112,7 +112,7 @@ func statusCard(ctx context.Context, in installed, now time.Time) (string, bool)
 
 func sylphTag(image string) (string, bool) {
 	name, tag, ok := strings.Cut(image, ":")
-	if !ok || !strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-") {
+	if !ok || !strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-") || name == "ghcr.io/itg-labs/sylph-caddy" {
 		return "", false
 	}
 	return tag, true
