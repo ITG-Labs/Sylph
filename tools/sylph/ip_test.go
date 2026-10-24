@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/compose"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/envfile"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/role"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/ui"
@@ -248,5 +250,87 @@ func TestEgressOverrideMergesWithNodeCompose(t *testing.T) {
 	}
 	if cfg.Networks["egress-203-0-113-7"].DriverOpts["com.docker.network.host_ipv4"] != "203.0.113.7" {
 		t.Fatalf("networks = %+v", cfg.Networks)
+	}
+}
+
+func TestIPAddAndRemove(t *testing.T) {
+	fakeHost(t, "203.0.113.2", "203.0.113.7/32")
+	probeEgress = func(ctx context.Context, ip string) (string, error) { return ip, nil }
+	var calls []string
+	old := compose.Exec
+	t.Cleanup(func() { compose.Exec = old })
+	started := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	compose.Exec = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		cmd := strings.Join(args, " ")
+		calls = append(calls, cmd)
+		switch {
+		case cmd == "compose config --format json":
+			return []byte(`{"services":{"caddy":{"restart":"unless-stopped"}}}`), nil
+		case cmd == "compose ps -a --format json":
+			return []byte(`{"ID":"a","Service":"caddy","State":"running"}`), nil
+		case strings.HasPrefix(cmd, "inspect"):
+			return []byte("a|" + started + "|0|0"), nil
+		}
+		return nil, nil
+	}
+	dir := t.TempDir()
+	r, env := nodeEnv(t, "")
+	if _, err := writeDeployFiles(dir, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnv(dir, r, env); err != nil {
+		t.Fatal(err)
+	}
+	load := func() installed {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, ".env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := envfile.Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return installed{Role: r, Dir: dir, Env: e}
+	}
+	u := &ui.UI{Out: &bytes.Buffer{}}
+	ctx := context.Background()
+
+	if err := ipAdd(ctx, u, load(), nil, "203.0.113.7", true, false); err != nil {
+		t.Fatal(err)
+	}
+	in := load()
+	if in.Env.Get(keyEgressIPs) != "203.0.113.7" {
+		t.Fatalf(".env %s = %q", keyEgressIPs, in.Env.Get(keyEgressIPs))
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, overrideFile)); err != nil || !strings.Contains(string(data), "SYLPH_EGRESS: 203.0.113.7=egress1") {
+		t.Fatalf("override = %s %v", data, err)
+	}
+	if !slices.Contains(calls, "compose up -d --remove-orphans") {
+		t.Fatalf("role not brought up: %v", calls)
+	}
+
+	if err := ipAdd(ctx, u, in, []string{"203.0.113.7"}, "203.0.113.7", true, false); err != nil {
+		t.Fatalf("adding twice: %v", err)
+	}
+	if err := ipAdd(ctx, u, in, []string{"203.0.113.7"}, "203.0.113.9", true, false); err == nil {
+		t.Fatal("address that is not on the host accepted")
+	}
+	if err := ipRemove(ctx, u, in, []string{"203.0.113.7"}, "203.0.113.8", true); err == nil {
+		t.Fatal("removing an unknown address accepted")
+	}
+
+	calls = nil
+	if err := ipRemove(ctx, u, in, []string{"203.0.113.7"}, "203.0.113.7", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := load().Env.Get(keyEgressIPs); got != "" {
+		t.Fatalf(".env after remove = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, overrideFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("override left after the last address: %v", err)
+	}
+	if !slices.Contains(calls, "compose up -d --remove-orphans") || !slices.Contains(calls, "network rm sylph-node_egress-203-0-113-7") {
+		t.Fatalf("remove calls = %v", calls)
 	}
 }
