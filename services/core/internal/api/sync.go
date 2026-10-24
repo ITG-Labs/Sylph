@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/netip"
 
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
@@ -17,6 +18,8 @@ import (
 const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
+
+const maxNodeAddresses = 64
 
 func truncateRunes(s *string, n int) *string {
 	if s == nil {
@@ -143,6 +146,11 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ConfigError    *string         `json:"config_error"`
 		GeoStatus      json.RawMessage `json:"geo_status"`
 		RoutingError   *string         `json:"routing_error"`
+		Addresses      *[]struct {
+			IP    string `json:"ip"`
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"addresses"`
 	}
 	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
@@ -162,6 +170,28 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ConfigError:    truncateRunes(body.ConfigError, maxConfigErrorRunes),
 		GeoStatus:      geoStatusOf(body.GeoStatus),
 		RoutingError:   truncateRunes(body.RoutingError, maxConfigErrorRunes),
+	}
+	if body.Addresses != nil {
+		if len(*body.Addresses) > maxNodeAddresses {
+			writeError(w, http.StatusBadRequest, "bad_request", "too many addresses")
+			return
+		}
+		reports := make([]model.AddressReport, 0, len(*body.Addresses))
+		seen := map[string]bool{}
+		for _, a := range *body.Addresses {
+			ip, err := netip.ParseAddr(a.IP)
+			if err != nil || !ip.Is4() || ip.String() != a.IP || seen[a.IP] {
+				writeError(w, http.StatusBadRequest, "bad_request", "addresses must be distinct IPv4 addresses")
+				return
+			}
+			seen[a.IP] = true
+			msg := ""
+			if !a.OK {
+				msg = *truncateRunes(&a.Error, maxConfigErrorRunes)
+			}
+			reports = append(reports, model.AddressReport{IP: a.IP, OK: a.OK, Error: msg})
+		}
+		hb.Addresses = &reports
 	}
 	if cert := peerCert(r); cert != nil {
 		hb.CertNotAfter = &cert.NotAfter

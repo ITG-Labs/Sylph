@@ -1,6 +1,9 @@
 package noderoute
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 const (
 	KindDirect  = "direct"
@@ -85,4 +88,35 @@ type Rule struct {
 
 func (r Rule) IsPlanRule() bool {
 	return len(r.Plans) > 0
+}
+
+func (p *Profile) DirectTags() []string {
+	var out []string
+	for _, o := range p.Outbounds {
+		if o.Kind == KindDirect {
+			out = append(out, o.Tag)
+		}
+	}
+	return out
+}
+
+func (p *Profile) BalancesDirect() bool {
+	direct := p.DirectTags()
+	risky := map[string]bool{}
+	for _, b := range p.Balancers {
+		for _, tag := range append(slices.Clone(b.Outbounds), b.Fallback) {
+			if slices.Contains(direct, tag) {
+				risky[b.Tag] = true
+			}
+		}
+	}
+	if risky[p.Default] {
+		return true
+	}
+	for _, r := range p.Rules {
+		if risky[r.To] {
+			return true
+		}
+	}
+	return false
 }

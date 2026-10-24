@@ -89,6 +89,12 @@ type UserStatus struct {
 	Plan         *model.Plan         `json:"plan"`
 	Devices      int                 `json:"devices"`
 	Trial        *model.Plan         `json:"trial"`
+	DedicatedIPs []DedicatedIP       `json:"dedicated_ips"`
+}
+
+type DedicatedIP struct {
+	IP       string `json:"ip"`
+	NodeName string `json:"node_name"`
 }
 
 func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserStatus, error) {
@@ -116,6 +122,9 @@ func (s *Service) GetUserStatus(ctx context.Context, telegramID int64) (*UserSta
 		return nil, err
 	}
 	if st.Trial, err = s.store.TrialPlanFor(ctx, u.ID); err != nil {
+		return nil, err
+	}
+	if st.DedicatedIPs, err = s.effectiveAddresses(ctx, u.ID); err != nil {
 		return nil, err
 	}
 	return st, nil

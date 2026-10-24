@@ -152,6 +152,7 @@ type PlanPatch struct {
 	HWIDRequired      *bool           `json:"hwid_required"`
 	Trial             *bool           `json:"trial"`
 	Visibility        *string         `json:"visibility"`
+	DedicatedIP       *bool           `json:"dedicated_ip"`
 }
 
 func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*model.Plan, error) {
@@ -188,6 +189,9 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	}
 	if patch.Visibility != nil {
 		p.Visibility = *patch.Visibility
+	}
+	if patch.DedicatedIP != nil {
+		p.DedicatedIP = *patch.DedicatedIP
 	}
 	if err := validatePlan(p); err != nil {
 		return nil, err
