@@ -147,6 +147,7 @@ export interface UserCard {
   payments: Payment[]
   addresses: UserAddress[]
   dedicated_plan: boolean
+  terms: { version: number; accepted_at: string } | null
 }
 
 export type AddressStatus = "ok" | "error" | "missing"
@@ -289,12 +290,28 @@ export interface NodeTraffic {
   top: { today: TopUser[]; days_7: TopUser[]; days_30: TopUser[] }
 }
 
+export interface HelpButton {
+  label: string
+  url: string
+}
+
 export interface Settings {
   subs_title: string
   subs_support_url: string
   notify_traffic: boolean
   notify_expiry: boolean
   notify_trial: boolean
+  terms_enabled: boolean
+  terms_text: string
+  terms_url: string
+  terms_version: number
+  channel_enabled: boolean
+  channel_chat: string
+  channel_url: string
+  channel_text: string
+  help_enabled: boolean
+  help_text: string
+  help_buttons: HelpButton[]
   updated_at: string
 }
 

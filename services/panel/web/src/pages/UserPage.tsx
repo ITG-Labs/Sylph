@@ -114,6 +114,12 @@ export function UserPage() {
             )}
             <span>
               № {u.id} · с нами с {fmtDate(u.created_at)}
+              {c.terms && (
+                <span title={fmtDateTime(c.terms.accepted_at)}>
+                  {" "}
+                  · принял соглашение v{c.terms.version} {fmtDate(c.terms.accepted_at)}
+                </span>
+              )}
             </span>
           </span>
         }
