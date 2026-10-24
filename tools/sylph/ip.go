@@ -50,7 +50,7 @@ var (
 	dockerVersions = func(ctx context.Context) (string, string, error) {
 		v, _, err := compose.DockerInfo(ctx)
 		if err != nil {
-			return "", "", errors.New("Docker не отвечает")
+			return "", "", errors.New("docker не отвечает")
 		}
 		cv, err := compose.Version(ctx)
 		if err != nil {
@@ -254,7 +254,7 @@ func egressChecks(ctx context.Context, u *ui.UI, ip string, noCheck bool) error 
 			return "", err
 		}
 		if !compose.AtLeast(v, minEgressDocker) {
-			return "", fmt.Errorf("Docker %s старый: для доп. IP нужен %s или новее (приоритет шлюза и имя интерфейса у сети)", v, minEgressDocker)
+			return "", fmt.Errorf("docker %s старый: для доп. IP нужен %s или новее (приоритет шлюза и имя интерфейса у сети)", v, minEgressDocker)
 		}
 		if !compose.AtLeast(cv, minEgressCompose) {
 			return "", fmt.Errorf("compose %s старый: для доп. IP нужен %s или новее", cv, minEgressCompose)
