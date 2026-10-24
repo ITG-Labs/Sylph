@@ -147,7 +147,9 @@ func TestParsePlan(t *testing.T) {
 {"id":"Container sylph-node-caddy-1","status":"Done","text":"Running"}
 {"id":"Container sylph-node-agent-1","status":"Working","text":"Recreate"}
 {"id":"Container sylph-node-bootstrap-1","status":"Working","text":"Recreate"}
-{"id":"Container sylph-node-new-svc-1","status":"Working","text":"Create"}
+{"id":"Container sylph-node-new-svc-1","status":"Working","text":"Creating"}
+{"id":"Container sylph-node-new-svc-1","status":"Done","text":"Created"}
+{"id":"Container sylph-node-agent-1","status":"Done","text":"Recreated"}
 {"id":"Container 1eca61bca558_sylph-node-agent-1","status":"Working","text":"Starting"}
 {"id":"Container sylph-node-perms-1","status":"Working","text":"Starting"}
 {"id":"Image ghcr.io/itg-labs/sylph-agent:0.3.0","status":"Done","text":"Pulled"}

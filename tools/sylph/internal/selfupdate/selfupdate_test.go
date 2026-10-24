@@ -174,7 +174,7 @@ func fakeBinary(t *testing.T, dir string, prints string) string {
 func TestInstallSwapsOnlyAWorkingBinary(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "sylph")
-	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+	if err := os.WriteFile(exe, []byte("old"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	bad := fakeBinary(t, dir, "sylph 0.2.9 (образы: 0.2.9)")
@@ -194,6 +194,9 @@ func TestInstallSwapsOnlyAWorkingBinary(t *testing.T) {
 	data, _ := os.ReadFile(exe)
 	if !strings.Contains(string(data), "sylph 0.3.0") {
 		t.Fatalf("not swapped: %q", data)
+	}
+	if st, err := os.Stat(exe); err != nil || st.Mode().Perm() != 0o750 {
+		t.Fatalf("mode of the old binary not kept: %v, %v", st.Mode(), err)
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, ".sylph-new-*")); len(left) != 0 {
 		t.Fatalf("temp files left: %v", left)

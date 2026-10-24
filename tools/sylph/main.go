@@ -40,7 +40,7 @@ const usage = `sylph — установка и обслуживание роле
 Подробности по флагам: sylph <команда> -h`
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	code := run(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)

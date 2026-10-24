@@ -64,8 +64,12 @@ func TestCaddyTagFollowsItsBuild(t *testing.T) {
 	}
 	sum := sha256.Sum256(append(append(dockerfile, 0), conf...))
 	got := hex.EncodeToString(sum[:])
-	if caddyBuilds[tag] != got {
-		t.Fatalf("deploy/caddy changed without a new tag: bump CADDY_VERSION in node/.env.example and record caddyBuilds[%q] = %q (CI never re-pushes an existing tag)", tag, got)
+	recorded, known := caddyBuilds[tag]
+	switch {
+	case !known:
+		t.Fatalf("new Caddy tag %s: record caddyBuilds[%q] = %q", tag, tag, got)
+	case recorded != got:
+		t.Fatalf("deploy/caddy changed but CADDY_VERSION is still %s, which is already published and is never re-pushed: give the build a new tag (%s-r2, -r3… or new versions) in node/.env.example and record its hash, keep the old entry as it is", tag, prefix)
 	}
 	compose, err := fs.ReadFile(Files, "node/compose.yml")
 	if err != nil {

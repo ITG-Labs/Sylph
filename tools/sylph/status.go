@@ -71,7 +71,7 @@ func statusCard(ctx context.Context, in installed, now time.Time) (string, bool)
 	byService := map[string]compose.Container{}
 	for _, c := range containers {
 		byService[c.Service] = c
-		if tag, ok := sylphTag(c.Image); ok && tag != want {
+		if tag, wantTag, ok := sylphTag(c.Image, want, in.Env.Get(role.KeyCaddyVersion)); ok && tag != wantTag {
 			rows[1][1] += ui.Colored(ui.Yellow, " · "+c.Service+" запущен на "+tag)
 		}
 	}
@@ -110,12 +110,15 @@ func statusCard(ctx context.Context, in installed, now time.Time) (string, bool)
 	return body, healthy
 }
 
-func sylphTag(image string) (string, bool) {
+func sylphTag(image string, release string, caddy string) (string, string, bool) {
 	name, tag, ok := strings.Cut(image, ":")
-	if !ok || !strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-") || name == "ghcr.io/itg-labs/sylph-caddy" {
-		return "", false
+	if !ok || !strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-") {
+		return "", "", false
 	}
-	return tag, true
+	if name == "ghcr.io/itg-labs/sylph-caddy" {
+		return tag, caddy, true
+	}
+	return tag, release, true
 }
 
 func certStatus(dir string, now time.Time) ([]string, bool) {

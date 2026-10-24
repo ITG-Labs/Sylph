@@ -290,7 +290,7 @@ func TestRunningAt(t *testing.T) {
 		"compose ps -a --format json": `{"ID":"a","Service":"core","State":"running","Image":"ghcr.io/itg-labs/sylph-core:0.1.0"}
 {"ID":"b","Service":"postgres","State":"running","Image":"postgres:17-alpine"}`,
 	})
-	if !runningAt(context.Background(), "/x", "0.1.0") || runningAt(context.Background(), "/x", "0.2.0") {
+	if !runningAt(context.Background(), "/x", "0.1.0", "") || runningAt(context.Background(), "/x", "0.2.0", "") {
 		t.Fatal("runningAt must compare sylph image tags")
 	}
 }
@@ -300,8 +300,11 @@ func TestRunningAtIgnoresCaddyTag(t *testing.T) {
 		"compose ps -a --format json": `{"ID":"a","Service":"agent","State":"running","Image":"ghcr.io/itg-labs/sylph-agent:0.3.0"}
 {"ID":"b","Service":"caddy","State":"running","Image":"ghcr.io/itg-labs/sylph-caddy:2.11.7-l4.0.1.2"}`,
 	})
-	if !runningAt(context.Background(), "/x", "0.3.0") {
+	if !runningAt(context.Background(), "/x", "0.3.0", "2.11.7-l4.0.1.2") {
 		t.Fatal("caddy has its own tag and must not make the node look outdated")
+	}
+	if runningAt(context.Background(), "/x", "0.3.0", "2.12.0-l4.0.2.0") {
+		t.Fatal("caddy on an older build counted as up to date")
 	}
 }
 
@@ -331,5 +334,34 @@ func TestPlanKeepsPasswordFromEmptyEnvValue(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.1.0\nPOSTGRES_PASSWORD=\n"), 0o600)
 	if err := (&plan{r: r, dir: dir}).load("0.1.0"); err == nil {
 		t.Fatal("a database with an empty password in .env must be refused")
+	}
+}
+
+func TestInstallOverOldNodeWarnsAboutCaddy(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := role.Get("node")
+	if _, err := writeDeployFiles(dir, r); err != nil {
+		t.Fatal(err)
+	}
+	old := "SYLPH_VERSION=0.2.0\nXRAY_VERSION=26.10.21\nSYLPH_CORE_URL=https://203.0.113.10:443\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &plan{r: r, dir: dir}
+	if err := p.load("0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.summary(), "пересоздадутся") {
+		t.Fatalf("no warning in summary:\n%s", p.summary())
+	}
+	if err := writeEnv(dir, r, p.env); err != nil {
+		t.Fatal(err)
+	}
+	again := &plan{r: r, dir: dir}
+	if err := again.load("0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(again.summary(), "пересоздадутся") {
+		t.Fatal("warning about Caddy on a node already on this build")
 	}
 }

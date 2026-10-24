@@ -253,7 +253,9 @@ func parsePlan(out []byte, project string, services []Service) ([]Service, error
 		if ev.Error {
 			return nil, fmt.Errorf("docker compose up --dry-run: %s", summarize(ev.Message))
 		}
-		if ev.Text != "Recreate" && ev.Text != "Create" {
+		switch ev.Text {
+		case "Recreate", "Recreated", "Creating", "Created":
+		default:
 			continue
 		}
 		rest, ok := strings.CutPrefix(ev.ID, "Container "+project+"-")
@@ -273,6 +275,9 @@ func parsePlan(out []byte, project string, services []Service) ([]Service, error
 		}
 		seen[s.Name] = true
 		plan = append(plan, s)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("docker compose up --dry-run: %w", err)
 	}
 	if records == 0 {
 		return nil, errors.New("docker compose не отдал план в JSON (нужен --progress json)")

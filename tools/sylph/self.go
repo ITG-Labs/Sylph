@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +81,8 @@ func selfUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	exe, err := executable()
 	if err != nil {
-		return fmt.Errorf("не нашёл свой бинарь: %w", err)
+		u.Warn("не нашёл свой бинарь (" + err.Error() + "): себя не обновляю, роли — до " + cur)
+		return nil
 	}
 	if _, err := u.Step(ctx, "sylph "+latest, func(ctx context.Context, set func(string)) (string, error) {
 		set("качаю")
@@ -95,6 +96,9 @@ func selfUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		}
 		return "SHA256 сошёлся · " + exe, nil
 	}); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			u.Info("роли можно обновить и без нового sylph: sudo ./sylph update --no-self")
+		}
 		return shown(err)
 	}
 	return &restartRequest{exe: exe, args: args, from: cur}

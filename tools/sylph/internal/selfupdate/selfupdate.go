@@ -173,7 +173,7 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 		err = errors.New("новый бинарь лежит не рядом со старым: подмена не будет атомарной")
 	}
 	if err == nil {
-		err = sameOwner(tmp, exe)
+		err = sameOwnerAndMode(tmp, exe)
 	}
 	if err == nil {
 		err = os.Rename(tmp, exe)
@@ -185,14 +185,15 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 	return nil
 }
 
-func sameOwner(tmp string, exe string) error {
+func sameOwnerAndMode(tmp string, exe string) error {
 	st, err := os.Stat(exe)
 	if err != nil {
 		return err
 	}
-	sys, ok := st.Sys().(*syscall.Stat_t)
-	if !ok {
-		return nil
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		if err := os.Lchown(tmp, int(sys.Uid), int(sys.Gid)); err != nil {
+			return err
+		}
 	}
-	return os.Lchown(tmp, int(sys.Uid), int(sys.Gid))
+	return os.Chmod(tmp, st.Mode().Perm())
 }

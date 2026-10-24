@@ -184,6 +184,10 @@ func TestStageRoleUsesStagedFilesAndOperatorOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, operatorOverride), []byte("services: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stale := filepath.Join(dir, ".sylph-stage-old")
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	stage, files, err := stageRole(installed{Role: r, Dir: dir, Env: env}, env.Clone())
 	if err != nil {
 		t.Fatal(err)
@@ -197,6 +201,9 @@ func TestStageRoleUsesStagedFilesAndOperatorOverride(t *testing.T) {
 	want := []string{filepath.Join(stage, "compose.yml"), filepath.Join(dir, operatorOverride), filepath.Join(stage, egressFile)}
 	if strings.Join(files.Files, " ") != strings.Join(want, " ") || files.EnvFile != filepath.Join(stage, ".env") || files.ProjectDir != dir {
 		t.Fatalf("files = %+v", files)
+	}
+	if exists(stale) {
+		t.Fatal("stale stage from an interrupted update left behind")
 	}
 	if exists(filepath.Join(dir, egressFile)) || exists(filepath.Join(dir, ".env")) || exists(filepath.Join(dir, "compose.yml")) {
 		t.Fatal("staging wrote into the role dir")
@@ -267,7 +274,7 @@ func TestCutWarning(t *testing.T) {
 		{"agent only", rolePlan{in: installed{Role: node, Env: env}, env: env, restart: []compose.Service{{Name: "agent"}}}, false},
 		{"caddy", rolePlan{in: installed{Role: node, Env: env}, env: newer, restart: []compose.Service{{Name: "agent"}, {Name: "caddy"}, {Name: "xray"}}}, true},
 		{"xray only", rolePlan{in: installed{Role: node, Env: env}, env: env, restart: []compose.Service{{Name: "xray"}}}, true},
-		{"unknown, same caddy", rolePlan{in: installed{Role: node, Env: env}, env: env, planErr: errors.New("x")}, false},
+		{"unknown, same caddy", rolePlan{in: installed{Role: node, Env: env}, env: env, planErr: errors.New("x")}, true},
 		{"unknown, new caddy", rolePlan{in: installed{Role: node, Env: env}, env: newer, planErr: errors.New("x")}, true},
 		{"panel caddy", rolePlan{in: installed{Role: panel, Env: env}, env: env, restart: []compose.Service{{Name: "caddy"}}}, false},
 	}

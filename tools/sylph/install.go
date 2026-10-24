@@ -67,6 +67,7 @@ type plan struct {
 	dir          string
 	env          *envfile.Env
 	prevVersion  string
+	prevCaddy    string
 	firstInstall bool
 	newBundle    *bundle.Bundle
 	leaves       []bundle.Leaf
@@ -250,6 +251,7 @@ func (p *plan) load(imgVer string) error {
 			return err
 		}
 		p.prevVersion = old.Get(role.KeyVersion)
+		p.prevCaddy = old.Get(role.KeyCaddyVersion)
 		p.env.Merge(old)
 	}
 	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
@@ -511,6 +513,9 @@ func (p *plan) summary() string {
 			admins += "новые: " + strings.Join(p.newAdmins, ", ")
 		}
 		rows = append(rows, [2]string{"админы", admins})
+	}
+	if p.r.Name == "node" && !p.firstInstall && p.prevCaddy != p.env.Get(role.KeyCaddyVersion) {
+		rows = append(rows, [2]string{"Caddy", ui.Colored(ui.Yellow, "новая сборка — Caddy и xray пересоздадутся, клиенты оборвутся на несколько секунд")})
 	}
 	return ui.KV(rows)
 }

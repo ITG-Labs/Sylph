@@ -66,7 +66,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		cur := in.Env.Get(role.KeyVersion)
 		mark := cur + " → " + target
 		switch {
-		case cur == target && runningAt(ctx, in.Dir, target):
+		case cur == target && in.Env.Get(role.KeyCaddyVersion) == pinnedCaddy(in.Role) && runningAt(ctx, in.Dir, target, pinnedCaddy(in.Role)):
 			mark = cur + ui.Dimmed(" (уже)")
 		case older(target, cur):
 			mark += ui.Colored(ui.Yellow, " (понижение)")
@@ -139,7 +139,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		}
 	}
 	u.Line("")
-	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nоткат — `sudo ./sylph update --no-self` бинарём прежней версии", ui.Green)
+	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nоткат — бинарём прежней версии: `sudo ./sylph update --no-self` (у 0.2.x флага нет — просто `update`)", ui.Green)
 	return nil
 }
 
@@ -176,10 +176,7 @@ func (p *rolePlan) cutWarning() (string, bool) {
 		return "", false
 	}
 	if p.planErr != nil {
-		if p.in.Env.Get(role.KeyCaddyVersion) != p.env.Get(role.KeyCaddyVersion) {
-			return "нода " + p.in.Dir + ": меняется версия Caddy — пересоздадутся Caddy и xray, подключения клиентов оборвутся на несколько секунд", true
-		}
-		return "нода " + p.in.Dir + ": заранее проверить не удалось; по версиям Caddy и xray не меняются", false
+		return "нода " + p.in.Dir + ": заранее не узнал, перезапустятся ли Caddy и xray — если да, подключения клиентов оборвутся на несколько секунд", true
 	}
 	var hit []string
 	for _, s := range p.restart {
@@ -248,6 +245,11 @@ func prepareUpdate(ctx context.Context, u *ui.UI, in installed, target string) (
 }
 
 func stageRole(in installed, env *envfile.Env) (string, compose.Files, error) {
+	if old, err := filepath.Glob(filepath.Join(in.Dir, ".sylph-stage-*")); err == nil {
+		for _, dir := range old {
+			os.RemoveAll(dir)
+		}
+	}
 	stage, err := os.MkdirTemp(in.Dir, ".sylph-stage-")
 	if err != nil {
 		return "", compose.Files{}, err
@@ -289,14 +291,14 @@ func composeFiles(dir string, env *envfile.Env) []string {
 func applyUpdate(ctx context.Context, u *ui.UI, p *rolePlan, target string) error {
 	in, env := p.in, p.env
 	if _, err := u.Step(ctx, "Файлы роли", func(ctx context.Context, set func(string)) (string, error) {
-		backups, err := writeDeployFiles(in.Dir, in.Role)
-		if err != nil {
-			return "", err
-		}
 		if err := prepareEgress(in.Dir, in.Role, env); err != nil {
 			return "", err
 		}
 		if err := writeEnv(in.Dir, in.Role, env); err != nil {
+			return "", err
+		}
+		backups, err := writeDeployFiles(in.Dir, in.Role)
+		if err != nil {
 			return "", err
 		}
 		if len(backups) > 0 {
@@ -318,6 +320,14 @@ func applyUpdate(ctx context.Context, u *ui.UI, p *rolePlan, target string) erro
 		return shown(err)
 	}
 	return waitHealthy(ctx, u, in.Dir)
+}
+
+func pinnedCaddy(r *role.Role) string {
+	tmpl, _, err := r.Template()
+	if err != nil {
+		return ""
+	}
+	return tmpl.Get(role.KeyCaddyVersion)
 }
 
 func older(a string, b string) bool {
