@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
@@ -18,6 +19,13 @@ import (
 const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
+
+const (
+	maxHeartbeatBytes  = 4 << 20
+	maxOnlineReports   = 20000
+	maxOnlineIPsPerKey = 32
+	maxOnlineAgeSec    = 30 * 24 * 3600
+)
 
 func truncateRunes(s *string, n int) *string {
 	if s == nil {
@@ -149,8 +157,15 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
 		} `json:"addresses"`
+		Online *[]struct {
+			Key string `json:"key"`
+			IPs []struct {
+				IP     string `json:"ip"`
+				AgeSec int64  `json:"age_sec"`
+			} `json:"ips"`
+		} `json:"online"`
 	}
-	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
+	if !decodeJSON(w, r, &body, maxHeartbeatBytes, false) {
 		return
 	}
 	if body.AgentUptimeSec < 0 ||
@@ -191,6 +206,32 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 			reports = append(reports, model.AddressReport{IP: a.IP, OK: a.OK, Error: msg})
 		}
 		hb.Addresses = &reports
+	}
+	if body.Online != nil {
+		now := time.Now()
+		reports := []model.OnlineReport{}
+		for _, o := range *body.Online {
+			if len(reports) >= maxOnlineReports {
+				s.log.Warn("heartbeat_online_truncated", "node", cn, "keys", len(*body.Online))
+				break
+			}
+			if o.Key == "" || len(o.Key) > 64 {
+				writeError(w, http.StatusBadRequest, "bad_request", "online keys must be 1-64 bytes")
+				return
+			}
+			for i, ip := range o.IPs {
+				addr, err := netip.ParseAddr(ip.IP)
+				if err != nil || addr.Zone() != "" || addr.String() != ip.IP || ip.AgeSec < 0 || ip.AgeSec > maxOnlineAgeSec {
+					writeError(w, http.StatusBadRequest, "bad_request", "online ips must be canonical addresses with a sane age")
+					return
+				}
+				if i >= maxOnlineIPsPerKey {
+					break
+				}
+				reports = append(reports, model.OnlineReport{Key: o.Key, IP: ip.IP, Since: now.Add(-time.Duration(ip.AgeSec) * time.Second)})
+			}
+		}
+		hb.Online = &reports
 	}
 	if cert := peerCert(r); cert != nil {
 		hb.CertNotAfter = &cert.NotAfter

@@ -21,6 +21,7 @@ type Config struct {
 	RetentionDays int
 
 	StatsRetentionDays int
+	IPRetentionDays    int
 }
 
 func LoadConfig() (*Config, error) {
@@ -36,6 +37,7 @@ func LoadConfig() (*Config, error) {
 		RetentionDays: 30,
 
 		StatsRetentionDays: 365,
+		IPRetentionDays:    30,
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -57,6 +59,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if cfg.RetentionDays, err = days("SYLPH_CRON_RETENTION_DAYS", cfg.RetentionDays); err != nil {
+		return nil, err
+	}
+	if cfg.IPRetentionDays, err = days("SYLPH_CRON_IP_RETENTION_DAYS", cfg.IPRetentionDays); err != nil {
 		return nil, err
 	}
 	if cfg.StatsRetentionDays, err = days("SYLPH_CRON_STATS_RETENTION_DAYS", cfg.StatsRetentionDays); err != nil {

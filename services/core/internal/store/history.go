@@ -11,6 +11,7 @@ type CleanupResult struct {
 	Keys          int64 `json:"keys"`
 	Daily         int64 `json:"daily"`
 	Notifications int64 `json:"notifications"`
+	IPs           int64 `json:"ips"`
 }
 
 type chunkedDelete struct {

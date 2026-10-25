@@ -51,7 +51,7 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45, StatsRetentionDays: 365})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45, StatsRetentionDays: 365, IPRetentionDays: 30})
 	if len(jobs) != 3 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour ||
 		jobs[2].Name != "payments" || jobs[2].Every != 2*time.Minute {
 		t.Fatalf("jobs = %+v", jobs)
@@ -65,7 +65,7 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 	if err != nil || got["deltas"] != 120000 || got["batches"] != 3000 || got["keys"] != 2 || got["daily"] != 7 || got["notifications"] != 4 {
 		t.Fatalf("cleanup = %v, %v", attrs, err)
 	}
-	if len(cleanupBody) != 2 || cleanupBody["older_than_days"] != float64(45) || cleanupBody["stats_older_than_days"] != float64(365) {
+	if len(cleanupBody) != 3 || cleanupBody["older_than_days"] != float64(45) || cleanupBody["stats_older_than_days"] != float64(365) || cleanupBody["ip_older_than_days"] != float64(30) {
 		t.Fatalf("cleanup body = %v", cleanupBody)
 	}
 	attrs, err = jobs[2].Do(context.Background())

@@ -35,6 +35,8 @@ type UserRow struct {
 	Devices           int        `json:"devices"`
 	TelegramUsername  *string    `json:"telegram_username"`
 	TelegramName      *string    `json:"telegram_name"`
+	OnlineNodes       []NodeRef  `json:"online_nodes"`
+	LastSeen          *time.Time `json:"last_seen"`
 }
 
 type UserFilter struct {
@@ -47,6 +49,7 @@ type UserFilter struct {
 	Text         string
 	Before       int64
 	Limit        int
+	Online       bool
 }
 
 const currentPeriodJoin = `LEFT JOIN LATERAL (
@@ -62,9 +65,13 @@ func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]UserRow, error) 
 		        coalesce(cur.traffic_used_bytes, 0),
 		        CASE WHEN cp.traffic_limit_bytes IS NOT NULL THEN LEAST(cp.traffic_limit_bytes::numeric + cur.traffic_bonus_bytes, 9223372036854775807)::bigint END,
 		        (SELECT count(*) FROM devices d WHERE d.user_id = u.id),
-		        tp.username, `+telegramNameSQL+`
+		        tp.username, `+telegramNameSQL+`,
+		        (SELECT coalesce(json_agg(json_build_object('id', n.id, 'name', n.name) ORDER BY n.name), '[]'::json) FROM nodes n
+		         WHERE n.id IN (SELECT o.node_id FROM online_now o WHERE o.user_id = u.id AND o.seen_at > now() - `+onlineWindow+`)),
+		        up.last_seen
 		 FROM users u `+currentPeriodJoin+`
 		 LEFT JOIN telegram_profiles tp ON tp.user_id = u.id
+		 LEFT JOIN user_presence up ON up.user_id = u.id
 		 WHERE ($1::bigint IS NULL OR u.id = $1 OR u.telegram_id = $1)
 		   AND ($2::text = '' OR u.sub_token = $2)
 		   AND ($3::text = '' OR u.status = $3)
@@ -73,8 +80,9 @@ func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]UserRow, error) 
 		   AND ($6::bigint = 0 OR u.id < $6)
 		   AND ($8::text = '' OR starts_with(lower(tp.username), $8))
 		   AND ($9::text = '' OR strpos(tp.search, $9) > 0)
+		   AND (NOT $10::bool OR EXISTS (SELECT 1 FROM online_now o WHERE o.user_id = u.id AND o.seen_at > now() - `+onlineWindow+`))
 		 ORDER BY u.id DESC LIMIT $7`,
-		f.Number, f.Token, f.Status, f.Subscription, f.PlanID, f.Before, f.Limit, strings.ToLower(f.Username), strings.ToLower(f.Text))
+		f.Number, f.Token, f.Status, f.Subscription, f.PlanID, f.Before, f.Limit, strings.ToLower(f.Username), strings.ToLower(f.Text), f.Online)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +93,7 @@ func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]UserRow, error) 
 		var planID *int64
 		var planName *string
 		if err := rows.Scan(&r.ID, &r.TelegramID, &r.Status, &r.BannedAt, &r.CreatedAt, &planID, &planName,
-			&r.PaidUntil, &r.TrafficUsedBytes, &r.TrafficLimitBytes, &r.Devices, &r.TelegramUsername, &r.TelegramName); err != nil {
+			&r.PaidUntil, &r.TrafficUsedBytes, &r.TrafficLimitBytes, &r.Devices, &r.TelegramUsername, &r.TelegramName, &r.OnlineNodes, &r.LastSeen); err != nil {
 			return nil, err
 		}
 		if planID != nil {
@@ -135,6 +143,7 @@ type UserCard struct {
 	Addresses     []UserAddress    `json:"addresses"`
 	DedicatedPlan bool             `json:"dedicated_plan"`
 	Terms         *TermsAcceptance `json:"terms"`
+	Presence      Presence         `json:"presence"`
 }
 
 const closedPeriodsInCard = 10

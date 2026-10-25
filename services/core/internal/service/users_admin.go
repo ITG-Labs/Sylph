@@ -129,6 +129,7 @@ type UserQuery struct {
 	PlanID       *int64
 	Before       int64
 	Limit        int
+	Online       string
 }
 
 type userSearch struct {
@@ -213,16 +214,22 @@ func (s *Service) ListUsers(ctx context.Context, q UserQuery) ([]store.UserRow, 
 	if q.Limit < 1 || q.Limit > maxPageSize {
 		return nil, fieldErr("limit", "must be 1-100")
 	}
+	if q.Online != "" && q.Online != "1" {
+		return nil, fieldErr("online", "must be 1 or empty")
+	}
 	return s.store.ListUsers(ctx, store.UserFilter{
 		Number: search.Number, Token: search.Token, Username: search.Username, Text: search.Text,
 		Status: q.Status, Subscription: q.Subscription,
-		PlanID: q.PlanID, Before: q.Before, Limit: q.Limit,
+		PlanID: q.PlanID, Before: q.Before, Limit: q.Limit, Online: q.Online == "1",
 	})
 }
 
 func (s *Service) UserCard(ctx context.Context, userID int64) (*store.UserCard, error) {
 	card, err := s.store.UserCard(ctx, userID)
 	if err != nil {
+		return nil, err
+	}
+	if card.Presence, err = s.store.UserPresence(ctx, userID); err != nil {
 		return nil, err
 	}
 	return card, s.checkDirect(ctx, card.Addresses)

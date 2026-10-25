@@ -84,6 +84,8 @@ var routeMatrix = []routeCase{
 	{http.MethodPatch, "/v1/admin/settings", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/settings/terms/bump", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/bot/config", []string{mtls.RoleBot, mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/users/1/ips", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/nodes/1/online", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/users/1/terms", []string{mtls.RoleBot, mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/profiles", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/profiles", []string{mtls.RolePanel}},
