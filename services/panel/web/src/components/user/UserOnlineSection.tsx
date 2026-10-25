@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router"
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { OnlineDot } from "@/components/common/Online"
 import { LoadError } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
@@ -18,8 +18,12 @@ export function UserOnlineSection({ userId, presence }: { userId: number; presen
     queryKey: ["user-ips", userId, page],
     queryFn: () => core.get<{ items: IPHistoryRow[]; total: number }>(`/v1/admin/users/${userId}/ips${qs({ limit: pageSize, offset: page * pageSize })}`),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
   })
   const pages = Math.max(1, Math.ceil((history.data?.total ?? 0) / pageSize))
+  useEffect(() => {
+    if (history.data && page >= pages) setPage(pages - 1)
+  }, [history.data, page, pages])
 
   return (
     <Section

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/internal/version"
@@ -14,6 +16,7 @@ import (
 const (
 	maxOnlineIPsPerKey = 32
 	maxOnlineReport    = 20000
+	maxOnlineAgeSec    = 30 * 24 * 3600
 )
 
 type Loop struct {
@@ -92,19 +95,22 @@ func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
 	out := make([]OnlineKey, 0, len(raw))
 	total := 0
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
-		ips := slices.Sorted(maps.Keys(raw[key]))
-		if len(ips) > maxOnlineIPsPerKey {
-			ips = ips[:maxOnlineIPsPerKey]
+		k := OnlineKey{Key: key}
+		for _, ip := range slices.Sorted(maps.Keys(raw[key])) {
+			addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(ip, "["), "]"))
+			if err != nil || len(k.IPs) >= maxOnlineIPsPerKey {
+				continue
+			}
+			k.IPs = append(k.IPs, OnlineIP{IP: addr.WithZone("").Unmap().String(), AgeSec: min(max(0, now-raw[key][ip]), maxOnlineAgeSec)})
 		}
-		if total+len(ips) > maxOnlineReport {
+		if len(k.IPs) == 0 {
+			continue
+		}
+		if total+len(k.IPs) > maxOnlineReport {
 			l.logger.Warn("heartbeat_online_truncated", "keys", len(raw))
 			break
 		}
-		k := OnlineKey{Key: key, IPs: make([]OnlineIP, len(ips))}
-		for i, ip := range ips {
-			k.IPs[i] = OnlineIP{IP: ip, AgeSec: max(0, now-raw[key][ip])}
-		}
-		total += len(ips)
+		total += len(k.IPs)
 		out = append(out, k)
 	}
 	return out, true

@@ -11,13 +11,6 @@ const (
 	defaultIPRetentionDays = 30
 )
 
-func (s *Service) UserPresence(ctx context.Context, userID int64) (store.Presence, error) {
-	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
-		return store.Presence{}, err
-	}
-	return s.store.UserPresence(ctx, userID)
-}
-
 func (s *Service) UserIPHistory(ctx context.Context, userID int64, limit, offset int) ([]store.IPHistoryRow, int, error) {
 	if limit < 1 || limit > maxIPHistoryPage {
 		return nil, 0, fieldErr("limit", "must be 1-100")

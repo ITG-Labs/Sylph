@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/logging"
@@ -210,26 +211,31 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if body.Online != nil {
 		now := time.Now()
 		reports := []model.OnlineReport{}
+		skipped := 0
 		for _, o := range *body.Online {
 			if len(reports) >= maxOnlineReports {
 				s.log.Warn("heartbeat_online_truncated", "node", cn, "keys", len(*body.Online))
 				break
 			}
 			if o.Key == "" || len(o.Key) > 64 {
-				writeError(w, http.StatusBadRequest, "bad_request", "online keys must be 1-64 bytes")
-				return
+				skipped += len(o.IPs)
+				continue
 			}
 			for i, ip := range o.IPs {
-				addr, err := netip.ParseAddr(ip.IP)
-				if err != nil || addr.Zone() != "" || addr.String() != ip.IP || ip.AgeSec < 0 || ip.AgeSec > maxOnlineAgeSec {
-					writeError(w, http.StatusBadRequest, "bad_request", "online ips must be canonical addresses with a sane age")
-					return
-				}
 				if i >= maxOnlineIPsPerKey {
 					break
 				}
-				reports = append(reports, model.OnlineReport{Key: o.Key, IP: ip.IP, Since: now.Add(-time.Duration(ip.AgeSec) * time.Second)})
+				addr, ok := onlineAddr(ip.IP)
+				if !ok {
+					skipped++
+					continue
+				}
+				age := min(max(ip.AgeSec, 0), maxOnlineAgeSec)
+				reports = append(reports, model.OnlineReport{Key: o.Key, IP: addr, Since: now.Add(-time.Duration(age) * time.Second)})
 			}
+		}
+		if skipped > 0 {
+			s.log.Warn("heartbeat_online_skipped", "node", cn, "entries", skipped)
 		}
 		hb.Online = &reports
 	}
@@ -246,4 +252,12 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func onlineAddr(raw string) (string, bool) {
+	addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(raw, "["), "]"))
+	if err != nil {
+		return "", false
+	}
+	return addr.WithZone("").Unmap().String(), true
 }

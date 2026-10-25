@@ -71,17 +71,34 @@ func TestOnlineFromHeartbeatToPanel(t *testing.T) {
 		t.Fatalf("overview = %s", r.body)
 	}
 
-	for name, bad := range map[string][]map[string]any{
-		"zone":      {{"key": key, "ips": []map[string]any{{"ip": "fe80::1%eth0", "age_sec": 1}}}},
-		"short v6":  {{"key": key, "ips": []map[string]any{{"ip": "2001:DB8::5", "age_sec": 1}}}},
-		"not an ip": {{"key": key, "ips": []map[string]any{{"ip": "localhost", "age_sec": 1}}}},
-		"negative":  {{"key": key, "ips": []map[string]any{{"ip": "203.0.113.5", "age_sec": -1}}}},
-		"empty key": {{"key": "", "ips": []map[string]any{{"ip": "203.0.113.5", "age_sec": 1}}}},
-	} {
-		body := map[string]any{"agent_version": "0.3.0", "online": bad}
-		if r := adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", body); r.status != http.StatusBadRequest {
-			t.Fatalf("%s: status %d", name, r.status)
+	odd := map[string]any{"agent_version": "0.3.0-odd", "agent_uptime_sec": 9, "online": []map[string]any{
+		{"key": key, "ips": []map[string]any{
+			{"ip": "[2001:DB8::7]", "age_sec": 5},
+			{"ip": "::ffff:198.51.100.8", "age_sec": -3},
+			{"ip": "fe80::1%eth0", "age_sec": 99999999},
+			{"ip": "localhost", "age_sec": 1},
+		}},
+		{"key": "", "ips": []map[string]any{{"ip": "203.0.113.5", "age_sec": 1}}},
+	}}
+	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", odd), http.StatusOK)
+	got, err := e.svc.GetNodeByCN(ctx, "node-on")
+	if err != nil || got.AgentVersion == nil || *got.AgentVersion != "0.3.0-odd" {
+		t.Fatalf("odd online data dropped the heartbeat: %+v, %v", got, err)
+	}
+	var ips []string
+	rows, err := e.pool.Query(ctx, `SELECT ip FROM online_now ORDER BY ip`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			t.Fatal(err)
 		}
+		ips = append(ips, ip)
+	}
+	if strings.Join(ips, ",") != "198.51.100.8,2001:db8::7,fe80::1" {
+		t.Fatalf("normalized ips = %v", ips)
 	}
 	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", map[string]any{"agent_version": "0.2.0"}), http.StatusOK)
 	r = adminCall(t, e.panel, http.MethodGet, fmt.Sprintf("%s/v1/admin/users/%d", e.ts.URL, u.ID), nil)

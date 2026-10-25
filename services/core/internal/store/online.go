@@ -8,7 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const onlineWindow = `interval '90 seconds'`
+const (
+	onlineWindow = `interval '90 seconds'`
+	historyStep  = `interval '5 minutes'`
+)
 
 type OnlineEntry struct {
 	Key   string
@@ -63,31 +66,36 @@ func (s *Store) ReportOnline(ctx context.Context, nodeID int64, entries []Online
 		keys[i], ips[i], since[i] = e.Key, e.IP, e.Since
 	}
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM online_now WHERE node_id = $1`, nodeID); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO online_now (node_id, user_id, ip, since, seen_at)
-			 SELECT $1, uk.user_id, e.ip, e.since, now()
+			 SELECT $1, uk.user_id, e.ip, min(e.since), now()
 			 FROM unnest($2::text[], $3::text[], $4::timestamptz[]) AS e(key, ip, since)
 			 JOIN user_keys uk ON uk.uuid = e.key
+			 GROUP BY uk.user_id, e.ip
 			 ORDER BY uk.user_id, e.ip
-			 ON CONFLICT (node_id, user_id, ip) DO UPDATE SET since = LEAST(online_now.since, EXCLUDED.since)`,
+			 ON CONFLICT (node_id, user_id, ip) DO UPDATE
+			 SET since = CASE WHEN online_now.seen_at > now() - `+onlineWindow+` THEN LEAST(online_now.since, EXCLUDED.since) ELSE EXCLUDED.since END,
+			     seen_at = EXCLUDED.seen_at`,
 			nodeID, keys, ips, since); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM online_now WHERE node_id = $1 AND seen_at < now()`, nodeID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO ip_history (user_id, node_id, ip, first_seen, last_seen)
 			 SELECT user_id, node_id, ip, since, seen_at FROM online_now WHERE node_id = $1 ORDER BY user_id, ip
 			 ON CONFLICT (user_id, node_id, ip) DO UPDATE
-			 SET first_seen = LEAST(ip_history.first_seen, EXCLUDED.first_seen), last_seen = GREATEST(ip_history.last_seen, EXCLUDED.last_seen)`,
+			 SET first_seen = LEAST(ip_history.first_seen, EXCLUDED.first_seen), last_seen = GREATEST(ip_history.last_seen, EXCLUDED.last_seen)
+			 WHERE ip_history.last_seen < EXCLUDED.last_seen - `+historyStep+` OR ip_history.first_seen > EXCLUDED.first_seen`,
 			nodeID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO user_presence (user_id, last_seen, last_node_id)
 			 SELECT DISTINCT ON (user_id) user_id, seen_at, node_id FROM online_now WHERE node_id = $1 ORDER BY user_id
-			 ON CONFLICT (user_id) DO UPDATE SET last_seen = EXCLUDED.last_seen, last_node_id = EXCLUDED.last_node_id`,
+			 ON CONFLICT (user_id) DO UPDATE SET last_seen = EXCLUDED.last_seen, last_node_id = EXCLUDED.last_node_id
+			 WHERE user_presence.last_seen < EXCLUDED.last_seen - `+historyStep+` OR user_presence.last_node_id IS DISTINCT FROM EXCLUDED.last_node_id`,
 			nodeID)
 		return err
 	})

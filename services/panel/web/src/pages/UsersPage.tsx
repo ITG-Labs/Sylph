@@ -63,7 +63,7 @@ export function UsersPage() {
     queryFn: ({ pageParam }) => core.get<UsersPageData>(`/v1/admin/users${qs({ ...filters, before: pageParam, limit: 50 })}`),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.next_before ?? undefined,
-    refetchInterval: 30_000,
+    refetchInterval: (query) => ((query.state.data?.pages.length ?? 0) > 1 ? false : 30_000),
   })
   const users = list.data?.pages.flatMap((p) => p.users) ?? []
   const filtered = !!(filters.q || filters.status || filters.subscription || filters.plan_id || filters.online)
@@ -159,7 +159,7 @@ export function UsersPage() {
                       <Link to={`/users/${u.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
                         {u.telegram_id ?? "—"}
                       </Link>
-                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={`${fmtTelegram(u.telegram_username, u.telegram_name)} · с нами с ${fmtDate(u.created_at)}`}>
+                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={[fmtTelegram(u.telegram_username, u.telegram_name), `с нами с ${fmtDate(u.created_at)}`].filter(Boolean).join(" · ")}>
                         № {u.id}
                         {(u.telegram_username || u.telegram_name) && ` · ${fmtTelegram(u.telegram_username, u.telegram_name)}`}
                       </div>

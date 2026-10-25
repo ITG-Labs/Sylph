@@ -138,6 +138,7 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 		return nil, fmt.Errorf("xray online users: %w", err)
 	}
 	out := make(map[string]map[string]int64, len(resp.GetUsers()))
+	var failed error
 	for _, name := range resp.GetUsers() {
 		parts := strings.Split(name, ">>>")
 		if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
@@ -147,11 +148,15 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 		ips, err := c.stats.GetStatsOnlineIpList(callCtx, &statscmd.GetStatsRequest{Name: name})
 		cancel()
 		if err != nil {
-			return nil, fmt.Errorf("xray online ips: %w", err)
+			failed = err
+			continue
 		}
 		if len(ips.GetIps()) > 0 {
 			out[parts[1]] = ips.GetIps()
 		}
+	}
+	if failed != nil && len(out) == 0 && len(resp.GetUsers()) > 0 {
+		return nil, fmt.Errorf("xray online ips: %w", failed)
 	}
 	return out, nil
 }

@@ -150,3 +150,40 @@ func TestCleanupOnline(t *testing.T) {
 		t.Fatal("last seen must outlive the IP history")
 	}
 }
+
+func TestReportOnlineMergesKeysAndKeepsSince(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	n := mkNode(t, s, "on-5")
+	u := keyedUser(t, s, 9505, "55555555-5555-4555-8555-555555555555")
+	if err := s.AddUserKey(ctx, u, "66666666-6666-4666-8666-666666666666"); err != nil {
+		t.Fatal(err)
+	}
+	first := time.Now().Add(-time.Minute)
+	err := s.ReportOnline(ctx, n.ID, []OnlineEntry{
+		{Key: "55555555-5555-4555-8555-555555555555", IP: "203.0.113.20", Since: first},
+		{Key: "66666666-6666-4666-8666-666666666666", IP: "203.0.113.20", Since: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("two keys of one user from one IP: %v", err)
+	}
+	if err := s.ReportOnline(ctx, n.ID, []OnlineEntry{{Key: "66666666-6666-4666-8666-666666666666", IP: "203.0.113.20", Since: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.UserPresence(ctx, u)
+	if err != nil || len(p.Now) != 1 || len(p.Now[0].IPs) != 1 {
+		t.Fatalf("presence = %+v, %v", p, err)
+	}
+	if got := p.Now[0].IPs[0].Since; got.After(first.Add(time.Second)) {
+		t.Fatalf("since reset by a new connection: %v, want about %v", got, first)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE online_now SET seen_at = now() - interval '5 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReportOnline(ctx, n.ID, []OnlineEntry{{Key: "66666666-6666-4666-8666-666666666666", IP: "203.0.113.20", Since: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = s.UserPresence(ctx, u); p.Now[0].IPs[0].Since.Before(time.Now().Add(-10 * time.Second)) {
+		t.Fatalf("since carried over a gap: %v", p.Now[0].IPs[0].Since)
+	}
+}
