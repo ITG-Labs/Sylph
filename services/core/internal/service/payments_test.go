@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"errors"
 	"strconv"
 	"sync"
@@ -127,7 +128,7 @@ func TestCreatePaymentSendsThePlanToTheProvider(t *testing.T) {
 	}
 	req := fp.requests[0]
 	if req.Amount != yookassa.RUB(199) || !req.Capture || req.Confirmation.Type != "redirect" || req.Confirmation.ReturnURL != "https://t.me/sylph_bot" ||
-		req.Description != p.Name || req.Metadata["user_id"] != strconv.FormatInt(u.ID, 10) || req.Metadata["plan_id"] != strconv.FormatInt(p.ID, 10) {
+		req.Description != fmt.Sprintf("%d-11", p.ID) || req.Metadata["user_id"] != strconv.FormatInt(u.ID, 10) || req.Metadata["plan_id"] != strconv.FormatInt(p.ID, 10) {
 		t.Fatalf("request = %+v", req)
 	}
 	if k := fp.keys[0]; k == "" || len(k) > 64 {
@@ -146,10 +147,10 @@ func TestCreatePaymentSendsThePlanToTheProvider(t *testing.T) {
 	}
 }
 
-func TestCreatePaymentTruncatesLongDescriptions(t *testing.T) {
+func TestCreatePaymentDescribesPlanAndTelegramID(t *testing.T) {
 	svc, fp, _ := paymentsService(t)
 	ctx := context.Background()
-	u, _, _ := svc.RegisterUser(ctx, 12)
+	u, _, _ := svc.RegisterUser(ctx, 7001234567)
 	long := ""
 	for range 200 {
 		long += "я"
@@ -161,8 +162,8 @@ func TestCreatePaymentTruncatesLongDescriptions(t *testing.T) {
 	if _, err := svc.CreatePayment(ctx, u.ID, p.ID); err != nil {
 		t.Fatal(err)
 	}
-	if n := len([]rune(fp.requests[0].Description)); n != 128 {
-		t.Fatalf("description runes = %d, want 128", n)
+	if got, want := fp.requests[0].Description, fmt.Sprintf("%d-7001234567", p.ID); got != want {
+		t.Fatalf("description = %q, want %q", got, want)
 	}
 }
 

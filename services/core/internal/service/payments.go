@@ -22,7 +22,6 @@ const (
 	reuseWindow     = 50 * time.Minute
 	pollWindow      = 24 * time.Hour
 	pollLimit       = 100
-	descriptionMax  = 128
 	providerTimeout = 25 * time.Second
 )
 
@@ -58,7 +57,8 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.activeUser(ctx, userID); err != nil {
+	u, err := s.activeUser(ctx, userID)
+	if err != nil {
 		return nil, err
 	}
 	if plan.PriceRub <= 0 {
@@ -96,7 +96,7 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 		Amount:       yookassa.RUB(plan.PriceRub),
 		Capture:      true,
 		Confirmation: yookassa.Confirmation{Type: "redirect", ReturnURL: s.returnURL},
-		Description:  truncateRunes(plan.Name, descriptionMax),
+		Description:  paymentDescription(plan.ID, u),
 		Metadata:     map[string]string{"user_id": strconv.FormatInt(userID, 10), "plan_id": strconv.FormatInt(planID, 10)},
 	}, model.NewUUID())
 	if err != nil {
@@ -289,10 +289,10 @@ func mismatch(local *model.Payment, remote *yookassa.Payment) string {
 	return ""
 }
 
-func truncateRunes(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
+func paymentDescription(planID int64, u *model.User) string {
+	who := u.ID
+	if u.TelegramID != nil {
+		who = *u.TelegramID
 	}
-	return string(r[:max])
+	return strconv.FormatInt(planID, 10) + "-" + strconv.FormatInt(who, 10)
 }
