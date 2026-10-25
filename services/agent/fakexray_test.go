@@ -31,6 +31,8 @@ type fakeXray struct {
 	rules       []noderoute.TailRule
 	ruleErr     error
 	ruleCalls   int
+	online      map[string]map[string]int64
+	onlineErr   error
 }
 
 func newFakeXray() *fakeXray {
@@ -129,6 +131,15 @@ func (f *fakeXray) userCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.users)
+}
+
+func (f *fakeXray) OnlineIPs(ctx context.Context) (map[string]map[string]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.onlineErr != nil {
+		return nil, f.onlineErr
+	}
+	return f.online, nil
 }
 
 func (f *fakeXray) Uptime(ctx context.Context) (time.Duration, error) {

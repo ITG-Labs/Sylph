@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 28 {
-		t.Fatalf("tables = %d, want 28", count)
+	if count != 31 {
+		t.Fatalf("tables = %d, want 31", count)
 	}
 }
 
@@ -1049,5 +1049,59 @@ func TestMigration014DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 014 again: %v", err)
+	}
+}
+
+func TestMigration015DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(14); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 015: %v", err)
+	}
+	for _, table := range []string{"online_now", "ip_history", "user_presence"} {
+		if !tableExists(t, pool, table) {
+			t.Fatalf("up 015 did not create %s", table)
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO online_now (node_id, user_id, ip, since, seen_at) SELECT n.id, u.id, '', now(), now() FROM nodes n, users u`); err == nil {
+		t.Fatal("empty ip accepted")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_presence (user_id, last_seen, last_node_id) SELECT u.id, now(), n.id FROM nodes n, users u`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM nodes`); err != nil {
+		t.Fatal(err)
+	}
+	var node *int64
+	if err := pool.QueryRow(ctx, `SELECT last_node_id FROM user_presence`).Scan(&node); err != nil || node != nil {
+		t.Fatalf("presence after node delete: %v, %v", node, err)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 015: %v", err)
+	}
+	if tableExists(t, pool, "online_now") || tableExists(t, pool, "ip_history") || tableExists(t, pool, "user_presence") {
+		t.Fatal("down 015 left its tables")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 015 again: %v", err)
 	}
 }

@@ -38,12 +38,19 @@ func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID s
 	return res.Duplicate, nil
 }
 
-func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOlderThanDays *int, now time.Time) (store.CleanupResult, error) {
+func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOlderThanDays *int, ipOlderThanDays *int, now time.Time) (store.CleanupResult, error) {
 	if olderThanDays < minRetentionDays || olderThanDays > maxRetentionDays {
 		return store.CleanupResult{}, fieldErr("older_than_days", "must be 1-3650")
 	}
 	if statsOlderThanDays != nil && (*statsOlderThanDays < minRetentionDays || *statsOlderThanDays > maxRetentionDays) {
 		return store.CleanupResult{}, fieldErr("stats_older_than_days", "must be 1-3650")
+	}
+	ipDays := defaultIPRetentionDays
+	if ipOlderThanDays != nil {
+		if *ipOlderThanDays < minRetentionDays || *ipOlderThanDays > maxRetentionDays {
+			return store.CleanupResult{}, fieldErr("ip_older_than_days", "must be 1-3650")
+		}
+		ipDays = *ipOlderThanDays
 	}
 	res, err := s.store.CleanupHistory(ctx, now.AddDate(0, 0, -olderThanDays), cleanupChunk)
 	if err != nil {
@@ -54,13 +61,17 @@ func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOl
 			return res, err
 		}
 	}
+	if res.IPs, err = s.store.CleanupOnline(ctx, now.AddDate(0, 0, -ipDays)); err != nil {
+		return res, err
+	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "maintenance_cleanup",
 		slog.Int("older_than_days", olderThanDays),
 		slog.Int64("deltas", res.Deltas),
 		slog.Int64("batches", res.Batches),
 		slog.Int64("keys", res.Keys),
 		slog.Int64("daily", res.Daily),
-		slog.Int64("notifications", res.Notifications))
+		slog.Int64("notifications", res.Notifications),
+		slog.Int64("ips", res.IPs))
 	return res, nil
 }
 
@@ -96,6 +107,15 @@ func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, hb model.Nod
 	}
 	if err := s.store.TouchNodeHeartbeat(ctx, node.ID, hb); err != nil {
 		return err
+	}
+	if hb.Online != nil {
+		entries := make([]store.OnlineEntry, len(*hb.Online))
+		for i, o := range *hb.Online {
+			entries[i] = store.OnlineEntry{Key: o.Key, IP: o.IP, Since: o.Since}
+		}
+		if err := s.store.ReportOnline(ctx, node.ID, entries); err != nil {
+			s.log.LogAttrs(ctx, slog.LevelError, "online_report_failed", slog.Int64("node_id", node.ID), slog.String("error", err.Error()))
+		}
 	}
 	if hb.Addresses == nil {
 		return nil

@@ -7,6 +7,8 @@ import (
 	"math"
 	"net/http"
 	"net/netip"
+	"strings"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/logging"
 	"github.com/ITG-Labs/sylph/pkg/mtls"
@@ -18,6 +20,13 @@ import (
 const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
+
+const (
+	maxHeartbeatBytes  = 4 << 20
+	maxOnlineReports   = 20000
+	maxOnlineIPsPerKey = 32
+	maxOnlineAgeSec    = 30 * 24 * 3600
+)
 
 func truncateRunes(s *string, n int) *string {
 	if s == nil {
@@ -149,8 +158,15 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
 		} `json:"addresses"`
+		Online *[]struct {
+			Key string `json:"key"`
+			IPs []struct {
+				IP     string `json:"ip"`
+				AgeSec int64  `json:"age_sec"`
+			} `json:"ips"`
+		} `json:"online"`
 	}
-	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
+	if !decodeJSON(w, r, &body, maxHeartbeatBytes, false) {
 		return
 	}
 	if body.AgentUptimeSec < 0 ||
@@ -192,6 +208,37 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 		hb.Addresses = &reports
 	}
+	if body.Online != nil {
+		now := time.Now()
+		reports := []model.OnlineReport{}
+		skipped := 0
+		for _, o := range *body.Online {
+			if len(reports) >= maxOnlineReports {
+				s.log.Warn("heartbeat_online_truncated", "node", cn, "keys", len(*body.Online))
+				break
+			}
+			if o.Key == "" || len(o.Key) > 64 {
+				skipped += len(o.IPs)
+				continue
+			}
+			for i, ip := range o.IPs {
+				if i >= maxOnlineIPsPerKey {
+					break
+				}
+				addr, ok := onlineAddr(ip.IP)
+				if !ok {
+					skipped++
+					continue
+				}
+				age := min(max(ip.AgeSec, 0), maxOnlineAgeSec)
+				reports = append(reports, model.OnlineReport{Key: o.Key, IP: addr, Since: now.Add(-time.Duration(age) * time.Second)})
+			}
+		}
+		if skipped > 0 {
+			s.log.Warn("heartbeat_online_skipped", "node", cn, "entries", skipped)
+		}
+		hb.Online = &reports
+	}
 	if cert := peerCert(r); cert != nil {
 		hb.CertNotAfter = &cert.NotAfter
 	}
@@ -205,4 +252,12 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func onlineAddr(raw string) (string, bool) {
+	addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(raw, "["), "]"))
+	if err != nil {
+		return "", false
+	}
+	return addr.WithZone("").Unmap().String(), true
 }

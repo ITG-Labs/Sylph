@@ -13,6 +13,7 @@ type UsersSummary struct {
 	New1d  int64 `json:"new_today"`
 	New7d  int64 `json:"new_7d"`
 	New30d int64 `json:"new_30d"`
+	Online int   `json:"online"`
 }
 
 type MoneySummary struct {

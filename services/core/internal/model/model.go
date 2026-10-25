@@ -29,6 +29,7 @@ type Node struct {
 	LastSyncAt     *time.Time      `json:"last_sync_at"`
 	Status         string          `json:"status,omitempty"`
 	Inbounds       int             `json:"inbounds"`
+	OnlineUsers    int             `json:"online_users"`
 	ProfileID      *int64          `json:"profile_id"`
 	GeoStatus      json.RawMessage `json:"geo_status"`
 	RoutingError   *string         `json:"routing_error"`
@@ -47,6 +48,13 @@ type NodeHeartbeat struct {
 	RoutingError   *string
 	CertNotAfter   *time.Time
 	Addresses      *[]AddressReport
+	Online         *[]OnlineReport
+}
+
+type OnlineReport struct {
+	Key   string
+	IP    string
+	Since time.Time
 }
 
 type AddressReport struct {

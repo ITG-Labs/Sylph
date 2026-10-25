@@ -49,9 +49,14 @@ func (s *Service) markNodes(ctx context.Context, nodes []model.Node) error {
 	if err != nil {
 		return err
 	}
+	_, online, err := s.store.OnlineCounts(ctx)
+	if err != nil {
+		return err
+	}
 	for i := range nodes {
 		nodes[i].Status = s.nodeStatus(&nodes[i], now)
 		nodes[i].Inbounds = inbounds[nodes[i].ID]
+		nodes[i].OnlineUsers = online[nodes[i].ID]
 	}
 	return nil
 }
@@ -61,6 +66,7 @@ type NodeSummary struct {
 	Name         string `json:"name"`
 	Status       string `json:"status"`
 	ActiveUsers  *int   `json:"active_users"`
+	OnlineUsers  int    `json:"online_users"`
 	TrafficToday int64  `json:"traffic_today"`
 }
 
@@ -102,6 +108,9 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 	if err != nil {
 		return nil, err
 	}
+	if counts.Users.Online, _, err = s.store.OnlineCounts(ctx); err != nil {
+		return nil, err
+	}
 	ov := &Overview{
 		Nodes: NodesSummary{
 			Total:    len(nodes),
@@ -122,7 +131,7 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		if n.Status == NodeOffline || n.Status == NodeDegraded {
 			ov.Attention.NodesProblem++
 		}
-		ov.Nodes.Nodes = append(ov.Nodes.Nodes, NodeSummary{ID: n.ID, Name: n.Name, Status: n.Status, ActiveUsers: n.ActiveUsers, TrafficToday: counts.TrafficToday[n.ID]})
+		ov.Nodes.Nodes = append(ov.Nodes.Nodes, NodeSummary{ID: n.ID, Name: n.Name, Status: n.Status, ActiveUsers: n.ActiveUsers, OnlineUsers: n.OnlineUsers, TrafficToday: counts.TrafficToday[n.ID]})
 	}
 	return ov, nil
 }

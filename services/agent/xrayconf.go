@@ -74,6 +74,7 @@ type xrayPolicy struct {
 type xrayLevel struct {
 	StatsUserUplink   bool `json:"statsUserUplink"`
 	StatsUserDownlink bool `json:"statsUserDownlink"`
+	StatsUserOnline   bool `json:"statsUserOnline"`
 }
 
 type xrayInbound struct {
@@ -145,7 +146,7 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 	cfg := xrayConfig{
 		Log:       xrayLog{LogLevel: "warning", Access: "none"},
 		API:       xrayAPI{Tag: xrayAPITag, Listen: in.APIListen, Services: []string{"HandlerService", "StatsService"}},
-		Policy:    xrayPolicy{Levels: map[string]xrayLevel{"0": {StatsUserUplink: true, StatsUserDownlink: true}}},
+		Policy:    xrayPolicy{Levels: map[string]xrayLevel{"0": {StatsUserUplink: true, StatsUserDownlink: true, StatsUserOnline: true}}},
 		Inbounds:  make([]xrayInbound, 0, len(sorted)),
 		Outbounds: []any{xrayOutbound{Tag: "direct", Protocol: "freedom"}},
 	}

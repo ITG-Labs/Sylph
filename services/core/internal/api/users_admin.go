@@ -20,13 +20,13 @@ func (s *Server) registerUserAdminRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
-	q, ok := readQuery(w, r, "q", "status", "subscription", "plan_id", "before", "limit")
+	q, ok := readQuery(w, r, "q", "status", "subscription", "plan_id", "before", "limit", "online")
 	if !ok {
 		return
 	}
 	query := service.UserQuery{
 		Q: q.str("q"), Status: q.str("status"), Subscription: q.str("subscription"),
-		PlanID: q.optID("plan_id"), Before: q.int("before", 0, 1<<62, 0), Limit: int(q.int("limit", 1, 100, 50)),
+		PlanID: q.optID("plan_id"), Before: q.int("before", 0, 1<<62, 0), Limit: int(q.int("limit", 1, 100, 50)), Online: q.str("online"),
 	}
 	if !q.ok() {
 		return

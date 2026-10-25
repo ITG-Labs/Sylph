@@ -44,7 +44,8 @@ func TestSyncBodiesAreLimited(t *testing.T) {
 	}
 	node := e.client(t, "node-1", mtls.RoleNode)
 	pad := strings.Repeat(" ", 70<<10)
-	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", `{"agent_version":"1","agent_uptime_sec":1}`+pad), http.StatusRequestEntityTooLarge)
+	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", `{"agent_version":"1","agent_uptime_sec":1}`+pad), http.StatusOK)
+	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", `{"agent_version":"1","agent_uptime_sec":1}`+strings.Repeat(" ", 4<<20)), http.StatusRequestEntityTooLarge)
 	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/users", `{"known_version":0}`+pad), http.StatusRequestEntityTooLarge)
 	mustStatus(t, adminCall(t, node, http.MethodPost, e.ts.URL+"/v1/sync/heartbeat", `{"agent_version":"1","agent_uptime_sec":1,"future_field":true}`), http.StatusOK)
 	var b strings.Builder

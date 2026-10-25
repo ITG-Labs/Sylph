@@ -329,6 +329,7 @@ func (s *Server) handleMaintenanceCleanup(w http.ResponseWriter, r *http.Request
 	var body struct {
 		OlderThanDays      *int `json:"older_than_days"`
 		StatsOlderThanDays *int `json:"stats_older_than_days"`
+		IPOlderThanDays    *int `json:"ip_older_than_days"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -337,7 +338,7 @@ func (s *Server) handleMaintenanceCleanup(w http.ResponseWriter, r *http.Request
 		writeFieldError(w, http.StatusBadRequest, "bad_request", "older_than_days", "is required")
 		return
 	}
-	res, err := s.svc.CleanupHistory(r.Context(), *body.OlderThanDays, body.StatsOlderThanDays, time.Now().UTC())
+	res, err := s.svc.CleanupHistory(r.Context(), *body.OlderThanDays, body.StatsOlderThanDays, body.IPOlderThanDays, time.Now().UTC())
 	if err != nil {
 		s.writeServiceError(w, err, "cleanup")
 		return

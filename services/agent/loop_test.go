@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -381,5 +383,69 @@ func TestLoopRestartsXrayOnlyWhenInboundsChange(t *testing.T) {
 	}
 	if !fx.hasUser("main", "u-2") {
 		t.Fatal("new user not added without restart")
+	}
+}
+
+func TestHeartbeatReportsOnline(t *testing.T) {
+	fx := newFakeXray()
+	now := time.Now().Unix()
+	fx.online = map[string]map[string]int64{
+		"key-b": {"203.0.113.9": now - 30},
+		"key-a": {"2001:db8::1": now - 600, "198.51.100.4": now + 5},
+	}
+	loop, _ := testLoop(t, fx, deadCoreURL(t))
+	hb := loop.heartbeat(context.Background())
+	if hb.Online == nil || len(*hb.Online) != 2 {
+		t.Fatalf("online = %+v", hb.Online)
+	}
+	a := (*hb.Online)[0]
+	if a.Key != "key-a" || len(a.IPs) != 2 || a.IPs[0].IP != "198.51.100.4" || a.IPs[0].AgeSec != 0 || a.IPs[1].AgeSec < 600 {
+		t.Fatalf("key-a = %+v", a)
+	}
+	data, err := json.Marshal(hb)
+	if err != nil || !strings.Contains(string(data), `"online":[{"key":"key-a"`) {
+		t.Fatalf("json = %s, %v", data, err)
+	}
+
+	fx.online = map[string]map[string]int64{}
+	if hb = loop.heartbeat(context.Background()); hb.Online == nil || len(*hb.Online) != 0 {
+		t.Fatalf("nobody online must be an empty report, got %+v", hb.Online)
+	}
+	if data, _ = json.Marshal(hb); !strings.Contains(string(data), `"online":[]`) {
+		t.Fatalf("json = %s", data)
+	}
+
+	fx.onlineErr = errors.New("xray down")
+	if hb = loop.heartbeat(context.Background()); hb.Online != nil {
+		t.Fatal("a failed probe must not report an empty snapshot")
+	}
+	if data, _ = json.Marshal(hb); strings.Contains(string(data), `"online"`) {
+		t.Fatalf("json = %s", data)
+	}
+
+	fx.onlineErr = nil
+	fx.online = map[string]map[string]int64{"key-d": {"[2001:DB8::1]": now - 5, "::ffff:203.0.113.1": now, "garbage": now, "198.51.100.1": now - 100*24*3600}}
+	hb = loop.heartbeat(context.Background())
+	if len(*hb.Online) != 1 {
+		t.Fatalf("online = %+v", *hb.Online)
+	}
+	got := map[string]int64{}
+	for _, ip := range (*hb.Online)[0].IPs {
+		got[ip.IP] = ip.AgeSec
+	}
+	if len(got) != 3 || got["2001:db8::1"] < 5 || got["203.0.113.1"] != 0 || got["198.51.100.1"] != maxOnlineAgeSec {
+		t.Fatalf("normalized = %v", got)
+	}
+	fx.online = map[string]map[string]int64{"key-e": {"garbage": now}}
+	if hb = loop.heartbeat(context.Background()); len(*hb.Online) != 0 {
+		t.Fatalf("a key without valid IPs reported: %+v", *hb.Online)
+	}
+	many := map[string]int64{}
+	for i := range 40 {
+		many[fmt.Sprintf("192.0.2.%d", i)] = now
+	}
+	fx.online = map[string]map[string]int64{"key-c": many}
+	if hb = loop.heartbeat(context.Background()); len((*hb.Online)[0].IPs) != maxOnlineIPsPerKey {
+		t.Fatalf("ips per key not capped: %d", len((*hb.Online)[0].IPs))
 	}
 }
