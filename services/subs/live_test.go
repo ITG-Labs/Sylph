@@ -167,6 +167,7 @@ func TestSubsLive(t *testing.T) {
 		proxy := startMihomo(t, body, 7890)
 		liveEventually(t, 30*time.Second, "target reached through mihomo YAML", func() error { return env.probe(proxy) })
 		env.waitTraffic(t, clashUser)
+		env.waitOnline(t, clashUser, proxy)
 	})
 
 	t.Run("mihomo reads our base64 subscription through the node", func(t *testing.T) {
@@ -281,6 +282,48 @@ func (e *liveEnv) waitTraffic(t *testing.T, u liveUser) {
 		if n, _ := strconv.ParseInt(m[1], 10, 64); n == 0 {
 			return errors.New("no traffic counted yet")
 		}
+		return nil
+	})
+}
+
+func (e *liveEnv) waitOnline(t *testing.T, u liveUser, proxy *url.URL) {
+	t.Helper()
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+	defer client.CloseIdleConnections()
+	liveEventually(t, 60*time.Second, "user shown online with an IP while connected", func() error {
+		resp, err := client.Get(e.target)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		var card struct {
+			Presence struct {
+				Online bool `json:"online"`
+				Now    []struct {
+					NodeName string `json:"node_name"`
+					IPs      []struct {
+						IP string `json:"ip"`
+					} `json:"ips"`
+				} `json:"now"`
+			} `json:"presence"`
+		}
+		if err := e.panel.Do(context.Background(), http.MethodGet, fmt.Sprintf("/v1/admin/users/%d", u.ID), nil, &card); err != nil {
+			return err
+		}
+		if !card.Presence.Online || len(card.Presence.Now) == 0 || len(card.Presence.Now[0].IPs) == 0 {
+			return fmt.Errorf("presence = %+v", card.Presence)
+		}
+		var hist struct {
+			Total int `json:"total"`
+		}
+		if err := e.panel.Do(context.Background(), http.MethodGet, fmt.Sprintf("/v1/admin/users/%d/ips", u.ID), nil, &hist); err != nil {
+			return err
+		}
+		if hist.Total == 0 {
+			return errors.New("no IP history yet")
+		}
+		t.Logf("online on %s from %s", card.Presence.Now[0].NodeName, card.Presence.Now[0].IPs[0].IP)
 		return nil
 	})
 }

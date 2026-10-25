@@ -4,9 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/ITG-Labs/sylph/internal/version"
+)
+
+const (
+	maxOnlineIPsPerKey = 32
+	maxOnlineReport    = 20000
 )
 
 type Loop struct {
@@ -63,6 +70,9 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 	if count, ok := l.activeUsers(ctx, l.applied); ok {
 		hb.ActiveUsers = &count
 	}
+	if online, ok := l.online(ctx); ok {
+		hb.Online = &online
+	}
 	if uptime, err := l.xray.Uptime(ctx); err != nil {
 		l.logger.Error("heartbeat_xray_probe_failed", "probe", "uptime", "error", err.Error())
 	} else {
@@ -70,6 +80,34 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		hb.XrayUptimeSec = &sec
 	}
 	return hb
+}
+
+func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
+	raw, err := l.xray.OnlineIPs(ctx)
+	if err != nil {
+		l.logger.Error("heartbeat_xray_probe_failed", "probe", "online", "error", err.Error())
+		return nil, false
+	}
+	now := time.Now().Unix()
+	out := make([]OnlineKey, 0, len(raw))
+	total := 0
+	for _, key := range slices.Sorted(maps.Keys(raw)) {
+		ips := slices.Sorted(maps.Keys(raw[key]))
+		if len(ips) > maxOnlineIPsPerKey {
+			ips = ips[:maxOnlineIPsPerKey]
+		}
+		if total+len(ips) > maxOnlineReport {
+			l.logger.Warn("heartbeat_online_truncated", "keys", len(raw))
+			break
+		}
+		k := OnlineKey{Key: key, IPs: make([]OnlineIP, len(ips))}
+		for i, ip := range ips {
+			k.IPs[i] = OnlineIP{IP: ip, AgeSec: max(0, now-raw[key][ip])}
+		}
+		total += len(ips)
+		out = append(out, k)
+	}
+	return out, true
 }
 
 func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) {

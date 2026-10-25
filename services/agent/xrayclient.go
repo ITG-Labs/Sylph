@@ -14,6 +14,7 @@ type XrayClient interface {
 	ListUsers(ctx context.Context, inboundTag string) ([]string, error)
 	QueryStats(ctx context.Context, pattern string) (map[string]int64, error)
 	Uptime(ctx context.Context) (time.Duration, error)
+	OnlineIPs(ctx context.Context) (map[string]map[string]int64, error)
 	AppendRules(ctx context.Context, rules []noderoute.TailRule) error
 	RemoveRule(ctx context.Context, tag string) error
 	RuleTags(ctx context.Context) ([]string, error)

@@ -130,6 +130,32 @@ func (c *Client) QueryStats(ctx context.Context, pattern string) (map[string]int
 	return out, nil
 }
 
+func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, error) {
+	callCtx, cancel := c.withTimeout(ctx)
+	resp, err := c.stats.GetAllOnlineUsers(callCtx, &statscmd.GetAllOnlineUsersRequest{})
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("xray online users: %w", err)
+	}
+	out := make(map[string]map[string]int64, len(resp.GetUsers()))
+	for _, name := range resp.GetUsers() {
+		parts := strings.Split(name, ">>>")
+		if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
+			continue
+		}
+		callCtx, cancel := c.withTimeout(ctx)
+		ips, err := c.stats.GetStatsOnlineIpList(callCtx, &statscmd.GetStatsRequest{Name: name})
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("xray online ips: %w", err)
+		}
+		if len(ips.GetIps()) > 0 {
+			out[parts[1]] = ips.GetIps()
+		}
+	}
+	return out, nil
+}
+
 func (c *Client) Uptime(ctx context.Context) (time.Duration, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()

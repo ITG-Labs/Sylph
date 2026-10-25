@@ -73,6 +73,17 @@ type Heartbeat struct {
 	GeoStatus      map[string]GeoStatus `json:"geo_status,omitempty"`
 	RoutingError   *string              `json:"routing_error,omitempty"`
 	Addresses      []AddressStatus      `json:"addresses"`
+	Online         *[]OnlineKey         `json:"online,omitempty"`
+}
+
+type OnlineKey struct {
+	Key string     `json:"key"`
+	IPs []OnlineIP `json:"ips"`
+}
+
+type OnlineIP struct {
+	IP     string `json:"ip"`
+	AgeSec int64  `json:"age_sec"`
 }
 
 type CoreClient struct {
