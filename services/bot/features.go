@@ -49,7 +49,7 @@ func (a *App) menu(ctx context.Context, tgID int64) (string, *models.InlineKeybo
 		a.log.LogAttrs(ctx, slog.LevelWarn, "menu_status_failed", slog.Int64("telegram_id", tgID), slog.String("error", err.Error()))
 	}
 	trial := err == nil && st.Trial != nil
-	return a.menuText(trial), a.menuKeyboard(trial)
+	return a.menuText(trial), a.menuKeyboard(trial, a.config(ctx).Help.Enabled)
 }
 
 func (a *App) onInvite(ctx context.Context, tgID, userID int64, code string) (string, *models.InlineKeyboardMarkup) {

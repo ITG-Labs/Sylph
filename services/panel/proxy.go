@@ -74,6 +74,7 @@ var coreAllowlist = buildAllowlist(
 	"DELETE /v1/admin/services/{cn}",
 	"GET /v1/admin/settings",
 	"PATCH /v1/admin/settings",
+	"POST /v1/admin/settings/terms/bump",
 	"GET /v1/admin/profiles",
 	"POST /v1/admin/profiles",
 	"GET /v1/admin/profiles/{id}",

@@ -132,8 +132,9 @@ type UserCard struct {
 	Access   []AccessRow    `json:"access"`
 	Payments []PaymentRow   `json:"payments"`
 
-	Addresses     []UserAddress `json:"addresses"`
-	DedicatedPlan bool          `json:"dedicated_plan"`
+	Addresses     []UserAddress    `json:"addresses"`
+	DedicatedPlan bool             `json:"dedicated_plan"`
+	Terms         *TermsAcceptance `json:"terms"`
 }
 
 const closedPeriodsInCard = 10
@@ -145,6 +146,9 @@ func (s *Store) UserCard(ctx context.Context, userID int64) (*UserCard, error) {
 		return nil, err
 	}
 	card := &UserCard{User: u}
+	if card.Terms, err = s.LatestTerms(ctx, userID); err != nil {
+		return nil, err
+	}
 	if card.Telegram, err = s.telegramInfo(ctx, userID); err != nil {
 		return nil, err
 	}

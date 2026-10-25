@@ -1,0 +1,16 @@
+DROP TABLE terms_acceptances;
+ALTER TABLE settings
+    DROP CONSTRAINT settings_terms_ready,
+    DROP CONSTRAINT settings_channel_ready,
+    DROP CONSTRAINT settings_help_ready,
+    DROP COLUMN terms_enabled,
+    DROP COLUMN terms_text,
+    DROP COLUMN terms_url,
+    DROP COLUMN terms_version,
+    DROP COLUMN channel_enabled,
+    DROP COLUMN channel_chat,
+    DROP COLUMN channel_url,
+    DROP COLUMN channel_text,
+    DROP COLUMN help_enabled,
+    DROP COLUMN help_text,
+    DROP COLUMN help_buttons;

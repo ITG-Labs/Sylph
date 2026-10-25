@@ -10,7 +10,7 @@ const actions: Record<string, Record<string, string>> = {
   node: { create: "завёл ноду", update: "изменил ноду" },
   inbound: { create: "создал вход", update: "изменил вход", delete: "удалил вход" },
   group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу" },
-  settings: { update: "изменил настройки" },
+  settings: { update: "изменил настройки", terms_bump: "попросил принять соглашение заново" },
 }
 
 const entities: Record<string, string> = {

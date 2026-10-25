@@ -41,8 +41,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 27 {
-		t.Fatalf("tables = %d, want 27", count)
+	if count != 28 {
+		t.Fatalf("tables = %d, want 28", count)
 	}
 }
 
@@ -969,5 +969,85 @@ func TestMigration013DownAndUpAgain(t *testing.T) {
 	bumps(t, `UPDATE plans SET traffic_limit_bytes = 1`, true, true)
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 013 again: %v", err)
+	}
+}
+
+func TestMigration014DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(13); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`UPDATE settings SET subs_title = 'Нора'`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 014: %v", err)
+	}
+	if !tableExists(t, pool, "terms_acceptances") {
+		t.Fatal("up 014 did not create terms_acceptances")
+	}
+	var terms, channel, help bool
+	var version int
+	var buttons, title string
+	if err := pool.QueryRow(ctx, `SELECT terms_enabled, channel_enabled, help_enabled, terms_version, help_buttons::text, subs_title FROM settings`).
+		Scan(&terms, &channel, &help, &version, &buttons, &title); err != nil {
+		t.Fatal(err)
+	}
+	if terms || channel || help || version != 1 || buttons != "[]" || title != "Нора" {
+		t.Fatalf("defaults: %v %v %v %d %s %s", terms, channel, help, version, buttons, title)
+	}
+	for _, q := range []string{
+		`UPDATE settings SET terms_enabled = TRUE`,
+		`UPDATE settings SET channel_enabled = TRUE, channel_chat = '@x'`,
+		`UPDATE settings SET channel_enabled = TRUE, channel_url = 'https://t.me/x'`,
+		`UPDATE settings SET help_enabled = TRUE`,
+		`UPDATE settings SET terms_version = 0`,
+		`UPDATE settings SET help_buttons = '{}'`,
+		`INSERT INTO terms_acceptances (user_id, version) SELECT id, 0 FROM users`,
+	} {
+		if _, err := pool.Exec(ctx, q); err == nil {
+			t.Fatalf("accepted: %s", q)
+		}
+	}
+	before := nodeVersionOf(t, pool, "n1")
+	for _, q := range []string{
+		`UPDATE settings SET terms_enabled = TRUE, terms_url = 'https://telegra.ph/x', terms_version = 2`,
+		`UPDATE settings SET channel_enabled = TRUE, channel_chat = '@x', channel_url = 'https://t.me/x'`,
+		`UPDATE settings SET help_enabled = TRUE, help_text = 'помощь', help_buttons = '[{"label":"a","url":"https://a.example"}]'`,
+		`INSERT INTO terms_acceptances (user_id, version) SELECT id, 2 FROM users`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if nodeVersionOf(t, pool, "n1") != before {
+		t.Fatal("bot settings or a terms acceptance bumped the node version")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO terms_acceptances (user_id, version) SELECT id, 2 FROM users`); err == nil {
+		t.Fatal("same version accepted twice")
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 014: %v", err)
+	}
+	if tableExists(t, pool, "terms_acceptances") || columnExists(t, pool, "settings", "help_buttons") {
+		t.Fatal("down 014 left its table or columns")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 014 again: %v", err)
 	}
 }

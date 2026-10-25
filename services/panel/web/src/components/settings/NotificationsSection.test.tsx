@@ -15,6 +15,17 @@ const settings: Settings = {
   notify_traffic: true,
   notify_expiry: true,
   notify_trial: false,
+  terms_enabled: false,
+  terms_text: "",
+  terms_url: "",
+  terms_version: 1,
+  channel_enabled: false,
+  channel_chat: "",
+  channel_url: "",
+  channel_text: "",
+  help_enabled: false,
+  help_text: "",
+  help_buttons: [],
   updated_at: "2026-10-23T12:00:00Z",
 }
 

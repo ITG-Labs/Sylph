@@ -26,9 +26,13 @@ type sent struct {
 }
 
 type fakeTelegram struct {
-	mu      sync.Mutex
-	calls   []sent
-	editErr error
+	mu        sync.Mutex
+	calls     []sent
+	editErr   error
+	members   map[int64]models.ChatMember
+	memberErr error
+	memberN   int
+	memberAt  any
 }
 
 func (f *fakeTelegram) record(s sent) {
@@ -52,6 +56,20 @@ func (f *fakeTelegram) SendMessage(_ context.Context, p *tgbot.SendMessageParams
 func (f *fakeTelegram) EditMessageText(_ context.Context, p *tgbot.EditMessageTextParams) (*models.Message, error) {
 	f.record(sent{method: "editMessageText", chatID: p.ChatID, msgID: p.MessageID, text: p.Text, html: p.ParseMode == models.ParseModeHTML, keyboard: keyboardOf(p.ReplyMarkup)})
 	return &models.Message{}, f.editErr
+}
+
+func (f *fakeTelegram) GetChatMember(_ context.Context, p *tgbot.GetChatMemberParams) (*models.ChatMember, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.memberN++
+	f.memberAt = p.ChatID
+	if f.memberErr != nil {
+		return nil, f.memberErr
+	}
+	if m, ok := f.members[p.UserID]; ok {
+		return &m, nil
+	}
+	return &models.ChatMember{Type: models.ChatMemberTypeLeft, Left: &models.ChatMemberLeft{}}, nil
 }
 
 func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, p *tgbot.AnswerCallbackQueryParams) (bool, error) {
@@ -111,6 +129,11 @@ type fakeCore struct {
 	stats      *Stats
 	redeem     *Redeem
 	redeemErr  error
+
+	config    *BotConfig
+	configErr error
+	terms     int
+	acceptErr error
 }
 
 func (c *fakeCore) work() []string {
@@ -118,7 +141,7 @@ func (c *fakeCore) work() []string {
 	defer c.mu.Unlock()
 	var out []string
 	for _, call := range c.calls {
-		if call != "register" {
+		if call != "register" && call != "config" {
 			out = append(out, call)
 		}
 	}
@@ -142,7 +165,34 @@ func (c *fakeCore) Register(_ context.Context, tg int64, p *Profile) (*User, err
 	if c.status == nil {
 		c.status = &Status{User: User{ID: 7, SubToken: "tok"}}
 	}
-	return &c.status.User, nil
+	u := c.status.User
+	u.TermsVersion = c.terms
+	return &u, nil
+}
+
+func (c *fakeCore) BotConfig(_ context.Context) (*BotConfig, error) {
+	c.note("config")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.configErr != nil {
+		return nil, c.configErr
+	}
+	if c.config == nil {
+		return &BotConfig{}, nil
+	}
+	cfg := *c.config
+	return &cfg, nil
+}
+
+func (c *fakeCore) AcceptTerms(_ context.Context, userID int64, version int) error {
+	c.note(fmt.Sprintf("terms:%d:%d", userID, version))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.acceptErr != nil {
+		return c.acceptErr
+	}
+	c.terms = version
+	return nil
 }
 
 func (c *fakeCore) Status(_ context.Context, tg int64) (*Status, error) {

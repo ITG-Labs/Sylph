@@ -59,7 +59,17 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		writeBanned(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "sub_token": u.SubToken})
+	terms, err := s.svc.LatestTerms(r.Context(), u.ID)
+	if err != nil {
+		s.log.Error("user_terms_failed", "user_id", u.ID, "error", err.Error())
+		writeError(w, http.StatusInternalServerError, "internal", "create failed")
+		return
+	}
+	accepted := 0
+	if terms != nil {
+		accepted = terms.Version
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "sub_token": u.SubToken, "terms_version": accepted})
 }
 
 func (s *Server) handleUserGet(w http.ResponseWriter, r *http.Request) {
