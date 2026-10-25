@@ -78,7 +78,8 @@ export function NodesPage() {
                 </div>
               </div>
               <div className="well grid grid-cols-3 gap-x-3 gap-y-3 rounded-xl p-3.5">
-                <Metric label="юзеров" value={n.active_users ?? "—"} />
+                <Metric label="онлайн" value={n.online_users} />
+                <Metric label="с доступом" value={n.active_users ?? "—"} />
                 <Metric label="агент" value={n.agent_version ?? "—"} />
                 <Metric label="xray" value={n.xray_version ?? "—"} />
                 <Metric label="аптайм агента" value={fmtUptime(n.agent_uptime_sec)} />

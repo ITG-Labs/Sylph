@@ -7,7 +7,7 @@ export interface Overview {
     total: number
     by_status: Record<NodeStatus, number>
     active_users: number
-    nodes: { id: number; name: string; status: NodeStatus; active_users: number | null; traffic_today: number }[]
+    nodes: { id: number; name: string; status: NodeStatus; active_users: number | null; online_users: number; traffic_today: number }[]
   }
   users: {
     total: number
@@ -17,6 +17,7 @@ export interface Overview {
     new_today: number
     new_7d: number
     new_30d: number
+    online: number
   }
   revenue: {
     yookassa: { today: number; days_7: number; days_30: number }
@@ -62,6 +63,41 @@ export interface UserRow {
   devices: number
   telegram_username: string | null
   telegram_name: string | null
+  online_nodes: NodeRef[]
+  last_seen: string | null
+}
+
+export interface NodeRef {
+  id: number
+  name: string
+}
+
+export interface OnlineIP {
+  ip: string
+  since: string
+}
+
+export interface Presence {
+  online: boolean
+  last_seen: string | null
+  last_node: NodeRef | null
+  now: { node_id: number; node_name: string; ips: OnlineIP[] }[]
+}
+
+export interface IPHistoryRow {
+  node_id: number
+  node_name: string
+  ip: string
+  first_seen: string
+  last_seen: string
+}
+
+export interface NodeOnlineUser {
+  user_id: number
+  telegram_id: number | null
+  telegram_username: string | null
+  telegram_name: string | null
+  ips: OnlineIP[]
 }
 
 export interface UsersPage {
@@ -148,6 +184,7 @@ export interface UserCard {
   addresses: UserAddress[]
   dedicated_plan: boolean
   terms: { version: number; accepted_at: string } | null
+  presence: Presence
 }
 
 export type AddressStatus = "ok" | "error" | "missing"
@@ -220,6 +257,7 @@ export interface Node {
   last_sync_at: string | null
   status: NodeStatus
   inbounds: number
+  online_users: number
   profile_id: number | null
   geo_status: Record<string, GeoStatus> | null
   routing_error: string | null

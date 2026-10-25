@@ -4,6 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronRight, Loader2, Search, X } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
+import { OnlineState } from "@/components/common/Online"
 import { Empty } from "@/components/common/Section"
 import { UserStatusBadge } from "@/components/common/StatusBadges"
 import { TrafficBar } from "@/components/common/TrafficBar"
@@ -34,6 +35,7 @@ export function UsersPage() {
   const status = params.get("status") ?? "all"
   const subscription = params.get("subscription") ?? "all"
   const plan = params.get("plan_id") ?? "all"
+  const online = params.get("online") ?? "all"
 
   useEffect(() => {
     const next = new URLSearchParams(params)
@@ -54,15 +56,17 @@ export function UsersPage() {
     status: status === "all" ? "" : status,
     subscription: subscription === "all" ? "" : subscription,
     plan_id: plan === "all" ? "" : plan,
+    online: online === "all" ? "" : online,
   }
   const list = useInfiniteQuery({
     queryKey: ["users", filters],
     queryFn: ({ pageParam }) => core.get<UsersPageData>(`/v1/admin/users${qs({ ...filters, before: pageParam, limit: 50 })}`),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.next_before ?? undefined,
+    refetchInterval: 30_000,
   })
   const users = list.data?.pages.flatMap((p) => p.users) ?? []
-  const filtered = !!(filters.q || filters.status || filters.subscription || filters.plan_id)
+  const filtered = !!(filters.q || filters.status || filters.subscription || filters.plan_id || filters.online)
 
   return (
     <>
@@ -99,8 +103,17 @@ export function UsersPage() {
               <SelectItem value="none">Без подписки</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={online} onValueChange={(v) => setFilter("online", v)}>
+            <SelectTrigger className="h-10 lg:w-40" aria-label="Онлайн">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Онлайн и нет</SelectItem>
+              <SelectItem value="1">Онлайн сейчас</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={plan} onValueChange={(v) => setFilter("plan_id", v)}>
-            <SelectTrigger className="col-span-2 h-10 lg:w-44">
+            <SelectTrigger className="h-10 lg:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -132,8 +145,10 @@ export function UsersPage() {
                   <TableHead>Тариф</TableHead>
                   <TableHead>Оплачено до</TableHead>
                   <TableHead>Трафик</TableHead>
-                  <TableHead className="text-right">Устройства</TableHead>
-                  <TableHead>С нами с</TableHead>
+                  <TableHead className="text-right" title="Устройства">
+                    Устр.
+                  </TableHead>
+                  <TableHead>Онлайн</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -144,7 +159,7 @@ export function UsersPage() {
                       <Link to={`/users/${u.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
                         {u.telegram_id ?? "—"}
                       </Link>
-                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={fmtTelegram(u.telegram_username, u.telegram_name) || undefined}>
+                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={`${fmtTelegram(u.telegram_username, u.telegram_name)} · с нами с ${fmtDate(u.created_at)}`}>
                         № {u.id}
                         {(u.telegram_username || u.telegram_name) && ` · ${fmtTelegram(u.telegram_username, u.telegram_name)}`}
                       </div>
@@ -156,7 +171,9 @@ export function UsersPage() {
                     <TableCell className="tabular-nums">{fmtDate(u.paid_until)}</TableCell>
                     <TableCell>{u.plan ? <TrafficBar used={u.traffic_used_bytes} limit={u.traffic_limit_bytes} compact /> : <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="text-right tabular-nums">{u.devices}</TableCell>
-                    <TableCell className="text-muted-foreground tabular-nums">{fmtDate(u.created_at)}</TableCell>
+                    <TableCell className="w-36 max-w-36 text-sm">
+                      <OnlineState nodes={u.online_nodes} lastSeen={u.last_seen} />
+                    </TableCell>
                     <TableCell className="w-8">
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </TableCell>
@@ -188,6 +205,9 @@ export function UsersPage() {
                 ) : (
                   <div className="text-sm text-muted-foreground">нет подписки</div>
                 )}
+                <div className="text-sm">
+                  <OnlineState nodes={u.online_nodes} lastSeen={u.last_seen} />
+                </div>
               </Link>
             ))}
           </div>

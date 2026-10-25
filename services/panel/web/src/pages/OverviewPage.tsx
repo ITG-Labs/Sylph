@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import { Link } from "react-router"
-import { AlertTriangle, ArrowRight, Ban, CircleCheck, Clock, CreditCard, Server, ShieldAlert, Users, Wallet } from "lucide-react"
+import { Activity, AlertTriangle, ArrowRight, Ban, CircleCheck, Clock, CreditCard, Server, ShieldAlert, Users, Wallet } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { ServicesCard } from "@/components/overview/ServicesCard"
@@ -100,7 +100,7 @@ export function OverviewPage() {
         </div>
       )}
 
-      <motion.div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4" variants={stagger} initial="hidden" animate="show">
+      <motion.div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-5" variants={stagger} initial="hidden" animate="show">
         <motion.div variants={rise}>
           <StatTile tone="violet" label="Юзеры" icon={<Users />} value={o.users.total} hint={`+${o.users.new_today} сегодня · +${o.users.new_7d} за 7 дней`} />
         </motion.div>
@@ -127,8 +127,13 @@ export function OverviewPage() {
                 <span className="text-lg text-muted-foreground"> / {o.nodes.total}</span>
               </span>
             }
-            hint={`юзеров на нодах ${o.nodes.active_users}`}
+            hint={`с доступом на нодах ${o.nodes.active_users}`}
           />
+        </motion.div>
+        <motion.div variants={rise} className="col-span-2 xl:col-span-1">
+          <Link to="/users?online=1" className="block h-full">
+            <StatTile tone="green" label="Онлайн сейчас" icon={<Activity />} value={o.users.online} hint="с открытым соединением →" />
+          </Link>
         </motion.div>
       </motion.div>
 
@@ -136,7 +141,7 @@ export function OverviewPage() {
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Ноды</CardTitle>
-            <CardDescription>юзеры сейчас и трафик за сегодня</CardDescription>
+            <CardDescription>онлайн сейчас и трафик за сегодня</CardDescription>
             <CardAction>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/nodes">
@@ -160,8 +165,8 @@ export function OverviewPage() {
                   </div>
                 </div>
                 <div className="text-left sm:text-right">
-                  <div className="font-medium tabular-nums">{n.active_users ?? "—"}</div>
-                  <div className="text-xs text-muted-foreground">юзеров</div>
+                  <div className="font-medium tabular-nums">{n.online_users}</div>
+                  <div className="text-xs text-muted-foreground">онлайн</div>
                 </div>
                 <div className="w-24 text-left sm:text-right">
                   <div className="font-medium tabular-nums">{fmtBytes(n.traffic_today)}</div>

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import { ArrowLeft, Ban, CalendarPlus, ChevronRight, Gift, Gauge, Globe, History, KeyRound, MoreHorizontal, Plus, Repeat, ShieldCheck, Smartphone, Trash2, TriangleAlert } from "lucide-react"
+import { UserOnlineSection } from "@/components/user/UserOnlineSection"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { CopyButton } from "@/components/common/CopyButton"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
@@ -55,7 +56,7 @@ export function UserPage() {
   const plans = usePlans()
   const addresses = useAddresses()
   const [dialog, setDialog] = useState<UserDialog | null>(null)
-  const card = useQuery({ queryKey: ["user", id], queryFn: () => core.get<UserCard>(`/v1/admin/users/${id}`) })
+  const card = useQuery({ queryKey: ["user", id], queryFn: () => core.get<UserCard>(`/v1/admin/users/${id}`), refetchInterval: 30_000 })
   const banned = card.data?.user.status === "banned"
   const stats = useQuery({
     queryKey: ["user-stats", id, card.data?.user.status],
@@ -219,6 +220,8 @@ export function UserPage() {
               <Empty>Подписки нет — можно выдать вручную</Empty>
             )}
           </Section>
+
+          <UserOnlineSection userId={u.id} presence={c.presence} />
 
           <Section title="Трафик по серверам" description="вверх + вниз, сутки по Москве">
             {banned ? (

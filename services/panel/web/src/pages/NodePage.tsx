@@ -9,6 +9,7 @@ import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
 import { NodeAddressesSection } from "@/components/node/NodeAddressesSection"
+import { NodeOnlineSection } from "@/components/node/NodeOnlineSection"
 import { InboundFormDialog, NodeFormDialog } from "@/components/node/NodeDialogs"
 import { NodeRoutingSection } from "@/components/node/NodeRoutingSection"
 import { NodeTrafficSection } from "@/components/node/NodeTrafficSection"
@@ -87,7 +88,8 @@ export function NodePage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section title="Состояние" className="xl:col-span-1">
           <KV label="Группа">{group}</KV>
-          <KV label="Юзеров сейчас">{n.active_users ?? "—"}</KV>
+          <KV label="С доступом">{n.active_users ?? "—"}</KV>
+          <KV label="Онлайн">{n.online_users}</KV>
           <KV label="Агент">{n.agent_version ?? "—"}</KV>
           <KV label="xray">{n.xray_version ?? "—"}</KV>
           <KV label="Аптайм агента">{fmtUptime(n.agent_uptime_sec)}</KV>
@@ -164,6 +166,10 @@ export function NodePage() {
             </div>
           )}
         </Section>
+      </div>
+
+      <div className="mt-4">
+        <NodeOnlineSection nodeId={n.id} />
       </div>
 
       <div className="mt-4">
