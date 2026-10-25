@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { Settings } from "@/lib/types"
-import { BotSection, buttonLink, channelLink, chatPattern } from "./BotSection"
+import { BotSection, buttonLink, channelLink, chatPattern, httpsLink } from "./BotSection"
 
 const patch = vi.fn()
 const post = vi.fn()
@@ -58,6 +58,11 @@ describe("patterns", () => {
     expect(channelLink("https://example.com/x")).toBe(false)
     expect(buttonLink("tg://resolve?domain=x")).toBe(true)
     expect(buttonLink("javascript:alert(1)")).toBe(false)
+    expect(httpsLink("https://telegra.ph/x")).toBe(true)
+    expect(httpsLink("https://x.example:99999/")).toBe(false)
+    expect(httpsLink("https://localhost/x")).toBe(false)
+    expect(httpsLink("https://1.2.3.4/x")).toBe(false)
+    expect(httpsLink("https://user@telegra.ph/x")).toBe(false)
   })
 })
 

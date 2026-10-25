@@ -29,6 +29,7 @@ const (
 	cbTermsPref  = "tos:"
 	cbJoinedPref = "join:"
 	cbHelp       = "help"
+	cbGatePref   = "gate:"
 )
 
 const (
@@ -144,13 +145,13 @@ func (a *App) menuKeyboard(trial bool, help bool) *models.InlineKeyboardMarkup {
 		row(a.btn(icDevice, "Устройства", cbDevices), a.btn(icCycle, "Сменить ссылку", cbLinkAsk)),
 	)
 	if help {
-		rows = append(rows, a.helpRow())
+		rows = append(rows, a.helpRow(""))
 	}
 	return keyboard(rows...)
 }
 
-func (a *App) helpRow() []models.InlineKeyboardButton {
-	return row(a.btn(icHelp, "Помощь", cbHelp))
+func (a *App) helpRow(code string) []models.InlineKeyboardButton {
+	return row(a.btn(icHelp, "Помощь", withCode(cbHelp, code)))
 }
 
 func (a *App) buyRow() []models.InlineKeyboardButton {

@@ -68,6 +68,7 @@ const fieldLabels: Record<string, string> = {
   telegram_id: "Telegram ID",
   subs_title: "Название",
   subs_support_url: "Ссылка поддержки",
+  settings: "Настройки",
   terms_text: "Текст соглашения",
   terms_url: "Ссылка на соглашение",
   channel_chat: "Канал",

@@ -45,7 +45,7 @@ func TestTermsComeFirstAndCarryTheInvite(t *testing.T) {
 	mustContain(t, m.text, "Пользовательское соглашение", "Принимаю")
 	b := buttons(m.keyboard)
 	accept := cbTermsPref + "1:" + inviteCode
-	if _, ok := b[accept]; !ok || urlButton(m.keyboard, "https://telegra.ph/terms") == nil || b[cbHelp].CallbackData == "" {
+	if _, ok := b[accept]; !ok || urlButton(m.keyboard, "https://telegra.ph/terms") == nil || b[cbHelp+":"+inviteCode].CallbackData == "" {
 		t.Fatalf("terms keyboard = %+v", m.keyboard)
 	}
 	if len(core.work()) != 0 || tg.memberN != 0 {
@@ -176,7 +176,7 @@ func TestHelp(t *testing.T) {
 	if urlButton(m.keyboard, "https://t.me/nora_help") == nil || urlButton(m.keyboard, "https://telegra.ph/how") == nil {
 		t.Fatalf("help keyboard = %+v", m.keyboard)
 	}
-	if _, ok := buttons(m.keyboard)[cbMenu]; !ok {
+	if _, ok := buttons(m.keyboard)[cbGatePref]; !ok {
 		t.Fatal("no way back from help")
 	}
 
@@ -245,4 +245,79 @@ func urlButton(kb [][]models.InlineKeyboardButton, url string) *models.InlineKey
 		}
 	}
 	return nil
+}
+
+func TestRegisterFailureInCallbackStopsAtAnAlert(t *testing.T) {
+	core := &fakeCore{config: gatedConfig(), registerErr: errors.New("core down"), check: &Check{Status: "pending"}}
+	app, tg := newTestApp(t, core)
+	for _, data := range []string{cbMenu, cbJoinedPref + inviteCode, cbTermsPref + "1:" + inviteCode, cbHelp, cbGatePref} {
+		app.Handle(context.Background(), tg, callback(data))
+		answers := tg.only(t, "answerCallbackQuery")
+		if a := answers[len(answers)-1]; !a.alert || a.text != textFailed {
+			t.Fatalf("%s: answer = %+v", data, a)
+		}
+	}
+	if len(tg.only(t, "editMessageText"))+len(tg.only(t, "sendMessage")) != 0 || len(core.work()) != 0 {
+		t.Fatalf("worked without a user: %v", core.calls)
+	}
+	app.Handle(context.Background(), tg, callback(cbChkPrefix+"pay-1"))
+	if !core.called("check:pay-1") {
+		t.Fatal("payment check needs no user and must still work")
+	}
+}
+
+func TestStaleButtonsAfterGatesChange(t *testing.T) {
+	cfg := gatedConfig()
+	cfg.Channel.Enabled = false
+	core := &fakeCore{config: cfg, acceptErr: ErrConflict}
+	app, tg := newTestApp(t, core)
+	core.mu.Lock()
+	core.config.Terms.Enabled = false
+	core.mu.Unlock()
+	app.forgetConfig()
+	app.Handle(context.Background(), tg, callback(cbTermsPref+"1"))
+	mustContain(t, tg.last(t).text, "Привет")
+
+	cfg = gatedConfig()
+	cfg.Help.Enabled = false
+	core = &fakeCore{config: cfg}
+	app, tg = newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback(cbHelp))
+	mustContain(t, tg.last(t).text, "Пользовательское соглашение")
+}
+
+func TestHelpKeepsTheInvite(t *testing.T) {
+	core := &fakeCore{config: gatedConfig()}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback(cbHelp+":"+inviteCode))
+	m := tg.last(t)
+	if _, ok := buttons(m.keyboard)[cbGatePref+inviteCode]; !ok {
+		t.Fatalf("help lost the invite: %+v", m.keyboard)
+	}
+	app.Handle(context.Background(), tg, callback(cbGatePref+inviteCode))
+	if _, ok := buttons(tg.last(t).keyboard)[cbTermsPref+"1:"+inviteCode]; !ok {
+		t.Fatalf("back from help skipped the gates or lost the code: %+v", tg.last(t).keyboard)
+	}
+	app.Handle(context.Background(), tg, callback(cbHelp+":bad"))
+	app.Handle(context.Background(), tg, callback(cbGatePref+"bad"))
+	if n := len(tg.only(t, "editMessageText")); n != 2 {
+		t.Fatalf("malformed codes acted on: %d edits", n)
+	}
+}
+
+func TestConfigFailureIsNotRetriedOnEveryUpdate(t *testing.T) {
+	core := &fakeCore{configErr: errors.New("404")}
+	app, tg := newTestApp(t, core)
+	for range 3 {
+		app.Handle(context.Background(), tg, message("/start", models.ChatTypePrivate))
+	}
+	n := 0
+	for _, c := range core.calls {
+		if c == "config" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("config fetched %d times after a failure", n)
+	}
 }

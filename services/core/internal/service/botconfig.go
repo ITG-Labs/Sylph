@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -24,6 +25,8 @@ const (
 var (
 	channelUsername = regexp.MustCompile(`^@[A-Za-z][A-Za-z0-9_]{4,31}$`)
 	channelID       = regexp.MustCompile(`^-100[0-9]{5,15}$`)
+	linkLabel       = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+	linkTLD         = regexp.MustCompile(`^([A-Za-z]{2,63}|xn--[A-Za-z0-9-]{1,59})$`)
 )
 
 type BotTerms struct {
@@ -90,14 +93,37 @@ func validLink(field, v string, schemes ...string) error {
 		}
 	}
 	u, err := url.Parse(v)
-	if err == nil {
+	if err == nil && u.User == nil && validLinkHost(u) {
 		for _, scheme := range schemes {
-			if u.Scheme == scheme && u.Host != "" {
+			if u.Scheme == scheme {
 				return nil
 			}
 		}
 	}
 	return fieldErr(field, "must be a "+strings.Join(schemes, " or ")+" link")
+}
+
+func validLinkHost(u *url.URL) bool {
+	if u.Scheme == "tg" {
+		return linkLabel.MatchString(u.Host)
+	}
+	host := u.Hostname()
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return false
+		}
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) < 2 || !linkTLD.MatchString(labels[len(labels)-1]) {
+		return false
+	}
+	for _, l := range labels {
+		if !linkLabel.MatchString(l) {
+			return false
+		}
+	}
+	return true
 }
 
 func autoChannelURL(chat string) string {
@@ -167,9 +193,11 @@ func (s *Service) checkBotPatch(ctx context.Context, p *SettingsPatch) error {
 		return current
 	}
 	chat, link := pick(p.ChannelChat, cur.ChannelChat), pick(p.ChannelURL, cur.ChannelURL)
-	if p.ChannelURL == nil && p.ChannelChat != nil && (link == "" || link == autoChannelURL(cur.ChannelChat)) {
-		link = autoChannelURL(chat)
-		p.ChannelURL = &link
+	if link == "" || (p.ChannelURL == nil && p.ChannelChat != nil && link == autoChannelURL(cur.ChannelChat)) {
+		if auto := autoChannelURL(chat); auto != link {
+			link = auto
+			p.ChannelURL = &link
+		}
 	}
 	switch {
 	case on(p.TermsEnabled, cur.TermsEnabled) && pick(p.TermsURL, cur.TermsURL) == "":

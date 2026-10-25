@@ -24,6 +24,10 @@ func TestBotSettingsValidation(t *testing.T) {
 		{SettingsPatch{TermsEnabled: boolPtr(true)}, "terms_url"},
 		{SettingsPatch{TermsURL: strPtr("http://telegra.ph/x")}, "terms_url"},
 		{SettingsPatch{TermsURL: strPtr("telegra.ph/x")}, "terms_url"},
+		{SettingsPatch{TermsURL: strPtr("https://telegra.ph:99999/x")}, "terms_url"},
+		{SettingsPatch{TermsURL: strPtr("https://localhost/x")}, "terms_url"},
+		{SettingsPatch{TermsURL: strPtr("https://user:pw@telegra.ph/x")}, "terms_url"},
+		{SettingsPatch{TermsURL: strPtr("https://1.2.3.4/x")}, "terms_url"},
 		{SettingsPatch{TermsText: strPtr("<b>не закрыт")}, "terms_text"},
 		{SettingsPatch{TermsText: strPtr(strings.Repeat("я", 1001))}, "terms_text"},
 		{SettingsPatch{ChannelEnabled: boolPtr(true)}, "channel_chat"},
@@ -87,6 +91,12 @@ func TestBotSettingsFillChannelURLAndConfig(t *testing.T) {
 	}
 	if _, err := svc.UpdateSettings(ctx, SettingsPatch{ChannelURL: strPtr("")}); err == nil {
 		t.Fatal("cleared url of an enabled private channel")
+	}
+	if st, err = svc.UpdateSettings(ctx, SettingsPatch{ChannelChat: strPtr("@back_again"), ChannelURL: strPtr("")}); err != nil || st.ChannelURL != "https://t.me/back_again" {
+		t.Fatalf("cleared link not filled for @username: %q, %v", st.ChannelURL, err)
+	}
+	if _, err := svc.UpdateSettings(ctx, SettingsPatch{ChannelChat: strPtr("-1001234567890"), ChannelURL: strPtr("https://t.me/+AbCdEf")}); err != nil {
+		t.Fatal(err)
 	}
 	help := []store.HelpButton{{Label: " Инструкции ", URL: "https://telegra.ph/how"}, {Label: "Поддержка", URL: "tg://resolve?domain=help"}}
 	if _, err := svc.UpdateSettings(ctx, SettingsPatch{

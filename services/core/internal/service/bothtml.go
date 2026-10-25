@@ -70,15 +70,17 @@ func validEntity(e string) bool {
 	case "lt", "gt", "amp", "quot":
 		return true
 	}
+	base, digits := 10, ""
 	if hex, ok := strings.CutPrefix(e, "#x"); ok {
-		_, err := strconv.ParseUint(hex, 16, 32)
-		return hex != "" && err == nil
+		base, digits = 16, hex
+	} else if dec, ok := strings.CutPrefix(e, "#"); ok {
+		digits = dec
+	} else {
+		return false
 	}
-	if dec, ok := strings.CutPrefix(e, "#"); ok {
-		_, err := strconv.ParseUint(dec, 10, 32)
-		return dec != "" && err == nil
-	}
-	return false
+	n, err := strconv.ParseUint(digits, base, 32)
+	r := rune(n)
+	return digits != "" && err == nil && n <= unicode.MaxRune && utf8.ValidRune(r) && (!unicode.IsControl(r) || r == '\n' || r == '\t')
 }
 
 func openTag(name, rawAttrs string, stack []string) string {
@@ -105,7 +107,7 @@ func openTag(name, rawAttrs string, stack []string) string {
 			return "<a> needs href"
 		}
 		u, err := url.Parse(html.UnescapeString(href))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "tg") || (u.Scheme != "tg" && u.Host == "") {
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "tg") || u.User != nil || !validLinkHost(u) {
 			return "<a href> must be an http(s) or tg:// link"
 		}
 		allowed["href"] = true

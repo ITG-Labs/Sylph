@@ -35,7 +35,8 @@ type App struct {
 
 	cfgMu     sync.Mutex
 	cfg       *BotConfig
-	cfgAt     time.Time
+	cfgUntil  time.Time
+	cfgErrAt  time.Time
 	configTTL time.Duration
 	memMu     sync.Mutex
 	members   map[int64]time.Time
@@ -133,20 +134,26 @@ func (a *App) onCallback(ctx context.Context, tg Telegram, q *models.CallbackQue
 	if errors.Is(err, ErrBanned) {
 		return
 	}
-	if err != nil {
-		u = nil
-	}
 	data := q.Data
 	var alert string
 	switch {
+	case strings.HasPrefix(data, cbChkPrefix):
+		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
+	case err != nil:
+		a.log.LogAttrs(ctx, slog.LevelError, "user_register_failed", slog.Int64("telegram_id", tgID), slog.String("error", err.Error()))
+		alert = textFailed
 	case strings.HasPrefix(data, cbTermsPref):
 		alert = a.onTermsAccept(ctx, tg, to, tgID, u, strings.TrimPrefix(data, cbTermsPref))
 	case strings.HasPrefix(data, cbJoinedPref):
 		alert = a.onJoined(ctx, tg, to, tgID, u, strings.TrimPrefix(data, cbJoinedPref))
-	case data == cbHelp:
-		a.onHelp(ctx, tg, to, tgID)
-	case strings.HasPrefix(data, cbChkPrefix):
-		alert = a.onCheck(ctx, tg, to, tgID, strings.TrimPrefix(data, cbChkPrefix))
+	case strings.HasPrefix(data, cbGatePref):
+		if code := strings.TrimPrefix(data, cbGatePref); code == "" || validCode(code) {
+			a.afterGates(ctx, tg, to, tgID, u, code)
+		}
+	case data == cbHelp || strings.HasPrefix(data, cbHelp+":"):
+		if code := strings.TrimPrefix(strings.TrimPrefix(data, cbHelp), ":"); code == "" || validCode(code) {
+			a.onHelp(ctx, tg, to, tgID, u, code)
+		}
 	default:
 		if text, kb, gated := a.gate(ctx, tg, tgID, u, "", false); gated {
 			a.show(ctx, tg, to, text, kb)

@@ -12,7 +12,10 @@ import { useInvalidate } from "@/lib/queries"
 import type { HelpButton, Settings } from "@/lib/types"
 
 export const chatPattern = /^@[A-Za-z][A-Za-z0-9_]{4,31}$|^-100\d{5,15}$/
-export const httpsLink = (u: string) => /^https:\/\/[^\s/?#]+\.[^\s/?#]+([/?#]\S*)?$/.test(u)
+export const httpsLink = (u: string) => {
+  const m = /^https:\/\/([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?::(\d{1,5}))?([/?#]\S*)?$/.exec(u)
+  return m !== null && /[A-Za-z]/.test(m[1].split(".").pop() ?? "") && (m[2] === undefined || (Number(m[2]) >= 1 && Number(m[2]) <= 65535))
+}
 export const channelLink = (u: string) => /^https:\/\/t\.me\/\S+$/.test(u)
 export const buttonLink = (u: string) => httpsLink(u) || /^tg:\/\/[a-z]+\S*$/.test(u)
 
