@@ -21,7 +21,7 @@ networks:
 services:
   perms:
     <<: *locked
-    image: alpine:3.24.2
+    image: alpine:3.24.3
     user: "0:0"
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
     network_mode: none
