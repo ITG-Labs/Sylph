@@ -1,4 +1,4 @@
-FROM ghcr.io/sagernet/sing-box:v1.14.3 AS singbox
+FROM ghcr.io/sagernet/sing-box:v1.14.4 AS singbox
 
 FROM metacubex/mihomo:v1.19.32
 COPY --from=singbox /usr/local/bin/sing-box /usr/local/bin/sing-box
