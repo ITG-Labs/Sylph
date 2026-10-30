@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { core } from "@/lib/api"
 import { CheckList } from "@/components/common/CheckList"
-import { accessChanges, describeChanges, isHarsh, withNodeGroups, type ImpactLine } from "@/lib/groups"
+import { accessChanges, describeChanges, isHarsh, newOldAgentLines, withNodeGroups, type ImpactLine } from "@/lib/groups"
 import { useWorld } from "@/lib/world"
 import type { Group, Inbound, Node } from "@/lib/types"
 
@@ -61,10 +61,8 @@ export function NodeFormDialog({
 
   const ok = name.trim() !== "" && address.trim() !== "" && (node || cn.trim() !== "")
   const { world } = useWorld()
-  const moveLines: ImpactLine[] =
-    node && !sameIDs(groupIDs, node.group_ids) && world
-      ? describeChanges(world, accessChanges(world, withNodeGroups(world, node.id, groupIDs)))
-      : []
+  const regrouped = node && !sameIDs(groupIDs, node.group_ids) && world ? withNodeGroups(world, node.id, groupIDs) : null
+  const moveLines: ImpactLine[] = regrouped && world ? [...describeChanges(world, accessChanges(world, regrouped)), ...newOldAgentLines(world, regrouped)] : []
   const disabling = !!node && node.enabled && !enabled
 
   return (

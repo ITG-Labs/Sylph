@@ -128,6 +128,7 @@ export interface Period {
   traffic_bonus_bytes: number
   traffic_limit_bytes: number | null
   traffic_exhausted: boolean
+  main_idle: boolean
   pools: PoolUsage[]
   created_at: string
   plan_name: string
@@ -266,6 +267,7 @@ export interface Node {
   agent_uptime_sec: number | null
   xray_uptime_sec: number | null
   last_sync_at: string | null
+  agent_per_inbound: boolean
   status: NodeStatus
   inbounds: number
   online_users: number

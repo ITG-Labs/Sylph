@@ -203,9 +203,13 @@ export function UserPage() {
                   </span>
                   {c.trial?.period_id === current.id && <Badge variant="info">пробный</Badge>}
                 </div>
-                {current.pools.length > 0 && <div className="-mb-2 text-xs text-muted-foreground">Основной</div>}
-                <TrafficBar used={current.traffic_used_bytes} limit={current.traffic_limit_bytes} />
-                {current.traffic_bonus_bytes > 0 && <div className="text-xs text-muted-foreground">в лимите бонус {fmtBytes(current.traffic_bonus_bytes)}</div>}
+                {!(current.main_idle && current.pools.length > 0) && (
+                  <>
+                    {current.pools.length > 0 && <div className="-mb-2 text-xs text-muted-foreground">Основной</div>}
+                    <TrafficBar used={current.traffic_used_bytes} limit={current.traffic_limit_bytes} />
+                    {current.traffic_bonus_bytes > 0 && <div className="text-xs text-muted-foreground">в лимите бонус {fmtBytes(current.traffic_bonus_bytes)}</div>}
+                  </>
+                )}
                 {current.pools.map((pool) => (
                   <div key={pool.pool_id} className="flex flex-col gap-2">
                     <div className="-mb-2 text-xs text-muted-foreground">

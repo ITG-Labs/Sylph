@@ -44,7 +44,7 @@ export function NodePage() {
   const n = nodes.data.find((x) => String(x.id) === id)
   if (!n) return <Empty>Нода не найдена</Empty>
   const close = (v: boolean) => !v && setDialog(null)
-  const refresh = () => invalidate(["nodes"], ["inbounds", id], ["overview"])
+  const refresh = () => invalidate(["nodes"], ["inbounds"], ["overview"])
   const nameOf = (gid: number) => groups.data?.find((g) => g.id === gid)?.name ?? `группа ${gid}`
   const byInbound = (groups.data ?? []).filter((g) => !n.group_ids.includes(g.id) && g.inbound_ids.some((iid) => inbounds.data?.some((i) => i.id === iid)))
   const group =
@@ -82,6 +82,19 @@ export function NodePage() {
           </>
         }
       />
+
+      {!n.agent_per_inbound && n.last_sync_at && (
+        <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <div className="font-medium">Агент старой версии — обнови ноду</div>
+            <div className="mt-1 text-muted-foreground">
+              Он не умеет раздавать ключи по отдельным входам. Юзеры, которым открыта только часть входов ноды или чьи входы разложены по разным пулам, не смогут к ней
+              подключиться, пока агент не обновят.
+            </div>
+          </div>
+        </div>
+      )}
 
       {n.config_error && (
         <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">

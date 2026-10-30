@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { accessChanges, describeChanges, sees, visibleInbounds, withMembers, withNodeGroups, withPlanGroup, type World } from "./groups"
+import { accessChanges, describeChanges, newOldAgentLines, poolCovers, sees, visibleInbounds, withMembers, withNodeGroups, withPlanGroup, type World } from "./groups"
 
 const node = (id: number, enabled = true, address = "x.example") => ({ id, name: `n${id}`, enabled, address, inbounds: 2 })
 const inb = (id: number, node_id: number, tag: string) => ({ id, node_id, tag, label: "" })
@@ -92,5 +92,31 @@ describe("plans without a group", () => {
     expect(ids(visibleInbounds(free, free.plans[0]))).toEqual([31, 41])
     const changes = accessChanges(world, free)
     expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained)])).toEqual([[10, [11], []]])
+  })
+})
+
+describe("old agents", () => {
+  const old = (w: World): World => ({ ...w, nodes: w.nodes.map((n) => (n.id === 2 ? { ...n, agent_per_inbound: false, last_sync_at: "2026-10-30T10:00:00Z" } : n)) })
+  it("warn when a change leaves plans with only part of a node an old agent runs", () => {
+    const before = old(world)
+    expect(newOldAgentLines(before, before)).toEqual([])
+    const split = withNodeGroups(before, 2, [])
+    const lines = newOldAgentLines(before, split)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].tone).toBe("danger")
+    expect(lines[0].text).toContain("«n2»")
+    expect(lines[0].text).toContain("«p10»")
+  })
+
+  it("warn when pools split such a node", () => {
+    const before = old(withMembers(world, CDN, [], []))
+    const pooled: World = { ...before, plans: before.plans.map((p) => (p.id === 20 ? { ...p, pools: [{ node_id: null, group_id: CDN }] } : p)) }
+    const withCDN = withMembers(pooled, CDN, [], [22])
+    expect(newOldAgentLines(before, withCDN).map((l) => l.text).join(" ")).toContain("«p20»")
+  })
+
+  it("say what a pool covers for a plan", () => {
+    expect(ids(poolCovers(world, world.plans[1], { node_id: 2, group_id: null }))).toEqual([21, 22])
+    expect(poolCovers(world, world.plans[0], { node_id: 2, group_id: null })).toEqual([])
   })
 })

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { core } from "@/lib/api"
 import { parseGB } from "@/lib/format"
-import { accessChanges, describeChanges, isHarsh, withPlanGroup, type ImpactLine } from "@/lib/groups"
+import { accessChanges, describeChanges, isHarsh, newOldAgentLines, poolCovers, type ImpactLine, type PlanLike, type World } from "@/lib/groups"
 import { useNodes } from "@/lib/queries"
 import type { Group, Plan, PlanPool } from "@/lib/types"
 import { useWorld } from "@/lib/world"
@@ -44,7 +44,17 @@ function poolBody(d: PoolDraft) {
   }
 }
 
-function PoolsEditor({ pools, onChange, groups }: { pools: PoolDraft[]; onChange: (p: PoolDraft[]) => void; groups: Group[] }) {
+function PoolsEditor({
+  pools,
+  onChange,
+  groups,
+  covered,
+}: {
+  pools: PoolDraft[]
+  onChange: (p: PoolDraft[]) => void
+  groups: Group[]
+  covered: (d: PoolDraft) => number | null
+}) {
   const nodes = useNodes()
   const set = (i: number, patch: Partial<PoolDraft>) => onChange(pools.map((p, j) => (j === i ? { ...p, ...patch } : p)))
   return (
@@ -87,6 +97,7 @@ function PoolsEditor({ pools, onChange, groups }: { pools: PoolDraft[]; onChange
             <Input aria-label="Название пула" value={p.name} onChange={(e) => set(i, { name: e.target.value })} maxLength={64} placeholder="название — как у цели" />
             <Input aria-label="Лимит пула, ГБ" inputMode="decimal" value={p.gb} onChange={(e) => set(i, { gb: e.target.value })} placeholder="ГБ, пусто — безлимит" />
           </div>
+          {covered(p) === 0 && <p className="text-xs text-warning">Тариф не видит ни одного входа этой цели — пул ничего не посчитает.</p>}
         </div>
       ))}
     </div>
@@ -204,7 +215,19 @@ export function PlanFormDialog({
   }
   const nothingChanged = !!plan && Object.keys(changed).length === 0
   const { world } = useWorld()
-  const moveLines: ImpactLine[] = plan && "location_group_id" in changed && world ? describeChanges(world, accessChanges(world, withPlanGroup(world, plan.id, groupID))) : []
+  const draft: PlanLike = {
+    id: plan?.id ?? -1,
+    name: name.trim() || "новый тариф",
+    location_group_id: groupID,
+    active_users: plan?.active_users ?? 0,
+    pools: poolsBody.map((b) => ({ node_id: b.node_id, group_id: b.group_id })),
+  }
+  const after: World | null = world ? { ...world, plans: plan ? world.plans.map((x) => (x.id === plan.id ? draft : x)) : [...world.plans, draft] } : null
+  const covered = (d: PoolDraft) => (after && d.target !== "" ? poolCovers(after, draft, poolBody(d)).length : null)
+  const moveLines: ImpactLine[] = [
+    ...(plan && "location_group_id" in changed && world && after ? describeChanges(world, accessChanges(world, after)) : []),
+    ...(world && after && (!plan || "location_group_id" in changed || "pools" in changed) ? newOldAgentLines(world, after) : []),
+  ]
   const limitLive = !!plan && ("traffic_limit_bytes" in changed || "pools" in changed)
   const dedicatedLive = !!plan && "dedicated_ip" in changed
 
@@ -275,7 +298,7 @@ export function PlanFormDialog({
           </SelectContent>
         </Select>
       </div>
-      <PoolsEditor pools={pools} onChange={setPools} groups={groups} />
+      <PoolsEditor pools={pools} onChange={setPools} groups={groups} covered={covered} />
       <div className="flex flex-col gap-2">
         <Toggle title="Требовать HWID" hint={hwidForced ? "обязателен при лимите устройств" : "клиент без HWID получит заглушку"} checked={hwid} onChange={setHwid} disabled={hwidForced} />
         <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся кнопкой в боте новичкам, раз на аккаунт" : "только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />

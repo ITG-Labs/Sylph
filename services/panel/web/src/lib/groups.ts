@@ -6,6 +6,13 @@ export interface NodeLike {
   enabled: boolean
   address: string
   inbounds: number
+  agent_per_inbound?: boolean
+  last_sync_at?: string | null
+}
+
+export interface PoolTarget {
+  node_id: number | null
+  group_id: number | null
 }
 
 export interface InboundLike {
@@ -26,6 +33,7 @@ export interface PlanLike {
   name: string
   location_group_id: number | null
   active_users: number
+  pools?: PoolTarget[]
 }
 
 export interface World {
@@ -178,4 +186,36 @@ export function describeChanges(before: World, changes: PlanChange[]): ImpactLin
 
 export function isHarsh(lines: ImpactLine[]): boolean {
   return lines.some((l) => l.tone === "danger" || l.tone === "lose")
+}
+
+export function poolCovers(w: World, plan: PlanLike, pool: PoolTarget): InboundLike[] {
+  return visibleInbounds(w, plan).filter((i) => (pool.node_id !== null ? i.node_id === pool.node_id : pool.group_id !== null && groupsOf(w, i).includes(pool.group_id)))
+}
+
+const poolIndex = (w: World, plan: PlanLike, i: InboundLike) =>
+  (plan.pools ?? []).findIndex((pool) => (pool.node_id !== null ? i.node_id === pool.node_id : pool.group_id !== null && groupsOf(w, i).includes(pool.group_id)))
+
+function oldAgentLines(w: World): ImpactLine[] {
+  const out: ImpactLine[] = []
+  for (const n of w.nodes) {
+    if (n.agent_per_inbound !== false || !n.last_sync_at) continue
+    const own = w.inbounds.filter((i) => i.node_id === n.id)
+    if (own.length < 2) continue
+    const hit = w.plans.filter((p) => {
+      const seen = own.filter((i) => sees(w, p, i))
+      return (seen.length > 0 && seen.length < own.length) || new Set(seen.map((i) => poolIndex(w, p, i))).size > 1
+    })
+    if (hit.length === 0) continue
+    const whom = hit.length === 1 ? `тарифа ${q(hit[0].name)}` : `тарифов ${hit.map((p) => q(p.name)).join(", ")}`
+    out.push({
+      tone: "danger",
+      text: `На ноде ${q(n.name)} агент старой версии: юзеры ${whom} видят на ней только часть входов или делят её между пулами — пока агент не обновят, нода не будет их пускать вовсе.`,
+    })
+  }
+  return out
+}
+
+export function newOldAgentLines(before: World, after: World): ImpactLine[] {
+  const had = new Set(oldAgentLines(before).map((l) => l.text))
+  return oldAgentLines(after).filter((l) => !had.has(l.text))
 }

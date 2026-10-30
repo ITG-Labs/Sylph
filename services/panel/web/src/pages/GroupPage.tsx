@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
 import { fmtDate, fmtRub, plural } from "@/lib/format"
-import { accessChanges, describeChanges, hiddenReason, isHarsh, withMembers, withPlanGroup, type ImpactLine } from "@/lib/groups"
+import { accessChanges, describeChanges, hiddenReason, isHarsh, newOldAgentLines, withMembers, withPlanGroup, type ImpactLine, type World } from "@/lib/groups"
 import { useInvalidate, useNodes } from "@/lib/queries"
 import type { Plan } from "@/lib/types"
 import { useWorld } from "@/lib/world"
@@ -114,10 +114,11 @@ export function GroupPage() {
     pickedInbounds.every((x) => g.inbound_ids.includes(x))
 
   const pickedPlan = dialog?.kind === "addPlan" ? world.plans.find((p) => p.id === pick) : undefined
-  let lines: ImpactLine[] = []
-  if (dialog?.kind === "members" && !sameMembers) lines = describeChanges(world, accessChanges(world, withMembers(world, gid, pickedNodes, pickedInbounds)))
-  if (pickedPlan) lines = describeChanges(world, accessChanges(world, withPlanGroup(world, pickedPlan.id, gid)))
-  if (dialog?.kind === "removePlan") lines = describeChanges(world, accessChanges(world, withPlanGroup(world, dialog.plan.id, null)))
+  let after: World | null = null
+  if (dialog?.kind === "members" && !sameMembers) after = withMembers(world, gid, pickedNodes, pickedInbounds)
+  if (pickedPlan) after = withPlanGroup(world, pickedPlan.id, gid)
+  if (dialog?.kind === "removePlan") after = withPlanGroup(world, dialog.plan.id, null)
+  const lines: ImpactLine[] = after ? [...describeChanges(world, accessChanges(world, after)), ...newOldAgentLines(world, after)] : []
   const consequences = lines.length > 0 ? <MoveConsequences lines={lines} /> : undefined
 
   return (
