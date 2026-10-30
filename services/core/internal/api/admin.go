@@ -318,13 +318,15 @@ func (s *Server) handleInboundCreate(w http.ResponseWriter, r *http.Request) {
 		Security  string           `json:"security"`
 		Label     string           `json:"label"`
 		Reality   *inbound.Reality `json:"reality"`
+		XHTTP     *inbound.XHTTP   `json:"xhttp"`
+		TLS       *inbound.TLS     `json:"tls"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
 	spec := inbound.Spec{
 		Tag: body.Tag, Port: body.Port, Protocol: body.Protocol, Transport: body.Transport,
-		Security: body.Security, Label: body.Label, Reality: body.Reality,
+		Security: body.Security, Label: body.Label, Reality: body.Reality, XHTTP: body.XHTTP, TLS: body.TLS,
 	}
 	v, err := s.svc.CreateInbound(r.Context(), nodeID, spec)
 	if err != nil {

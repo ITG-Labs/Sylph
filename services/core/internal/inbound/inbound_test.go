@@ -109,7 +109,7 @@ func TestNormalizeRejects(t *testing.T) {
 		{"tag with space", func(s *Spec) { s.Tag = "a b" }, "tag"},
 		{"port 8443", func(s *Spec) { s.Port = 8443 }, "port"},
 		{"protocol trojan", func(s *Spec) { s.Protocol = "trojan" }, "protocol"},
-		{"transport xhttp", func(s *Spec) { s.Transport = "xhttp" }, "transport"},
+		{"transport grpc", func(s *Spec) { s.Transport = "grpc" }, "transport"},
 		{"security tls", func(s *Spec) { s.Security = "tls" }, "security"},
 		{"long label", func(s *Spec) { s.Label = strings.Repeat("я", 33) }, "label"},
 		{"no reality", func(s *Spec) { s.Reality = nil }, "reality"},

@@ -23,6 +23,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		UserAgent   string `json:"user_agent"`
 		DeviceOS    string `json:"device_os"`
 		DeviceModel string `json:"device_model"`
+		XHTTP       bool   `json:"xhttp"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -41,6 +42,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		UserAgent:   clip(body.UserAgent, 256),
 		DeviceOS:    clip(body.DeviceOS, 64),
 		DeviceModel: clip(body.DeviceModel, 64),
+		XHTTP:       body.XHTTP,
 	})
 	if err != nil {
 		s.writeServiceErrorAs(w, err, "subscription", "subscription_failed")

@@ -306,6 +306,15 @@ func (s *Service) addressFreeOfDests(ctx context.Context, address string) error 
 			return fieldErr("address", "is used as reality.dest of an inbound: REALITY would loop into the node")
 		}
 	}
+	decoys, err := s.store.Decoys(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range decoys {
+		if inbound.DecoyHost(d) == inbound.CanonicalHost(address) {
+			return fieldErr("address", "is used as tls.decoy of an inbound: the decoy would loop into the node")
+		}
+	}
 	return nil
 }
 
@@ -319,6 +328,26 @@ func (s *Service) destNotANode(ctx context.Context, spec *inbound.Spec) error {
 	}
 	if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
 		return fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
+	}
+	return nil
+}
+
+func (s *Service) decoyLoops(ctx context.Context) ([]string, error) {
+	hosts, err := s.nodeHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	domains, err := s.store.TLSDomains(ctx)
+	return append(hosts, domains...), err
+}
+
+func decoyNotOurs(spec *inbound.Spec, loops []string) error {
+	if spec.TLS == nil || spec.TLS.Decoy == "" {
+		return nil
+	}
+	host := inbound.DecoyHost(spec.TLS.Decoy)
+	if host == spec.TLS.Domain || slices.Contains(loops, host) {
+		return fieldErr("tls.decoy", "points to one of our nodes or domains: the decoy would loop into a node")
 	}
 	return nil
 }
@@ -420,17 +449,19 @@ func (s *Service) GetNode(ctx context.Context, id int64) (*model.Node, error) {
 }
 
 type InboundView struct {
-	ID        int64        `json:"id"`
-	NodeID    int64        `json:"node_id"`
-	Tag       string       `json:"tag"`
-	Port      int          `json:"port"`
-	Protocol  string       `json:"protocol"`
-	Transport string       `json:"transport"`
-	Security  string       `json:"security"`
-	Flow      string       `json:"flow"`
-	Label     string       `json:"label"`
-	Reality   *RealityView `json:"reality,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID        int64          `json:"id"`
+	NodeID    int64          `json:"node_id"`
+	Tag       string         `json:"tag"`
+	Port      int            `json:"port"`
+	Protocol  string         `json:"protocol"`
+	Transport string         `json:"transport"`
+	Security  string         `json:"security"`
+	Flow      string         `json:"flow"`
+	Label     string         `json:"label"`
+	Reality   *RealityView   `json:"reality,omitempty"`
+	XHTTP     *inbound.XHTTP `json:"xhttp,omitempty"`
+	TLS       *inbound.TLS   `json:"tls,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 type RealityView struct {
@@ -441,18 +472,28 @@ type RealityView struct {
 	PublicKey   string   `json:"public_key"`
 }
 
+type inboundSettings struct {
+	*inbound.Reality
+	XHTTP *inbound.XHTTP `json:"xhttp,omitempty"`
+	TLS   *inbound.TLS   `json:"tls,omitempty"`
+}
+
 func SpecOf(in *model.NodeInbound) (inbound.Spec, error) {
 	spec := inbound.Spec{
 		Tag: in.Tag, Port: in.Port, Protocol: in.Protocol, Transport: in.Transport,
 		Security: in.Security, Label: in.Label,
 	}
-	if in.Security == inbound.SecurityReality {
-		var r inbound.Reality
-		if err := json.Unmarshal(in.Settings, &r); err != nil {
-			return spec, fmt.Errorf("inbound %d settings: %w", in.ID, err)
-		}
-		spec.Reality = &r
+	var st inboundSettings
+	if err := json.Unmarshal(in.Settings, &st); err != nil {
+		return spec, fmt.Errorf("inbound %d settings: %w", in.ID, err)
 	}
+	if in.Security == inbound.SecurityReality {
+		spec.Reality = st.Reality
+		if spec.Reality == nil {
+			spec.Reality = &inbound.Reality{}
+		}
+	}
+	spec.XHTTP, spec.TLS = st.XHTTP, st.TLS
 	return spec, nil
 }
 
@@ -464,7 +505,7 @@ func ViewOf(in *model.NodeInbound) (*InboundView, error) {
 	v := &InboundView{
 		ID: in.ID, NodeID: in.NodeID, Tag: in.Tag, Port: in.Port, Protocol: in.Protocol,
 		Transport: in.Transport, Security: in.Security, Flow: inbound.Flow(in.Transport, in.Security),
-		Label: in.Label, CreatedAt: in.CreatedAt,
+		Label: in.Label, XHTTP: spec.XHTTP, TLS: spec.TLS, CreatedAt: in.CreatedAt,
 	}
 	if spec.Reality != nil {
 		pub, err := inbound.PublicKey(spec.Reality.PrivateKey)
@@ -479,16 +520,30 @@ func ViewOf(in *model.NodeInbound) (*InboundView, error) {
 	return v, nil
 }
 
-func sniGuard(names []string) store.InboundGuard {
+func inboundGuard(spec *inbound.Spec) store.InboundGuard {
+	field := "reality.server_names"
+	if spec.TLS != nil {
+		field = "tls.domain"
+	}
 	return func(others []model.NodeInbound) error {
 		for _, o := range others {
-			spec, err := SpecOf(&o)
+			other, err := SpecOf(&o)
 			if err != nil {
 				return err
 			}
-			for _, n := range inbound.ServerNames(&spec) {
-				if slices.Contains(names, n) {
-					return &ConflictError{Field: "reality.server_names", Message: fmt.Sprintf("%s is already used by inbound %s of this node", n, o.Tag)}
+			if spec.TLS != nil && other.TLS != nil && spec.TLS.Domain == other.TLS.Domain {
+				if inbound.PathsOverlap(spec.XHTTP.Path, other.XHTTP.Path) {
+					return &ConflictError{Field: "xhttp.path", Message: fmt.Sprintf("overlaps path %s of inbound %s on the same domain", other.XHTTP.Path, o.Tag)}
+				}
+				if spec.TLS.Decoy != other.TLS.Decoy {
+					return &ConflictError{Field: "tls.decoy", Message: fmt.Sprintf("must be the same as in inbound %s on the same domain", o.Tag)}
+				}
+				continue
+			}
+			taken := inbound.SNINames(&other)
+			for _, n := range inbound.SNINames(spec) {
+				if slices.Contains(taken, n) {
+					return &ConflictError{Field: field, Message: fmt.Sprintf("%s is already used by inbound %s of this node", n, o.Tag)}
 				}
 			}
 		}
@@ -497,13 +552,9 @@ func sniGuard(names []string) store.InboundGuard {
 }
 
 func modelOf(nodeID int64, spec *inbound.Spec) (*model.NodeInbound, error) {
-	settings := json.RawMessage(`{}`)
-	if spec.Reality != nil {
-		raw, err := json.Marshal(spec.Reality)
-		if err != nil {
-			return nil, err
-		}
-		settings = raw
+	settings, err := json.Marshal(inboundSettings{Reality: spec.Reality, XHTTP: spec.XHTTP, TLS: spec.TLS})
+	if err != nil {
+		return nil, err
 	}
 	return &model.NodeInbound{
 		NodeID: nodeID, Tag: spec.Tag, Port: spec.Port, Protocol: spec.Protocol, Transport: spec.Transport,
@@ -512,20 +563,31 @@ func modelOf(nodeID int64, spec *inbound.Spec) (*model.NodeInbound, error) {
 }
 
 func (s *Service) CreateInbound(ctx context.Context, nodeID int64, spec inbound.Spec) (*InboundView, error) {
-	if _, err := s.store.GetNode(ctx, nodeID); err != nil {
+	node, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
 		return nil, err
 	}
 	if err := inbound.Normalize(&spec); err != nil {
 		return nil, err
 	}
+	if spec.Transport != inbound.TransportTCP && node.LastSyncAt != nil && !node.AgentXHTTP {
+		return nil, &ConflictError{Field: "transport", Message: "the agent of this node does not know xhttp yet: update the agent first"}
+	}
 	if err := s.destNotANode(ctx, &spec); err != nil {
+		return nil, err
+	}
+	loops, err := s.decoyLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := decoyNotOurs(&spec, loops); err != nil {
 		return nil, err
 	}
 	in, err := modelOf(nodeID, &spec)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.CreateInbound(ctx, in, sniGuard(inbound.ServerNames(&spec))); err != nil {
+	if err := s.store.CreateInbound(ctx, in, inboundGuard(&spec)); err != nil {
 		if errors.Is(err, store.ErrInvalidReference) {
 			return nil, store.ErrNotFound
 		}
@@ -543,10 +605,12 @@ type RealityPatch struct {
 }
 
 type InboundPatch struct {
-	Tag     *string       `json:"tag"`
-	Port    *int          `json:"port"`
-	Label   *string       `json:"label"`
-	Reality *RealityPatch `json:"reality"`
+	Tag     *string        `json:"tag"`
+	Port    *int           `json:"port"`
+	Label   *string        `json:"label"`
+	Reality *RealityPatch  `json:"reality"`
+	XHTTP   *inbound.XHTTP `json:"xhttp"`
+	TLS     *inbound.TLS   `json:"tls"`
 }
 
 func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
@@ -558,6 +622,18 @@ func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
 	}
 	if patch.Label != nil {
 		spec.Label = *patch.Label
+	}
+	if patch.XHTTP != nil {
+		if spec.XHTTP == nil {
+			return fieldErr("xhttp", "inbound has no xhttp settings")
+		}
+		spec.XHTTP = patch.XHTTP
+	}
+	if patch.TLS != nil {
+		if spec.TLS == nil {
+			return fieldErr("tls", "inbound has no tls settings")
+		}
+		spec.TLS = patch.TLS
 	}
 	rp := patch.Reality
 	if rp == nil {
@@ -589,6 +665,10 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 	if err != nil {
 		return nil, err
 	}
+	loops, err := s.decoyLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
 	updated, err := s.store.ModifyInbound(ctx, id, func(current *model.NodeInbound, others []model.NodeInbound) (*model.NodeInbound, error) {
 		spec, err := SpecOf(current)
 		if err != nil {
@@ -600,10 +680,13 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 		if err := inbound.Normalize(&spec); err != nil {
 			return nil, err
 		}
-		if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
+		if spec.Reality != nil && slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
 			return nil, fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
 		}
-		if err := sniGuard(inbound.ServerNames(&spec))(others); err != nil {
+		if err := decoyNotOurs(&spec, loops); err != nil {
+			return nil, err
+		}
+		if err := inboundGuard(&spec)(others); err != nil {
 			return nil, err
 		}
 		return modelOf(current.NodeID, &spec)

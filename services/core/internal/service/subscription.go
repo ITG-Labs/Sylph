@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,20 +30,26 @@ type SubscriptionRequest struct {
 	UserAgent   string
 	DeviceOS    string
 	DeviceModel string
+	XHTTP       bool
 }
 
 type Connection struct {
-	Name        string `json:"name"`
-	Address     string `json:"address"`
-	Port        int    `json:"port"`
-	UUID        string `json:"uuid"`
-	Flow        string `json:"flow"`
-	Transport   string `json:"transport"`
-	Security    string `json:"security"`
-	SNI         string `json:"sni"`
-	PublicKey   string `json:"public_key"`
-	ShortID     string `json:"short_id"`
-	Fingerprint string `json:"fingerprint"`
+	Name        string          `json:"name"`
+	Address     string          `json:"address"`
+	Port        int             `json:"port"`
+	UUID        string          `json:"uuid"`
+	Flow        string          `json:"flow"`
+	Transport   string          `json:"transport"`
+	Security    string          `json:"security"`
+	SNI         string          `json:"sni"`
+	PublicKey   string          `json:"public_key"`
+	ShortID     string          `json:"short_id"`
+	Fingerprint string          `json:"fingerprint"`
+	Path        string          `json:"path,omitempty"`
+	Host        string          `json:"host,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	Extra       json.RawMessage `json:"extra,omitempty"`
+	ALPN        []string        `json:"alpn,omitempty"`
 }
 
 type SubscriptionView struct {
@@ -142,7 +149,7 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 	if len(keys) == 0 {
 		return view, nil
 	}
-	conns, err := s.connections(ctx, sub.ID, keys[0].UUID)
+	conns, err := s.connections(ctx, sub.ID, keys[0].UUID, req.XHTTP)
 	if err != nil {
 		return nil, err
 	}
@@ -179,10 +186,16 @@ func satSum(a, b int64) int64 {
 	return a + b
 }
 
-func (s *Service) connections(ctx context.Context, periodID int64, uuid string) ([]Connection, error) {
-	endpoints, err := s.store.ListPeriodEndpoints(ctx, periodID)
+func (s *Service) connections(ctx context.Context, periodID int64, uuid string, xhttp bool) ([]Connection, error) {
+	all, err := s.store.ListPeriodEndpoints(ctx, periodID)
 	if err != nil {
 		return nil, err
+	}
+	endpoints := all[:0]
+	for _, e := range all {
+		if e.Inbound.Transport == inbound.TransportTCP || (xhttp && e.NodeXHTTP) {
+			endpoints = append(endpoints, e)
+		}
 	}
 	perNode := map[int64]int{}
 	for _, e := range endpoints {
@@ -216,6 +229,21 @@ func (s *Service) connections(ctx context.Context, periodID int64, uuid string) 
 			}
 			if len(r.ShortIDs) > 0 {
 				c.ShortID = r.ShortIDs[0]
+			}
+		}
+		if t := spec.TLS; t != nil {
+			ep := t.Client()
+			c.Address, c.Port, c.SNI, c.Host = ep.Address, ep.Port, ep.SNI, ep.Host
+			c.Fingerprint, c.ALPN = t.Fingerprint, t.ALPN
+		}
+		if x := spec.XHTTP; x != nil {
+			c.Path, c.Mode = x.Path, x.ClientMode
+			extra, err := json.Marshal(x.LinkExtra())
+			if err != nil {
+				return nil, err
+			}
+			if string(extra) != "{}" {
+				c.Extra = extra
 			}
 		}
 		out = append(out, c)

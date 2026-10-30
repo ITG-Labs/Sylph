@@ -183,13 +183,13 @@ func TestSyncRemembersWhetherTheAgentKnowsInbounds(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
 	n := poolNode(t, svc, "n1")
-	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, false); err != nil {
+	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, AgentCaps{}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := svc.GetNode(ctx, n.ID); got.AgentPerInbound {
 		t.Fatal("an old agent was taken for a per-inbound one")
 	}
-	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, true); err != nil {
+	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, AgentCaps{PerInbound: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := svc.GetNode(ctx, n.ID); !got.AgentPerInbound {
