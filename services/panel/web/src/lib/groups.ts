@@ -24,7 +24,7 @@ export interface GroupLike {
 export interface PlanLike {
   id: number
   name: string
-  location_group_id: number
+  location_group_id: number | null
   active_users: number
 }
 
@@ -60,7 +60,7 @@ export function groupsOf(w: World, inbound: InboundLike): number[] {
 
 export function sees(w: World, plan: PlanLike, inbound: InboundLike): boolean {
   const groups = groupsOf(w, inbound)
-  return groups.length === 0 || groups.includes(plan.location_group_id)
+  return groups.length === 0 || (plan.location_group_id !== null && groups.includes(plan.location_group_id))
 }
 
 export function visibleInbounds(w: World, plan: PlanLike): InboundLike[] {
@@ -81,7 +81,7 @@ export function withNodeGroups(w: World, nodeID: number, groupIDs: number[]): Wo
   }
 }
 
-export function withPlanGroup(w: World, planID: number, groupID: number): World {
+export function withPlanGroup(w: World, planID: number, groupID: number | null): World {
   return { ...w, plans: w.plans.map((p) => (p.id === planID ? { ...p, location_group_id: groupID } : p)) }
 }
 

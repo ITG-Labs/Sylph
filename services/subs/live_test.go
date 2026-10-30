@@ -213,15 +213,15 @@ rules:
 
 	t.Run("a plan rule sends traffic out through the second node", func(t *testing.T) {
 		exitAddr := os.Getenv("SYLPH_E2E_NODE2")
-		var group, exit, profile, other struct {
+		var exitGroup, exit, profile, other struct {
 			ID int64 `json:"id"`
 		}
-		env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "Выход"}, &group)
-		env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "Exit", "address": exitAddr, "group_ids": []int64{group.ID}}, &exit)
+		env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "Выход"}, &exitGroup)
+		env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "Exit", "address": exitAddr, "group_ids": []int64{exitGroup.ID}}, &exit)
 		env.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", exit.ID), map[string]any{
 			"tag": "reality", "port": 443, "reality": map[string]any{"dest": "mask.test:443", "server_names": []string{"mask.test"}},
 		}, nil)
-		env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Без выхода", "price_rub": 149, "period_days": 30}, &other)
+		env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Без выхода", "price_rub": 149, "period_days": 30, "location_group_id": group.ID}, &other)
 		cascaded := env.user(t, 1005, plan.ID)
 		direct := env.user(t, 1006, other.ID)
 		env.call(t, http.MethodPost, "/v1/admin/profiles", map[string]any{"name": "Через выход", "doc": map[string]any{

@@ -1124,7 +1124,7 @@ func TestMigration016DownAndUpAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`INSERT INTO location_groups (name) VALUES ('g1'), ('Общая')`,
+		`INSERT INTO location_groups (name) VALUES ('g1')`,
 		`INSERT INTO nodes (cert_cn, name, group_id) SELECT 'n1', 'n1', id FROM location_groups WHERE name = 'g1'`,
 		`INSERT INTO nodes (cert_cn, name) VALUES ('n2', 'n2')`,
 		`INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security) SELECT id, 'a', 443, 'vless', 'tcp', 'reality' FROM nodes`,
@@ -1149,12 +1149,10 @@ func TestMigration016DownAndUpAgain(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_nodes gn JOIN nodes n ON n.id = gn.node_id JOIN location_groups g ON g.id = gn.group_id WHERE n.name = 'n1' AND g.name = 'g1'`).Scan(&members); err != nil || members != 1 {
 		t.Fatalf("n1 membership = %d, %v", members, err)
 	}
-	var common string
-	if err := pool.QueryRow(ctx, `SELECT g.name FROM plans p JOIN location_groups g ON g.id = p.location_group_id WHERE p.name = 'p2'`).Scan(&common); err != nil || common != "Общая 2" {
-		t.Fatalf("p2 group = %q, %v", common, err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days) VALUES ('p3', 100, 30)`); err == nil {
-		t.Fatal("plan without group accepted")
+	var p2Group *int64
+	var groups int
+	if err := pool.QueryRow(ctx, `SELECT location_group_id, (SELECT count(*) FROM location_groups) FROM plans WHERE name = 'p2'`).Scan(&p2Group, &groups); err != nil || p2Group != nil || groups != 1 {
+		t.Fatalf("a plan without a group must stay so: group %v, groups %d, %v", p2Group, groups, err)
 	}
 	seen := func(plan string) []string {
 		t.Helper()
@@ -1206,12 +1204,6 @@ func TestMigration016DownAndUpAgain(t *testing.T) {
 	var used int64
 	if err := pool.QueryRow(ctx, `SELECT traffic_used_bytes FROM subscriptions`).Scan(&used); err != nil || used != 17 {
 		t.Fatalf("used after down = %d, %v (pool usage must fold into the period)", used, err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO plans (name, price_rub, period_days) VALUES ('p3', 100, 30)`); err != nil {
-		t.Fatalf("plan without group after down: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `DELETE FROM plans WHERE name = 'p3'`); err != nil {
-		t.Fatal(err)
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 016 again: %v", err)

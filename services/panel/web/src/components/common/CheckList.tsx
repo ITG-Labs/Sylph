@@ -11,7 +11,7 @@ export interface CheckItem {
 export function CheckList({ label, items, value, onChange }: { label: string; items: CheckItem[]; value: number[]; onChange: (ids: number[]) => void }) {
   const toggle = (id: number) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   return (
-    <div role="group" aria-label={label} className="well flex max-h-72 flex-col gap-0.5 overflow-y-auto rounded-xl p-1.5">
+    <div role="group" aria-label={label} className="well flex max-h-72 flex-col gap-0.5 overflow-x-hidden overflow-y-auto rounded-xl p-1.5">
       {items.map((item) => {
         const on = value.includes(item.id)
         return (

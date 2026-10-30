@@ -35,7 +35,13 @@ export function GroupsPage() {
   }
   const common = world ? world.nodes.filter((n) => world.inbounds.some((i) => i.node_id === n.id && groupsOf(world, i).length === 0)) : []
   const rows = [
-    { id: null as number | null, name: "Общие ноды", created_at: null as string | null, members: common.map((n) => n.name), plans: [] as string[] },
+    {
+      id: null as number | null,
+      name: "Общие ноды",
+      created_at: null as string | null,
+      members: common.map((n) => n.name),
+      plans: (world?.plans ?? []).filter((p) => p.location_group_id === null).map((p) => p.name),
+    },
     ...(groups ?? []).map((g) => ({
       id: g.id as number | null,
       name: g.name,
@@ -84,8 +90,8 @@ export function GroupsPage() {
                   {g.members.length === 0 ? <span className="text-muted-foreground">нет</span> : g.members.join(", ")}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">тарифы</div>
-                  {g.id === null ? <span className="text-muted-foreground">видны всем</span> : g.plans.length === 0 ? <span className="text-muted-foreground">нет</span> : g.plans.join(", ")}
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы (общие ноды видят все)" : "тарифы"}</div>
+                  {g.plans.length === 0 ? <span className="text-muted-foreground">нет</span> : g.plans.join(", ")}
                 </div>
               </Card>
             )

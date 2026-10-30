@@ -491,7 +491,7 @@ func TestAdminGroupMembersAndPlanPools(t *testing.T) {
 	mustField(t, e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/groups/%d/members", g.ID), map[string]any{"node_ids": []int64{999999}}), http.StatusBadRequest, "bad_request", "members")
 	mustStatus(t, e.call(t, http.MethodPut, "/v1/admin/groups/999999/members", map[string]any{}), http.StatusNotFound)
 
-	mustField(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "no-group", "price_rub": 1, "period_days": 30, "location_group_id": nil}), http.StatusBadRequest, "bad_request", "location_group_id")
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "no-group", "price_rub": 1, "period_days": 30, "location_group_id": nil}), http.StatusOK)
 	var p struct {
 		ID    int64 `json:"id"`
 		Pools []struct {
@@ -514,7 +514,7 @@ func TestAdminGroupMembersAndPlanPools(t *testing.T) {
 		Pools []json.RawMessage `json:"pools"`
 	}
 	e.call(t, http.MethodGet, "/v1/admin/plans", nil).decode(t, &plans)
-	if len(plans) != 1 || len(plans[0].Pools) != 1 {
+	if len(plans) != 2 || len(plans[0].Pools) != 0 || plans[1].ID != p.ID || len(plans[1].Pools) != 1 {
 		t.Fatalf("plans = %+v", plans)
 	}
 	var ce struct {

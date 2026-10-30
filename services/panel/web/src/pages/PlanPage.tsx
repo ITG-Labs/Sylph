@@ -53,7 +53,10 @@ export function PlanPage() {
     setTg("")
     setDialog(d)
   }
-  const group = `${groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`} + всё без группы`
+  const group =
+    plan.location_group_id === null
+      ? "только то, что не в группах"
+      : `${groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`} + всё без группы`
   const maxUsesN = maxUses === "" ? null : Number(maxUses)
   const expiresISO = expires ? new Date(expires).toISOString() : null
 

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
-import { ArrowLeft, ListChecks, Pencil, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ListChecks, Pencil, Plus, Trash2, X } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { ActionDialog } from "@/components/common/ActionDialog"
 import { CheckList, type CheckItem } from "@/components/common/CheckList"
@@ -15,9 +15,10 @@ import { core } from "@/lib/api"
 import { fmtDate, fmtRub, plural } from "@/lib/format"
 import { accessChanges, describeChanges, hiddenReason, isHarsh, withMembers, withPlanGroup, type ImpactLine } from "@/lib/groups"
 import { useInvalidate, useNodes } from "@/lib/queries"
+import type { Plan } from "@/lib/types"
 import { useWorld } from "@/lib/world"
 
-type Dialog = { kind: "rename" } | { kind: "delete" } | { kind: "members" } | { kind: "addPlan" }
+type Dialog = { kind: "rename" } | { kind: "delete" } | { kind: "members" } | { kind: "addPlan" } | { kind: "removePlan"; plan: Plan }
 
 const quoted = (names: string[]) => names.map((n) => `«${n}»`).join(", ")
 
@@ -78,7 +79,7 @@ export function GroupPage() {
   const poolPlans = plans.filter((p) => p.pools.some((pool) => pool.group_id === gid))
   const memberCount = g.node_ids.length + g.inbound_ids.length
   const removable = memberCount === 0 && gPlans.length === 0 && poolPlans.length === 0
-  const where = (group: number) => groups.find((x) => x.id === group)?.name ?? `группа ${group}`
+  const where = (group: number | null) => (group === null ? null : (groups.find((x) => x.id === group)?.name ?? `группа ${group}`))
   const refresh = () => invalidate(["nodes"], ["plans"], ["groups"], ["overview"])
   const open = (d: Dialog) => {
     setPick(null)
@@ -116,6 +117,7 @@ export function GroupPage() {
   let lines: ImpactLine[] = []
   if (dialog?.kind === "members" && !sameMembers) lines = describeChanges(world, accessChanges(world, withMembers(world, gid, pickedNodes, pickedInbounds)))
   if (pickedPlan) lines = describeChanges(world, accessChanges(world, withPlanGroup(world, pickedPlan.id, gid)))
+  if (dialog?.kind === "removePlan") lines = describeChanges(world, accessChanges(world, withPlanGroup(world, dialog.plan.id, null)))
   const consequences = lines.length > 0 ? <MoveConsequences lines={lines} /> : undefined
 
   return (
@@ -182,7 +184,7 @@ export function GroupPage() {
 
         <Section
           title="Тарифы"
-          description="их юзеры видят состав группы и всё без группы; убрать тариф — значит перенести его в другую группу"
+          description="их юзеры видят состав группы и всё, что не входит ни в одну группу"
           action={
             <Button size="sm" onClick={() => open({ kind: "addPlan" })}>
               <Plus />
@@ -195,12 +197,20 @@ export function GroupPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {gPlans.map((p) => (
-                <Link key={p.id} to={`/plans/${p.id}`} className="well block rounded-xl py-2 pr-3 pl-3.5 transition-colors hover:bg-white/6">
-                  <div className="truncate font-medium">{p.name}</div>
-                  <div className="text-xs text-muted-foreground tabular-nums">
-                    {p.active_users ?? 0} {plural(p.active_users ?? 0, "юзер", "юзера", "юзеров")} сейчас · {fmtRub(p.price_rub)}
+                <div key={p.id} className="well flex items-center gap-3 rounded-xl py-2 pr-2 pl-3.5">
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/plans/${p.id}`} className="block truncate font-medium hover:underline">
+                      {p.name}
+                    </Link>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      {p.active_users ?? 0} {plural(p.active_users ?? 0, "юзер", "юзера", "юзеров")} сейчас · {fmtRub(p.price_rub)}
+                    </div>
                   </div>
-                </Link>
+                  <Button variant="ghost" size="sm" onClick={() => open({ kind: "removePlan", plan: p })}>
+                    <X />
+                    Убрать
+                  </Button>
+                </div>
               ))}
               {poolPlans.map((p) => (
                 <Link key={`pool${p.id}`} to={`/plans/${p.id}`} className="well block rounded-xl py-2 pr-3 pl-3.5 transition-colors hover:bg-white/6">
@@ -282,7 +292,7 @@ export function GroupPage() {
         open={dialog?.kind === "addPlan"}
         onOpenChange={close}
         title={`Перенести тариф в «${g.name}»`}
-        description="У тарифа одна группа — выбранный перенесётся сюда"
+        description="У тарифа одна группа или ни одной — выбранный перенесётся сюда"
         consequences={consequences}
         consequencesBelow
         destructive={isHarsh(lines)}
@@ -309,12 +319,28 @@ export function GroupPage() {
                   {p.name}
                   <span className="font-normal text-muted-foreground tabular-nums"> · {p.active_users} {plural(p.active_users, "юзер", "юзера", "юзеров")}</span>
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground">в «{where(p.location_group_id)}»</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{where(p.location_group_id) ? `в «${where(p.location_group_id)}»` : "без группы"}</span>
               </>
             )}
           />
         )}
       </ActionDialog>
+
+      <ActionDialog
+        open={dialog?.kind === "removePlan"}
+        onOpenChange={close}
+        title={dialog?.kind === "removePlan" ? `Убрать «${dialog.plan.name}» из группы` : "Убрать тариф"}
+        description="Тариф останется без группы и будет видеть только то, что не входит ни в одну группу"
+        consequences={consequences}
+        destructive={isHarsh(lines)}
+        confirmLabel="Убрать"
+        success="Тариф убран из группы"
+        onConfirm={async () => {
+          if (dialog?.kind !== "removePlan") return
+          await core.patch(`/v1/admin/plans/${dialog.plan.id}`, { location_group_id: null })
+          await refresh()
+        }}
+      />
     </>
   )
 }

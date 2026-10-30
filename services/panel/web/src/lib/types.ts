@@ -328,7 +328,7 @@ export interface Plan {
   price_rub: number
   period_days: number
   traffic_limit_bytes: number | null
-  location_group_id: number
+  location_group_id: number | null
   device_limit: number | null
   on_sale: boolean
   hwid_required: boolean

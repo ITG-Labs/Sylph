@@ -32,20 +32,25 @@ func wantField(t *testing.T, err error, field string) {
 	}
 }
 
-func TestPlanNeedsAGroup(t *testing.T) {
+func TestPlanGroupIsOptionalButMustExist(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
-	p := &model.Plan{Name: "m", PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic}
-	wantField(t, svc.CreatePlanChecked(ctx, p), "location_group_id")
 	missing := int64(999999)
-	p.LocationGroupID = &missing
+	p := &model.Plan{Name: "m", PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic, LocationGroupID: &missing}
 	wantField(t, svc.CreatePlanChecked(ctx, p), "location_group_id")
-	p.LocationGroupID = testGroup(t, svc.store)
+	p.LocationGroupID = nil
 	if err := svc.CreatePlanChecked(ctx, p); err != nil {
-		t.Fatal(err)
+		t.Fatalf("a plan without a group: %v", err)
 	}
-	_, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{LocationGroupID: Optional[int64]{Set: true}})
-	wantField(t, err, "location_group_id")
+	g := testGroup(t, svc.store)
+	moved, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{LocationGroupID: Optional[int64]{Set: true, Value: g}})
+	if err != nil || moved.LocationGroupID == nil || *moved.LocationGroupID != *g {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	freed, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{LocationGroupID: Optional[int64]{Set: true}})
+	if err != nil || freed.LocationGroupID != nil {
+		t.Fatalf("taking a plan out of its group = %+v, %v", freed, err)
+	}
 }
 
 func TestPlanPoolsAreValidated(t *testing.T) {

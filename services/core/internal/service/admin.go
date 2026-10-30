@@ -143,9 +143,6 @@ func validatePlan(p *model.Plan) error {
 	if p.Visibility != model.VisibilityPublic && p.Visibility != model.VisibilityPrivate {
 		return fieldErr("visibility", "must be public or private")
 	}
-	if p.LocationGroupID == nil {
-		return fieldErr("location_group_id", "is required")
-	}
 	if len(p.Pools) > maxPlanPools {
 		return fieldErr("pools", "too many pools")
 	}
@@ -164,6 +161,9 @@ func validatePlan(p *model.Plan) error {
 }
 
 func (s *Service) planGroupExists(ctx context.Context, p *model.Plan) error {
+	if p.LocationGroupID == nil {
+		return nil
+	}
 	if _, err := s.store.GetLocationGroup(ctx, *p.LocationGroupID); errors.Is(err, store.ErrNotFound) {
 		return fieldErr("location_group_id", "group not found")
 	} else if err != nil {

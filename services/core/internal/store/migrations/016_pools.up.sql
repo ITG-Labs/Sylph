@@ -53,24 +53,6 @@ REFERENCING NEW TABLE AS changed FOR EACH STATEMENT EXECUTE FUNCTION bump_member
 CREATE TRIGGER trg_group_inbounds_delete_bump AFTER DELETE ON group_inbounds
 REFERENCING OLD TABLE AS changed FOR EACH STATEMENT EXECUTE FUNCTION bump_member_nodes();
 
-DO $$
-DECLARE
-    gid    BIGINT;
-    gname  TEXT := 'Общая';
-    suffix INT := 1;
-BEGIN
-    IF EXISTS (SELECT 1 FROM plans WHERE location_group_id IS NULL) THEN
-        WHILE EXISTS (SELECT 1 FROM location_groups WHERE name = gname) LOOP
-            suffix := suffix + 1;
-            gname := 'Общая ' || suffix;
-        END LOOP;
-        INSERT INTO location_groups (name) VALUES (gname) RETURNING id INTO gid;
-        UPDATE plans SET location_group_id = gid WHERE location_group_id IS NULL;
-    END IF;
-END
-$$;
-ALTER TABLE plans ALTER COLUMN location_group_id SET NOT NULL;
-
 CREATE TABLE plan_pools (
     id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     plan_id             BIGINT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,

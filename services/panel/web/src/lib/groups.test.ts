@@ -85,3 +85,12 @@ describe("change texts", () => {
     expect(texts(describeChanges(world, accessChanges(world, world)))).toEqual(["Доступы юзеров не меняются."])
   })
 })
+
+describe("plans without a group", () => {
+  it("see only what is in no group, and leaving a group is a move like any other", () => {
+    const free = withPlanGroup(world, 10, null)
+    expect(ids(visibleInbounds(free, free.plans[0]))).toEqual([31, 41])
+    const changes = accessChanges(world, free)
+    expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained)])).toEqual([[10, [11], []]])
+  })
+})

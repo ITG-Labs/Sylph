@@ -139,7 +139,7 @@ export function PlanFormDialog({
     setGb(gbText(plan?.traffic_limit_bytes))
     setDevices(plan?.device_limit ? String(plan.device_limit) : "")
     setHwid(plan?.hwid_required ?? false)
-    setGroup(plan ? String(plan.location_group_id) : "")
+    setGroup(plan?.location_group_id ? String(plan.location_group_id) : "none")
     setPools(plan?.pools.map(draftOf) ?? [])
     setTrial(plan?.trial ?? false)
     setPriv(plan?.visibility === "private")
@@ -161,7 +161,6 @@ export function PlanFormDialog({
     daysN <= 3650 &&
     (gb.trim() === "" || bytes !== null) &&
     (devN === null || (Number.isInteger(devN) && devN >= 1 && devN <= 100)) &&
-    group !== "" &&
     pools.every((d) => d.target !== "" && (d.gb.trim() === "" || parseGB(d.gb) !== null))
   const hwidForced = devN !== null
 
@@ -172,7 +171,7 @@ export function PlanFormDialog({
     if (priceN !== 0) setTrial(false)
   }, [priceN])
 
-  const groupID = Number(group)
+  const groupID = group === "none" ? null : Number(group)
   const poolsBody = pools.map(poolBody)
   const full: Record<string, unknown> = {
     name: name.trim(),
@@ -262,22 +261,19 @@ export function PlanFormDialog({
       </div>
       <div className="flex flex-col gap-2">
         <Label>Группа</Label>
-        {groups.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Сначала создай группу на экране «Группы» — тариф без группы завести нельзя.</p>
-        ) : (
-          <Select value={group} onValueChange={setGroup}>
-            <SelectTrigger aria-label="Группа">
-              <SelectValue placeholder="выбери группу" />
-            </SelectTrigger>
-            <SelectContent>
-              {groups.map((g) => (
-                <SelectItem key={g.id} value={String(g.id)}>
-                  {g.name} + всё без группы
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Select value={group} onValueChange={setGroup}>
+          <SelectTrigger aria-label="Группа">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Без группы — только то, что не в группах</SelectItem>
+            {groups.map((g) => (
+              <SelectItem key={g.id} value={String(g.id)}>
+                {g.name} + всё без группы
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <PoolsEditor pools={pools} onChange={setPools} groups={groups} />
       <div className="flex flex-col gap-2">
