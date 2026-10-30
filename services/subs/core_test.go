@@ -27,13 +27,18 @@ func coreClientFor(t *testing.T, h http.HandlerFunc) *CoreClient {
 
 func TestCoreClientPostsTheRequestAndDecodesTheView(t *testing.T) {
 	var got Request
-	var gotID string
+	var gotID, gotCaps string
 	c := coreClientFor(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/subscription" {
 			t.Errorf("%s %s", r.Method, r.URL.Path)
 		}
 		gotID = r.Header.Get(logging.HeaderRequestID)
-		_ = json.NewDecoder(r.Body).Decode(&got)
+		gotCaps = r.Header.Get("X-Sylph-Caps")
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&got); err != nil {
+			t.Errorf("an older core would refuse the body: %v", err)
+		}
 		_, _ = io.WriteString(w, `{"status":"ok","traffic_used_bytes":7,"traffic_limit_bytes":null,"expires_at":"2026-11-11T09:21:27+03:00",
 			"connections":[{"name":"Смоук","address":"node.example.com","port":443,"uuid":"u","flow":"xtls-rprx-vision","transport":"tcp",
 			"security":"reality","sni":"www.apple.com","public_key":"pk","short_id":"sid","fingerprint":"chrome"}]}`)
@@ -43,10 +48,8 @@ func TestCoreClientPostsTheRequestAndDecodesTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sent := req
-	sent.XHTTP = true
-	if got != sent || gotID != "rid-1" {
-		t.Fatalf("core got %+v id %q", got, gotID)
+	if got != req || gotID != "rid-1" || gotCaps != "xhttp" {
+		t.Fatalf("core got %+v id %q caps %q", got, gotID, gotCaps)
 	}
 	want := Connection{Name: "Смоук", Address: "node.example.com", Port: 443, UUID: "u", Flow: "xtls-rprx-vision", Transport: "tcp", Security: "reality", SNI: "www.apple.com", PublicKey: "pk", ShortID: "sid", Fingerprint: "chrome"}
 	if view.Status != StatusOK || view.TrafficUsedBytes != 7 || view.TrafficLimitBytes != nil || view.ExpiresAt == nil || len(view.Connections) != 1 || !reflect.DeepEqual(view.Connections[0], want) {

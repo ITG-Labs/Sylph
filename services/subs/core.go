@@ -56,7 +56,6 @@ type Request struct {
 	UserAgent   string `json:"user_agent"`
 	DeviceOS    string `json:"device_os"`
 	DeviceModel string `json:"device_model"`
-	XHTTP       bool   `json:"xhttp"`
 }
 
 type Core interface {
@@ -72,9 +71,8 @@ func NewCoreClient(api *apiclient.Client) *CoreClient {
 }
 
 func (c *CoreClient) Subscription(ctx context.Context, req Request) (*View, error) {
-	req.XHTTP = true
 	var view View
-	err := c.api.Do(ctx, http.MethodPost, "/v1/subscription", req, &view)
+	err := c.api.DoWith(ctx, http.MethodPost, "/v1/subscription", http.Header{"X-Sylph-Caps": {"xhttp"}}, req, &view)
 	var apiErr *apiclient.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 		return nil, ErrNotFound
