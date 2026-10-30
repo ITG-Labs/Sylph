@@ -25,6 +25,7 @@ type fakeCore struct {
 	failDeltas      bool
 	failAfterCommit bool
 	syncExtra       map[string]any
+	perInbound      bool
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,8 +35,10 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/v1/sync/users":
 		var body struct {
 			KnownVersion int64 `json:"known_version"`
+			PerInbound   bool  `json:"per_inbound"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
+		f.perInbound = body.PerInbound
 		if body.KnownVersion == f.syncVersion {
 			json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion})
 			return

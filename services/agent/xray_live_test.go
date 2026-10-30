@@ -42,7 +42,11 @@ func assertLiveUsers(t *testing.T, x XrayClient, want ...string) {
 		t.Fatal(err)
 	}
 	slices.Sort(got)
-	want = slices.Clone(want)
+	emails := make([]string, 0, len(want))
+	for _, uuid := range want {
+		emails = append(emails, userEmail(uuid, xraytest.EngineTag))
+	}
+	want = emails
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("xray users = %v, want %v", got, want)
@@ -80,7 +84,7 @@ func TestLiveReconcileRestoresUsersLostByXray(t *testing.T) {
 	if err := e.Reconcile(ctx, liveInbounds); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.RemoveUser(ctx, xraytest.EngineTag, a); err != nil {
+	if err := x.RemoveUser(ctx, xraytest.EngineTag, userEmail(a, xraytest.EngineTag)); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.Reconcile(ctx, liveInbounds); err != nil {
@@ -139,7 +143,7 @@ func TestLiveStatsCollectorCountsRealTraffic(t *testing.T) {
 	if err := xraytest.Exchange(xraytest.EngineVLESS, u, []byte(strings.Repeat("a", 100)), 1000); err != nil {
 		t.Fatal(err)
 	}
-	xraytest.WaitTraffic(t, x.QueryStats, u, 100, 1000)
+	xraytest.WaitTraffic(t, x.QueryStats, userEmail(u, xraytest.EngineTag), 100, 1000)
 	batch, err := sc.Collect(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +156,7 @@ func TestLiveStatsCollectorCountsRealTraffic(t *testing.T) {
 	if err := xraytest.Exchange(xraytest.EngineVLESS, u, []byte(strings.Repeat("b", 50)), 300); err != nil {
 		t.Fatal(err)
 	}
-	xraytest.WaitTraffic(t, x.QueryStats, u, 150, 1300)
+	xraytest.WaitTraffic(t, x.QueryStats, userEmail(u, xraytest.EngineTag), 150, 1300)
 	batch, err = sc.Collect(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -168,5 +172,48 @@ func TestLiveStatsCollectorCountsRealTraffic(t *testing.T) {
 	}
 	if d, ok := deltaFor(batch, u); ok {
 		t.Fatalf("idle user reported again: %+v", d)
+	}
+}
+
+func TestLiveKeysLiveOnTheirInboundsAndCountPerInbound(t *testing.T) {
+	x := liveXray(t)
+	both := []Inbound{{Tag: xraytest.EngineTag}, {Tag: xraytest.ClientTag}}
+	e := NewEngine(&Config{CachePath: filepath.Join(t.TempDir(), "cache.json")}, nil, x, discardLogger())
+	t.Cleanup(func() {
+		e.setDesired(nil)
+		_ = e.Reconcile(context.Background(), both)
+	})
+	ctx := context.Background()
+	only, every := xraytest.NewUUID(), xraytest.NewUUID()
+	e.inbounds = both
+	e.setDesired([]SyncUser{{UUID: only, Inbounds: []string{xraytest.EngineTag}}, {UUID: every, Inbounds: []string{xraytest.EngineTag, xraytest.ClientTag}}})
+	if err := e.Reconcile(ctx, both); err != nil {
+		t.Fatal(err)
+	}
+	if err := xraytest.Exchange(xraytest.ClientVLESS, only, []byte("ping"), 4); err == nil {
+		t.Fatal("a key reached an inbound it was not given")
+	}
+	sc := NewStatsCollector(x, discardLogger())
+	if err := xraytest.Exchange(xraytest.EngineVLESS, every, []byte(strings.Repeat("a", 100)), 1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := xraytest.Exchange(xraytest.ClientVLESS, every, []byte(strings.Repeat("b", 30)), 300); err != nil {
+		t.Fatal(err)
+	}
+	xraytest.WaitTraffic(t, x.QueryStats, userEmail(every, xraytest.EngineTag), 100, 1000)
+	xraytest.WaitTraffic(t, x.QueryStats, userEmail(every, xraytest.ClientTag), 30, 300)
+	batch, err := sc.Collect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Delta{}
+	for _, d := range batch.Deltas {
+		if d.KeyUUID == every {
+			got[d.Inbound] = d
+		}
+	}
+	if got[xraytest.EngineTag].BytesUp != 100 || got[xraytest.EngineTag].BytesDown != 1000 ||
+		got[xraytest.ClientTag].BytesUp != 30 || got[xraytest.ClientTag].BytesDown != 300 || len(got) != 2 {
+		t.Fatalf("per-inbound deltas = %+v", got)
 	}
 }

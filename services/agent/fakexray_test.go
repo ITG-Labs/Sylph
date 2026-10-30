@@ -39,7 +39,7 @@ func newFakeXray() *fakeXray {
 	return &fakeXray{users: map[string]bool{}, flows: map[string]string{}, stats: map[string]int64{}}
 }
 
-func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string, flow string) error {
+func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string, email string, flow string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.addErr != nil {
@@ -48,21 +48,21 @@ func (f *fakeXray) AddUser(ctx context.Context, tag string, uuid string, flow st
 	if f.failAdd[uuid] {
 		return errors.New("add failed for " + uuid)
 	}
-	f.users[tag+"/"+uuid] = true
-	f.flows[tag+"/"+uuid] = flow
+	f.users[tag+"/"+email] = true
+	f.flows[tag+"/"+email] = flow
 	if f.afterAdd != nil {
 		f.afterAdd()
 	}
 	return nil
 }
 
-func (f *fakeXray) RemoveUser(ctx context.Context, tag string, uuid string) error {
+func (f *fakeXray) RemoveUser(ctx context.Context, tag string, email string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failRemove[uuid] {
+	if uuid, _ := splitEmail(email); f.failRemove[uuid] {
 		return errors.New("remove failed for " + uuid)
 	}
-	delete(f.users, tag+"/"+uuid)
+	delete(f.users, tag+"/"+email)
 	if f.afterRemove != nil {
 		f.afterRemove()
 	}
@@ -118,13 +118,19 @@ func (f *fakeXray) setStats(stats map[string]int64) {
 func (f *fakeXray) hasUser(tag, uuid string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.users[tag+"/"+uuid]
+	return f.users[tag+"/"+userEmail(uuid, tag)]
+}
+
+func (f *fakeXray) hasEmail(tag, email string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.users[tag+"/"+email]
 }
 
 func (f *fakeXray) flowOf(tag, uuid string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.flows[tag+"/"+uuid]
+	return f.flows[tag+"/"+userEmail(uuid, tag)]
 }
 
 func (f *fakeXray) userCount() int {

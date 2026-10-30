@@ -86,21 +86,21 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 			c.SeenDown = value
 		}
 	}
-	for uuid, cur := range current {
-		st, ok := sc.state.Counters[uuid]
+	for email, cur := range current {
+		st, ok := sc.state.Counters[email]
 		if !ok {
 			st = &userCounters{}
-			sc.state.Counters[uuid] = st
+			sc.state.Counters[email] = st
 		}
 		st.UnsentUp += counterDelta(cur.SeenUp, st.SeenUp)
 		st.UnsentDown += counterDelta(cur.SeenDown, st.SeenDown)
 		st.SeenUp = cur.SeenUp
 		st.SeenDown = cur.SeenDown
 	}
-	for uuid, st := range sc.state.Counters {
+	for email, st := range sc.state.Counters {
 		if st.UnsentUp == 0 && st.UnsentDown == 0 {
-			if _, live := current[uuid]; !live {
-				delete(sc.state.Counters, uuid)
+			if _, live := current[email]; !live {
+				delete(sc.state.Counters, email)
 			}
 		}
 	}
@@ -115,11 +115,12 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 
 func (sc *StatsCollector) freezeBatch() {
 	var deltas []Delta
-	for uuid, st := range sc.state.Counters {
+	for email, st := range sc.state.Counters {
 		if st.UnsentUp == 0 && st.UnsentDown == 0 {
 			continue
 		}
-		deltas = append(deltas, Delta{KeyUUID: uuid, BytesUp: st.UnsentUp, BytesDown: st.UnsentDown})
+		uuid, tag := splitEmail(email)
+		deltas = append(deltas, Delta{KeyUUID: uuid, Inbound: tag, BytesUp: st.UnsentUp, BytesDown: st.UnsentDown})
 		st.UnsentUp = 0
 		st.UnsentDown = 0
 	}

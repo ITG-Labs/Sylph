@@ -13,9 +13,10 @@ import (
 )
 
 type SyncUser struct {
-	UUID     string `json:"uuid"`
-	PlanID   int64  `json:"plan_id,omitempty"`
-	EgressIP string `json:"egress_ip,omitempty"`
+	UUID     string   `json:"uuid"`
+	PlanID   int64    `json:"plan_id,omitempty"`
+	EgressIP string   `json:"egress_ip,omitempty"`
+	Inbounds []string `json:"inbounds,omitempty"`
 }
 
 type GeoSource struct {
@@ -59,6 +60,7 @@ type SyncResp struct {
 
 type Delta struct {
 	KeyUUID   string `json:"key_uuid"`
+	Inbound   string `json:"inbound,omitempty"`
 	BytesUp   int64  `json:"bytes_up"`
 	BytesDown int64  `json:"bytes_down"`
 }
@@ -129,7 +131,8 @@ func newCoreClientForTest(cfg *Config, logger *slog.Logger) *CoreClient {
 
 func (c *CoreClient) SyncUsers(ctx context.Context, knownVersion int64) (*SyncResp, error) {
 	var resp SyncResp
-	if err := c.api.Do(ctx, http.MethodPost, "/v1/sync/users", map[string]int64{"known_version": knownVersion}, &resp); err != nil {
+	body := map[string]any{"known_version": knownVersion, "per_inbound": true}
+	if err := c.api.Do(ctx, http.MethodPost, "/v1/sync/users", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

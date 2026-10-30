@@ -58,7 +58,7 @@ func TestLoopKeepsPlanRulesAndReportsTheirErrors(t *testing.T) {
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	tick(t, loop)
 	rule := ruleByTag(fx.liveRules(), "sylph-p1-r1")
-	if !slices.Equal(rule.Users, []string{"u-1"}) || rule.OutboundTag != "block" {
+	if !slices.Equal(rule.Users, []string{"u-1@main"}) || rule.OutboundTag != "block" {
 		t.Fatalf("live rules = %+v", fx.liveRules())
 	}
 	if hb, _ := lastHeartbeat(fc); hb["routing_error"] != nil {

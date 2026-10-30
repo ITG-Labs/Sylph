@@ -92,6 +92,7 @@ func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
 		return nil, false
 	}
 	now := time.Now().Unix()
+	raw = byKey(raw)
 	out := make([]OnlineKey, 0, len(raw))
 	total := 0
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
@@ -116,6 +117,22 @@ func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
 	return out, true
 }
 
+func byKey(raw map[string]map[string]int64) map[string]map[string]int64 {
+	out := make(map[string]map[string]int64, len(raw))
+	for email, ips := range raw {
+		uuid, _ := splitEmail(email)
+		if out[uuid] == nil {
+			out[uuid] = make(map[string]int64, len(ips))
+		}
+		for ip, since := range ips {
+			if prev, ok := out[uuid][ip]; !ok || since < prev {
+				out[uuid][ip] = since
+			}
+		}
+	}
+	return out
+}
+
 func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) {
 	if inbounds == nil {
 		return 0, false
@@ -127,8 +144,9 @@ func (l *Loop) activeUsers(ctx context.Context, inbounds []Inbound) (int, bool) 
 			l.logger.Error("heartbeat_xray_probe_failed", "probe", "list_users", "inbound", in.Tag, "error", err.Error())
 			return 0, false
 		}
-		for _, u := range users {
-			seen[u] = true
+		for _, email := range users {
+			uuid, _ := splitEmail(email)
+			seen[uuid] = true
 		}
 	}
 	return len(seen), true

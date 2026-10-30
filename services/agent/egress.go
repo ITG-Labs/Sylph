@@ -97,7 +97,7 @@ func egressStatus(addrs []EgressAddr) []AddressStatus {
 	return out
 }
 
-func buildEgress(status []AddressStatus, users []SyncUser) []noderoute.Egress {
+func buildEgress(status []AddressStatus, users []SyncUser, emailsOf func(SyncUser) []string) []noderoute.Egress {
 	source := map[string]string{}
 	for _, st := range status {
 		if st.OK {
@@ -112,7 +112,7 @@ func buildEgress(status []AddressStatus, users []SyncUser) []noderoute.Egress {
 		if groups[u.EgressIP] == nil {
 			groups[u.EgressIP] = map[int64][]string{}
 		}
-		groups[u.EgressIP][u.PlanID] = append(groups[u.EgressIP][u.PlanID], u.UUID)
+		groups[u.EgressIP][u.PlanID] = append(groups[u.EgressIP][u.PlanID], emailsOf(u)...)
 	}
 	if len(groups) == 0 {
 		return nil

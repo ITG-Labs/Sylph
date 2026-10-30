@@ -160,7 +160,7 @@ func decodeAddUser(t *testing.T, req *proxymancmd.AlterInboundRequest) (*protoco
 func TestAddUserSendsVlessAccount(t *testing.T) {
 	fx := &fakeXray{}
 	c := startFake(t, fx, time.Second)
-	if err := c.AddUser(context.Background(), "vless-in", testUUID, "xtls-rprx-vision"); err != nil {
+	if err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, "xtls-rprx-vision"); err != nil {
 		t.Fatal(err)
 	}
 	calls := fx.alterCalls()
@@ -182,7 +182,7 @@ func TestAddUserSendsVlessAccount(t *testing.T) {
 func TestAddUserEmptyFlow(t *testing.T) {
 	fx := &fakeXray{}
 	c := startFake(t, fx, time.Second)
-	if err := c.AddUser(context.Background(), "vless-in", testUUID, ""); err != nil {
+	if err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, ""); err != nil {
 		t.Fatal(err)
 	}
 	_, acc := decodeAddUser(t, fx.alterCalls()[0])
@@ -194,7 +194,7 @@ func TestAddUserEmptyFlow(t *testing.T) {
 func TestAddUserAlreadyExistsIsSuccess(t *testing.T) {
 	fx := &fakeXray{alterErr: errors.New("proxy/vless: User " + testUUID + " already exists.")}
 	c := startFake(t, fx, time.Second)
-	if err := c.AddUser(context.Background(), "vless-in", testUUID, ""); err != nil {
+	if err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, ""); err != nil {
 		t.Fatalf("already exists must be success, got %v", err)
 	}
 }
@@ -202,7 +202,7 @@ func TestAddUserAlreadyExistsIsSuccess(t *testing.T) {
 func TestAddUserOtherUserExistsIsError(t *testing.T) {
 	fx := &fakeXray{alterErr: errors.New("proxy/vless: User 11111111-2222-3333-4444-555555555555 already exists.")}
 	c := startFake(t, fx, time.Second)
-	if err := c.AddUser(context.Background(), "vless-in", testUUID, ""); err == nil {
+	if err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, ""); err == nil {
 		t.Fatal("another user's conflict must stay an error")
 	}
 }
@@ -210,7 +210,7 @@ func TestAddUserOtherUserExistsIsError(t *testing.T) {
 func TestAddUserUnknownInboundIsError(t *testing.T) {
 	fx := &fakeXray{alterErr: errors.New("app/proxyman/command: failed to get handler: vless-in > app/proxyman/inbound: handler not found: vless-in")}
 	c := startFake(t, fx, time.Second)
-	err := c.AddUser(context.Background(), "vless-in", testUUID, "")
+	err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, "")
 	if err == nil || !strings.Contains(err.Error(), "handler not found") {
 		t.Fatalf("err = %v, want handler not found", err)
 	}
@@ -219,7 +219,7 @@ func TestAddUserUnknownInboundIsError(t *testing.T) {
 func TestAddUserUnavailableIsError(t *testing.T) {
 	fx := &fakeXray{alterErr: status.Error(codes.Unavailable, "connection refused")}
 	c := startFake(t, fx, time.Second)
-	err := c.AddUser(context.Background(), "vless-in", testUUID, "")
+	err := c.AddUser(context.Background(), "vless-in", testUUID, testUUID, "")
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("err = %v, want Unavailable", err)
 	}
@@ -229,7 +229,7 @@ func TestAddUserRejectsInvalidUUIDWithoutCall(t *testing.T) {
 	fx := &fakeXray{}
 	c := startFake(t, fx, time.Second)
 	for _, bad := range []string{"not-a-uuid", "", "6f1c2c1e3b1a4c559d5e0a1b2c3d4e5f", testUUID + "0", "6f1c2c1e-3b1a-4c55-9d5e-0a1b2c3d4e5g"} {
-		err := c.AddUser(context.Background(), "vless-in", bad, "")
+		err := c.AddUser(context.Background(), "vless-in", bad, bad, "")
 		if err == nil {
 			t.Fatalf("%q accepted", bad)
 		}
@@ -245,7 +245,7 @@ func TestAddUserRejectsInvalidUUIDWithoutCall(t *testing.T) {
 func TestAddUserAcceptsUpperCaseUUID(t *testing.T) {
 	fx := &fakeXray{}
 	c := startFake(t, fx, time.Second)
-	if err := c.AddUser(context.Background(), "vless-in", strings.ToUpper(testUUID), ""); err != nil {
+	if err := c.AddUser(context.Background(), "vless-in", strings.ToUpper(testUUID), strings.ToUpper(testUUID), ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -378,7 +378,7 @@ func TestEveryCallHasTimeout(t *testing.T) {
 	fx := &fakeXray{block: true}
 	c := startFake(t, fx, 100*time.Millisecond)
 	calls := map[string]func(context.Context) error{
-		"add":    func(ctx context.Context) error { return c.AddUser(ctx, "vless-in", testUUID, "") },
+		"add":    func(ctx context.Context) error { return c.AddUser(ctx, "vless-in", testUUID, testUUID, "") },
 		"remove": func(ctx context.Context) error { return c.RemoveUser(ctx, "vless-in", testUUID) },
 		"list": func(ctx context.Context) error {
 			_, err := c.ListUsers(ctx, "vless-in")

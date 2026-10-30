@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
 )
@@ -51,8 +52,12 @@ func (e *Engine) ActiveUsers() map[string]bool {
 	return out
 }
 
-func (e *Engine) Block(uuids map[string]bool) {
-	e.blocked = uuids
+func (e *Engine) Block(emails map[string]bool) {
+	e.blocked = make(map[string]bool, len(emails))
+	for email := range emails {
+		uuid, _ := splitEmail(email)
+		e.blocked[uuid] = true
+	}
 }
 
 func (e *Engine) Inbounds() []Inbound {
@@ -77,15 +82,46 @@ func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, ge
 
 func (e *Engine) Desired(status []AddressStatus) NodeDesired {
 	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo,
-		Egress: buildEgress(status, e.users)}
+		Egress: buildEgress(status, e.users, e.emailsOf)}
+}
+
+func (e *Engine) emailsOf(u SyncUser) []string {
+	tags := u.Inbounds
+	if len(tags) == 0 {
+		for _, in := range e.inbounds {
+			tags = append(tags, in.Tag)
+		}
+	}
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, userEmail(u.UUID, tag))
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (e *Engine) desiredOn(tag string) map[string]string {
+	out := map[string]string{}
+	for _, u := range e.users {
+		if len(u.Inbounds) == 0 || slices.Contains(u.Inbounds, tag) {
+			out[userEmail(u.UUID, tag)] = u.UUID
+		}
+	}
+	for _, k := range e.serviceKeys {
+		out[k] = k
+	}
+	return out
 }
 
 func (e *Engine) PlanUsers() map[int64][]string {
 	out := map[int64][]string{}
 	for _, u := range e.users {
 		if u.PlanID != 0 {
-			out[u.PlanID] = append(out[u.PlanID], u.UUID)
+			out[u.PlanID] = append(out[u.PlanID], e.emailsOf(u)...)
 		}
+	}
+	for plan := range out {
+		slices.Sort(out[plan])
 	}
 	return out
 }
@@ -103,7 +139,7 @@ func (e *Engine) LoadState(path string) error {
 	e.setDesired(c.Users)
 	e.inbounds = c.Inbounds
 	e.version = c.Version
-	if c.Inbounds == nil {
+	if c.Inbounds == nil || !c.PerInbound {
 		e.version = -1
 	}
 	e.logger.Info("cache_loaded", "version", c.Version, "users", len(c.Users), "inbounds", len(c.Inbounds), "inbounds_known", c.Inbounds != nil)
@@ -122,7 +158,7 @@ func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	e.setDesired(resp.Users)
 	e.inbounds = resp.Inbounds
 	e.version = resp.Version
-	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, Users: resp.Users, Inbounds: resp.Inbounds,
+	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, PerInbound: true, Users: resp.Users, Inbounds: resp.Inbounds,
 		Routing: resp.Routing, ServiceKeys: resp.ServiceKeys, Geo: resp.Geo}); err != nil {
 		e.logger.Error("cache_save_failed", "error", err.Error())
 	}
@@ -164,18 +200,28 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 		return fmt.Errorf("list xray users in %s: %w", in.Tag, err)
 	}
 	actual := make(map[string]bool, len(live))
-	for _, uuid := range live {
-		actual[uuid] = true
+	for _, email := range live {
+		actual[email] = true
+	}
+	want := e.desiredOn(in.Tag)
+	keys := make(map[string]bool, len(want))
+	for _, uuid := range want {
+		keys[uuid] = true
 	}
 	var firstErr error
-	for uuid := range actual {
-		if e.desired[uuid] && !e.blocked[uuid] {
+	for email := range actual {
+		uuid, wanted := want[email]
+		if legacy, tag := splitEmail(email); !add && tag == "" && keys[legacy] {
+			uuid, wanted = legacy, true
+		}
+		if wanted && !e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.xray.RemoveUser(ctx, in.Tag, uuid); err != nil {
+		uuid, _ = splitEmail(email)
+		if err := e.xray.RemoveUser(ctx, in.Tag, email); err != nil {
 			firstErr = e.recordFailure(firstErr, "remove", in.Tag, uuid, err)
 			continue
 		}
@@ -184,14 +230,14 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 	if !add {
 		return firstErr
 	}
-	for uuid := range e.desired {
-		if actual[uuid] || e.blocked[uuid] {
+	for email, uuid := range want {
+		if actual[email] || e.blocked[uuid] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.xray.AddUser(ctx, in.Tag, uuid, in.Flow); err != nil {
+		if err := e.xray.AddUser(ctx, in.Tag, uuid, email, in.Flow); err != nil {
 			firstErr = e.recordFailure(firstErr, "add", in.Tag, uuid, err)
 			continue
 		}
