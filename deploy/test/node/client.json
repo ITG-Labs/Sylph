@@ -2,16 +2,26 @@
   "log": {"loglevel": "warning"},
   "inbounds": [
     {"tag": "in-alpha", "listen": "0.0.0.0", "port": 10801, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}},
-    {"tag": "in-beta", "listen": "0.0.0.0", "port": 10802, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}}
+    {"tag": "in-beta", "listen": "0.0.0.0", "port": 10802, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}},
+    {"tag": "in-cdn-packet", "listen": "0.0.0.0", "port": 10803, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}},
+    {"tag": "in-cdn-one", "listen": "0.0.0.0", "port": 10804, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}},
+    {"tag": "in-cdn-up", "listen": "0.0.0.0", "port": 10805, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}},
+    {"tag": "in-rx", "listen": "0.0.0.0", "port": 10806, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1", "port": 28080, "network": "tcp"}}
   ],
   "outbounds": [
-    {"tag": "out-alpha", "protocol": "vless", "settings": {"vnext": [{"address": "caddy", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "flow": "xtls-rprx-vision", "encryption": "none"}]}]},
-     "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {"serverName": "alpha.test", "fingerprint": "chrome", "publicKey": "sh1-NvOzbDTDqwWZPArZ37oHNMTkcbgUwie7egwoNig", "shortId": "a1b2c3d4e5f60718"}}},
-    {"tag": "out-beta", "protocol": "vless", "settings": {"vnext": [{"address": "caddy", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "flow": "xtls-rprx-vision", "encryption": "none"}]}]},
-     "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {"serverName": "beta.test", "fingerprint": "chrome", "publicKey": "s4KAfPmX6ufQ_n4VYWN2xG7mUVATAqaL0yY0GcmjGw0", "shortId": "a1b2c3d4e5f60718"}}}
+    {"tag": "out-alpha", "protocol": "vless", "settings": {"vnext": [{"address": "caddy", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "flow": "xtls-rprx-vision", "encryption": "none"}]}]}, "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {"serverName": "alpha.test", "fingerprint": "chrome", "publicKey": "sh1-NvOzbDTDqwWZPArZ37oHNMTkcbgUwie7egwoNig", "shortId": "a1b2c3d4e5f60718"}}},
+    {"tag": "out-beta", "protocol": "vless", "settings": {"vnext": [{"address": "caddy", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "flow": "xtls-rprx-vision", "encryption": "none"}]}]}, "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {"serverName": "beta.test", "fingerprint": "chrome", "publicKey": "s4KAfPmX6ufQ_n4VYWN2xG7mUVATAqaL0yY0GcmjGw0", "shortId": "a1b2c3d4e5f60718"}}},
+    {"tag": "out-cdn-packet", "protocol": "vless", "settings": {"vnext": [{"address": "cdn.test", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "encryption": "none"}]}]}, "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/api/v2/catalog/sync.json", "mode": "packet-up", "extra": {"noSSEHeader": true, "xPaddingObfsMode": true, "xPaddingMethod": "tokenish", "xPaddingPlacement": "cookie", "xPaddingKey": "_ym_d", "seqPlacement": "query", "seqKey": "part", "uplinkDataPlacement": "body", "sessionIDPlacement": "query", "sessionIDKey": "sid"}}, "security": "tls", "tlsSettings": {"serverName": "cdn.test", "fingerprint": "chrome", "alpn": ["h2"], "certificates": [{"usage": "verify", "certificateFile": "/roots/root.pem"}]}}},
+    {"tag": "out-cdn-one", "protocol": "vless", "settings": {"vnext": [{"address": "cdn.test", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "encryption": "none"}]}]}, "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/api/v2/catalog/sync.json", "mode": "stream-one", "extra": {"noSSEHeader": true, "xPaddingObfsMode": true, "xPaddingMethod": "tokenish", "xPaddingPlacement": "cookie", "xPaddingKey": "_ym_d", "seqPlacement": "query", "seqKey": "part", "uplinkDataPlacement": "body", "sessionIDPlacement": "query", "sessionIDKey": "sid"}}, "security": "tls", "tlsSettings": {"serverName": "cdn.test", "fingerprint": "chrome", "alpn": ["h2"], "certificates": [{"usage": "verify", "certificateFile": "/roots/root.pem"}]}}},
+    {"tag": "out-cdn-up", "protocol": "vless", "settings": {"vnext": [{"address": "cdn.test", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "encryption": "none"}]}]}, "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/api/v2/catalog/sync.json", "mode": "stream-up", "extra": {"noSSEHeader": true, "xPaddingObfsMode": true, "xPaddingMethod": "tokenish", "xPaddingPlacement": "cookie", "xPaddingKey": "_ym_d", "seqPlacement": "query", "seqKey": "part", "uplinkDataPlacement": "body", "sessionIDPlacement": "query", "sessionIDKey": "sid"}}, "security": "tls", "tlsSettings": {"serverName": "cdn.test", "fingerprint": "chrome", "alpn": ["h2"], "certificates": [{"usage": "verify", "certificateFile": "/roots/root.pem"}]}}},
+    {"tag": "out-rx", "protocol": "vless", "settings": {"vnext": [{"address": "caddy", "port": 443, "users": [{"id": "7b350ac3-6336-4365-afc6-d1b3192042f2", "encryption": "none"}]}]}, "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/sync", "mode": "auto", "extra": {}}, "security": "reality", "realitySettings": {"serverName": "rx.test", "fingerprint": "chrome", "publicKey": "sh1-NvOzbDTDqwWZPArZ37oHNMTkcbgUwie7egwoNig", "shortId": "a1b2c3d4e5f60718"}}}
   ],
   "routing": {"rules": [
     {"inboundTag": ["in-alpha"], "outboundTag": "out-alpha"},
-    {"inboundTag": ["in-beta"], "outboundTag": "out-beta"}
+    {"inboundTag": ["in-beta"], "outboundTag": "out-beta"},
+    {"inboundTag": ["in-cdn-packet"], "outboundTag": "out-cdn-packet"},
+    {"inboundTag": ["in-cdn-one"], "outboundTag": "out-cdn-one"},
+    {"inboundTag": ["in-cdn-up"], "outboundTag": "out-cdn-up"},
+    {"inboundTag": ["in-rx"], "outboundTag": "out-rx"}
   ]}
 }

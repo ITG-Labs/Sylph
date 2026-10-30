@@ -34,6 +34,8 @@ type Config struct {
 	XrayGeoPrefix string
 	SyncInterval  time.Duration
 	Egress        []EgressAddr
+	ACMECA        string
+	ACMECARoot    string
 }
 
 func LoadConfig() (*Config, error) {
@@ -56,6 +58,8 @@ func LoadConfig() (*Config, error) {
 		GeoStatePath:  envOr("SYLPH_GEO_STATE_PATH", "geo.json"),
 		XrayGeoPrefix: envOr("SYLPH_XRAY_GEO_PREFIX", defaultGeoPrefix),
 		SyncInterval:  30 * time.Second,
+		ACMECA:        os.Getenv("SYLPH_ACME_CA"),
+		ACMECARoot:    os.Getenv("SYLPH_ACME_CA_ROOT"),
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")

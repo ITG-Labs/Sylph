@@ -99,14 +99,22 @@ type xrayVLESS struct {
 }
 
 type xrayStream struct {
-	Network         string      `json:"network"`
-	Security        string      `json:"security"`
-	Sockopt         xraySockopt `json:"sockopt"`
-	RealitySettings xrayReality `json:"realitySettings"`
+	Network         string       `json:"network"`
+	Security        string       `json:"security"`
+	Sockopt         xraySockopt  `json:"sockopt"`
+	RealitySettings *xrayReality `json:"realitySettings,omitempty"`
+	XHTTPSettings   *xrayXHTTP   `json:"xhttpSettings,omitempty"`
 }
 
 type xraySockopt struct {
-	AcceptProxyProtocol bool `json:"acceptProxyProtocol"`
+	AcceptProxyProtocol  bool     `json:"acceptProxyProtocol"`
+	TrustedXForwardedFor []string `json:"trustedXForwardedFor,omitempty"`
+}
+
+type xrayXHTTP struct {
+	Path  string          `json:"path"`
+	Mode  string          `json:"mode"`
+	Extra json.RawMessage `json:"extra,omitempty"`
 }
 
 type xrayReality struct {
@@ -184,26 +192,32 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 	}
 	for i, in := range sorted {
 		cfg.Inbounds = append(cfg.Inbounds, xrayInbound{
-			Tag:      in.Tag,
-			Listen:   "127.0.0.1",
-			Port:     firstInternalPort + i,
-			Protocol: "vless",
-			Settings: xrayVLESS{Clients: []struct{}{}, Decryption: "none"},
-			StreamSettings: xrayStream{
-				Network:  "raw",
-				Security: "reality",
-				Sockopt:  xraySockopt{AcceptProxyProtocol: true},
-				RealitySettings: xrayReality{
-					Target:      in.Reality.Dest,
-					ServerNames: in.Reality.ServerNames,
-					PrivateKey:  in.Reality.PrivateKey,
-					ShortIDs:    in.Reality.ShortIDs,
-				},
-			},
-			Sniffing: sniffing,
+			Tag:            in.Tag,
+			Listen:         "127.0.0.1",
+			Port:           firstInternalPort + i,
+			Protocol:       "vless",
+			Settings:       xrayVLESS{Clients: []struct{}{}, Decryption: "none"},
+			StreamSettings: streamOf(in),
+			Sniffing:       sniffing,
 		})
 	}
 	return marshalConfig(cfg)
+}
+
+func streamOf(in Inbound) xrayStream {
+	st := xrayStream{Network: "raw", Security: in.Security, Sockopt: xraySockopt{AcceptProxyProtocol: true}}
+	if x := in.XHTTP; x != nil {
+		st.Network = "xhttp"
+		st.XHTTPSettings = &xrayXHTTP{Path: x.Path, Mode: x.Mode, Extra: x.Extra}
+	}
+	if r := in.Reality; r != nil {
+		st.RealitySettings = &xrayReality{Target: r.Dest, ServerNames: r.ServerNames, PrivateKey: r.PrivateKey, ShortIDs: r.ShortIDs}
+	}
+	if in.TLS != nil {
+		st.Security = "none"
+		st.Sockopt = xraySockopt{TrustedXForwardedFor: []string{edgeHeader}}
+	}
+	return st
 }
 
 func marshalConfig(v any) ([]byte, error) {
@@ -219,6 +233,7 @@ func sortedInbounds(inbounds []Inbound) ([]Inbound, error) {
 	slices.SortFunc(out, func(a, b Inbound) int { return strings.Compare(a.Tag, b.Tag) })
 	tags := map[string]bool{}
 	names := map[string]string{}
+	sites := map[string][]Inbound{}
 	for _, in := range out {
 		if err := checkInbound(in); err != nil {
 			return nil, err
@@ -227,6 +242,19 @@ func sortedInbounds(inbounds []Inbound) ([]Inbound, error) {
 			return nil, fmt.Errorf("inbound %q: duplicate tag", in.Tag)
 		}
 		tags[in.Tag] = true
+		if in.TLS != nil {
+			if err := checkSite(in, sites[in.TLS.Domain]); err != nil {
+				return nil, err
+			}
+			if len(sites[in.TLS.Domain]) == 0 {
+				if other, ok := names[in.TLS.Domain]; ok {
+					return nil, fmt.Errorf("inbound %q: server name %q is already used by %q", in.Tag, in.TLS.Domain, other)
+				}
+				names[in.TLS.Domain] = in.Tag
+			}
+			sites[in.TLS.Domain] = append(sites[in.TLS.Domain], in)
+			continue
+		}
 		for _, name := range in.Reality.ServerNames {
 			if other, ok := names[name]; ok {
 				return nil, fmt.Errorf("inbound %q: server name %q is already used by %q", in.Tag, name, other)
@@ -241,11 +269,27 @@ func checkInbound(in Inbound) error {
 	if !inboundTagPattern.MatchString(in.Tag) {
 		return fmt.Errorf("inbound %q: tag must be 1-32 characters of a-z, 0-9 and -", in.Tag)
 	}
-	if in.Protocol != "vless" || in.Transport != "tcp" || in.Security != "reality" {
-		return fmt.Errorf("inbound %q: unsupported kind %s/%s/%s", in.Tag, in.Protocol, in.Transport, in.Security)
+	kind := in.Protocol + "/" + in.Transport + "/" + in.Security
+	switch {
+	case kind == "vless/tcp/reality" && in.XHTTP == nil && in.TLS == nil:
+	case kind == "vless/xhttp/reality" && in.XHTTP != nil && in.TLS == nil && in.Flow == "":
+	case kind == "vless/xhttp/tls" && in.XHTTP != nil && in.TLS != nil && in.Reality == nil && in.Flow == "":
+	default:
+		return fmt.Errorf("inbound %q: unsupported kind %s", in.Tag, kind)
 	}
 	if in.Port < 1 || in.Port > 65535 {
 		return fmt.Errorf("inbound %q: port %d out of range", in.Tag, in.Port)
+	}
+	if in.XHTTP != nil {
+		if err := checkXHTTP(in.XHTTP); err != nil {
+			return fmt.Errorf("inbound %q: %w", in.Tag, err)
+		}
+	}
+	if in.TLS != nil {
+		if err := checkTLS(in.TLS); err != nil {
+			return fmt.Errorf("inbound %q: %w", in.Tag, err)
+		}
+		return nil
 	}
 	r := in.Reality
 	if r == nil || r.Dest == "" || r.PrivateKey == "" || len(r.ServerNames) == 0 || len(r.ShortIDs) == 0 {

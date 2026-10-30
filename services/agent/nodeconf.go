@@ -241,7 +241,7 @@ func (n *NodeConfig) ConfigError() *string {
 }
 
 func (n *NodeConfig) ensureCaddy(ctx context.Context, applied []Inbound) {
-	want, err := BuildCaddy(applied, n.cfg.CaddyAdmin)
+	want, err := BuildCaddyWith(CaddyInput{Inbounds: applied, AdminListen: n.cfg.CaddyAdmin, ACMECA: n.cfg.ACMECA, ACMECARoot: n.cfg.ACMECARoot})
 	if err != nil {
 		n.failCaddy("caddy_config_unbuildable", err)
 		return
