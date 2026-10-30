@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { core } from "@/lib/api"
 import { fmtDate, fmtDateTime, fmtRelative, fmtUptime } from "@/lib/format"
 import { useGroups, useInvalidate } from "@/lib/queries"
+import { agentKnowsXHTTP, certLine, clientEndpoint, kindLabels, kindOf } from "@/lib/inbounds"
 import type { Inbound, Node } from "@/lib/types"
 
 type Dialog = { kind: "edit" } | { kind: "toggle" } | { kind: "newInbound" } | { kind: "editInbound"; inbound: Inbound } | { kind: "rekey"; inbound: Inbound } | { kind: "delete"; inbound: Inbound }
@@ -126,7 +127,7 @@ export function NodePage() {
 
         <Section
           title="Входы"
-          description="VLESS + REALITY; из них агент собирает конфиг xray, а subs — ссылки"
+          description="VLESS: REALITY и XHTTP; из них агент собирает конфиги xray и Caddy, а subs — ссылки"
           className="xl:col-span-2"
           action={
             <Button size="sm" onClick={() => setDialog({ kind: "newInbound" })}>
@@ -149,39 +150,23 @@ export function NodePage() {
                     <span className="font-mono text-sm font-medium">{ib.tag}</span>
                     {ib.label && <Badge variant="secondary">{ib.label}</Badge>}
                     <Badge variant="outline">
-                      {ib.protocol} · {ib.transport} · {ib.security} · :{ib.port}
+                      {kindLabels[kindOf(ib)]} · :{ib.port}
                     </Badge>
                     <div className="ml-auto flex gap-1">
                       <Button variant="ghost" size="icon-sm" aria-label="Изменить вход" onClick={() => setDialog({ kind: "editInbound", inbound: ib })}>
                         <Pencil />
                       </Button>
-                      <Button variant="ghost" size="icon-sm" aria-label="Новые ключи" onClick={() => setDialog({ kind: "rekey", inbound: ib })}>
-                        <KeyRound />
-                      </Button>
+                      {ib.reality && (
+                        <Button variant="ghost" size="icon-sm" aria-label="Новые ключи" onClick={() => setDialog({ kind: "rekey", inbound: ib })}>
+                          <KeyRound />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon-sm" aria-label="Удалить вход" onClick={() => setDialog({ kind: "delete", inbound: ib })}>
                         <Trash2 />
                       </Button>
                     </div>
                   </div>
-                  <KV label="dest" mono>
-                    {ib.reality.dest}
-                  </KV>
-                  <KV label="SNI" mono>
-                    {ib.reality.server_names.join(", ")}
-                  </KV>
-                  <KV label="shortId" mono>
-                    {ib.reality.short_ids.join(", ")}
-                  </KV>
-                  <KV label="Отпечаток">{ib.reality.fingerprint}</KV>
-                  <KV label="flow" mono>
-                    {ib.flow}
-                  </KV>
-                  <KV label="Публичный ключ" mono>
-                    <span className="inline-flex items-center gap-1">
-                      {ib.reality.public_key}
-                      <CopyButton value={ib.reality.public_key} label="Скопировать публичный ключ" />
-                    </span>
-                  </KV>
+                  <InboundDetails ib={ib} node={n} />
                 </div>
               ))}
             </div>
@@ -223,11 +208,12 @@ export function NodePage() {
           await refresh()
         }}
       />
-      <InboundFormDialog open={dialog?.kind === "newInbound"} onOpenChange={close} nodeId={n.id} onDone={() => refresh()} />
+      <InboundFormDialog open={dialog?.kind === "newInbound"} onOpenChange={close} nodeId={n.id} node={n} onDone={() => refresh()} />
       <InboundFormDialog
         open={dialog?.kind === "editInbound"}
         onOpenChange={close}
         nodeId={n.id}
+        node={n}
         inbound={dialog?.kind === "editInbound" ? dialog.inbound : undefined}
         onDone={() => refresh()}
       />
@@ -255,7 +241,7 @@ export function NodePage() {
         open={dialog?.kind === "delete"}
         onOpenChange={close}
         title="Удалить вход"
-        description={dialog?.kind === "delete" ? `${dialog.inbound.tag} · ${dialog.inbound.reality.server_names.join(", ")}` : undefined}
+        description={dialog?.kind === "delete" ? `${dialog.inbound.tag} · ${inboundWhere(dialog.inbound)}` : undefined}
         consequences={
           <>
             <p>Вход пропадёт из конфига ноды и из подписок. Если он последний — к ноде станет нечем подключиться.</p>
@@ -271,6 +257,77 @@ export function NodePage() {
           await refresh()
         }}
       />
+    </>
+  )
+}
+
+function inboundWhere(ib: Inbound) {
+  if (ib.tls) return `${ib.tls.domain}${ib.xhttp?.path ?? ""}`
+  return ib.reality?.server_names.join(", ") ?? ""
+}
+
+function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
+  const extra = Object.keys(ib.xhttp?.extra ?? {}).length
+  const ep = ib.tls ? clientEndpoint(ib.tls) : null
+  const cert = ib.tls ? certLine(node, ib.tls.domain) : null
+  return (
+    <>
+      {ib.xhttp && !agentKnowsXHTTP(node) && (
+        <p className="mb-2 text-xs text-warning">Агент ноды не знает XHTTP: вход не применён и скрыт из подписок, пока агента не обновят</p>
+      )}
+      {ib.tls && ep && cert && (
+        <>
+          <KV label="Домен" mono>
+            {ib.tls.domain}
+          </KV>
+          <KV label="Серт">
+            <span className={cert.ok ? "text-success" : "text-warning"}>{cert.text}</span>
+          </KV>
+          <KV label="Клиенты" mono>
+            {ep.address}:{ep.port} · SNI {ep.sni}
+            {ep.host !== ep.sni && ` · Host ${ep.host}`}
+          </KV>
+          <KV label="Маскировка" mono>
+            {ib.tls.decoy || "заглушка"}
+          </KV>
+        </>
+      )}
+      {ib.xhttp && (
+        <>
+          <KV label="Путь" mono>
+            {ib.xhttp.path}
+          </KV>
+          <KV label="mode">
+            сервер {ib.xhttp.mode}, клиент {ib.xhttp.client_mode}
+          </KV>
+          <KV label="extra">{extra > 0 ? `задано полей: ${extra}` : "как в xray"}</KV>
+        </>
+      )}
+      {ib.reality && (
+        <>
+          <KV label="dest" mono>
+            {ib.reality.dest}
+          </KV>
+          <KV label="SNI" mono>
+            {ib.reality.server_names.join(", ")}
+          </KV>
+          <KV label="shortId" mono>
+            {ib.reality.short_ids.join(", ")}
+          </KV>
+          <KV label="Отпечаток">{ib.reality.fingerprint}</KV>
+          {ib.flow && (
+            <KV label="flow" mono>
+              {ib.flow}
+            </KV>
+          )}
+          <KV label="Публичный ключ" mono>
+            <span className="inline-flex items-center gap-1">
+              {ib.reality.public_key}
+              <CopyButton value={ib.reality.public_key} label="Скопировать публичный ключ" />
+            </span>
+          </KV>
+        </>
+      )}
     </>
   )
 }
