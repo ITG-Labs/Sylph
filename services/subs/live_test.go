@@ -68,14 +68,27 @@ func TestSubsLive(t *testing.T) {
 		ID int64 `json:"id"`
 	}
 	env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-1", "name": "E2E", "address": env.node}, &node)
+	var open, hidden struct {
+		ID int64 `json:"id"`
+	}
 	env.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", node.ID), map[string]any{
 		"tag": "reality", "port": 443, "reality": map[string]any{"dest": "mask.test:443", "server_names": []string{"mask.test"}},
-	}, nil)
+	}, &open)
+	env.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", node.ID), map[string]any{
+		"tag": "service", "port": 443, "reality": map[string]any{"dest": "mask.test:443", "server_names": []string{"hidden.test"}},
+	}, &hidden)
+	var group, service struct {
+		ID int64 `json:"id"`
+	}
+	env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "E2E"}, &group)
+	env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "Служебная"}, &service)
+	env.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/groups/%d/members", group.ID), map[string]any{"inbound_ids": []int64{open.ID}}, nil)
+	env.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/groups/%d/members", service.ID), map[string]any{"inbound_ids": []int64{hidden.ID}}, nil)
 	var plan, devicePlan struct {
 		ID int64 `json:"id"`
 	}
-	env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Месяц", "price_rub": 199, "period_days": 30}, &plan)
-	env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Одно устройство", "price_rub": 99, "period_days": 30, "device_limit": 1}, &devicePlan)
+	env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Месяц", "price_rub": 199, "period_days": 30, "location_group_id": group.ID}, &plan)
+	env.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "Одно устройство", "price_rub": 99, "period_days": 30, "device_limit": 1, "location_group_id": group.ID}, &devicePlan)
 	clashUser := env.user(t, 1001, plan.ID)
 	linksUser := env.user(t, 1002, plan.ID)
 	expiredUser := env.user(t, 1003, 0)
@@ -96,6 +109,13 @@ func TestSubsLive(t *testing.T) {
 			}
 		}
 		return fmt.Errorf("nodes = %+v", nodes)
+	})
+
+	t.Run("an inbound in a group no plan uses stays out of subscriptions", func(t *testing.T) {
+		links := liveLinks(t, env, linksUser, nil)
+		if len(links) != 1 || strings.Contains(links[0], "hidden.test") || !strings.Contains(links[0], "mask.test") {
+			t.Fatalf("links = %q", links)
+		}
 	})
 
 	t.Run("health and unknown tokens", func(t *testing.T) {
@@ -197,7 +217,7 @@ rules:
 			ID int64 `json:"id"`
 		}
 		env.call(t, http.MethodPost, "/v1/admin/groups", map[string]any{"name": "Выход"}, &group)
-		env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "Exit", "address": exitAddr, "group_id": group.ID}, &exit)
+		env.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "Exit", "address": exitAddr, "group_ids": []int64{group.ID}}, &exit)
 		env.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", exit.ID), map[string]any{
 			"tag": "reality", "port": 443, "reality": map[string]any{"dest": "mask.test:443", "server_names": []string{"mask.test"}},
 		}, nil)

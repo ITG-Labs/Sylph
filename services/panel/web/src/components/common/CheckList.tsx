@@ -22,7 +22,7 @@ export function CheckList({ label, items, value, onChange }: { label: string; it
             aria-checked={on}
             disabled={item.disabled}
             onClick={() => toggle(item.id)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-white/6 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45 aria-checked:bg-primary/16 ${item.indent ? "ml-6 w-[calc(100%-1.5rem)]" : ""}`}
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-white/6 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45 aria-checked:bg-primary/16 ${item.indent ? "ml-6 w-[calc(100%-1.5rem)]" : "w-full"}`}
           >
             <span
               className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border ${on ? "border-primary bg-primary text-primary-foreground" : "border-white/25"}`}
