@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
@@ -17,7 +18,7 @@ func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, strin
 		t.Fatal(err)
 	}
 	limit := int64(1000)
-	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit}
+	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -26,6 +27,9 @@ func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, strin
 	}
 	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := svc.store.UpsertNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"www.example.org"}}}); err != nil {
 		t.Fatal(err)
 	}
 	return u, key, n

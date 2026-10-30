@@ -19,7 +19,7 @@ func mkUser(t *testing.T, s *Store) *model.User {
 
 func mkPlan(t *testing.T, s *Store) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}

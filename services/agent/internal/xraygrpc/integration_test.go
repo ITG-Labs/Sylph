@@ -24,10 +24,10 @@ func TestLiveUserLifecycle(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 	u := xraytest.NewUUID()
-	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, u, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, u, ""); err != nil {
 		t.Fatalf("second add must be idempotent: %v", err)
 	}
 	list, err := c.ListUsers(ctx, xraytest.ClientTag)
@@ -56,7 +56,7 @@ func TestLiveUnknownInbound(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 	u := xraytest.NewUUID()
-	if err := c.AddUser(ctx, "sylph-missing", u, ""); err == nil || !strings.Contains(err.Error(), "handler not found") {
+	if err := c.AddUser(ctx, "sylph-missing", u, u, ""); err == nil || !strings.Contains(err.Error(), "handler not found") {
 		t.Fatalf("add: err = %v, want handler not found", err)
 	}
 	if err := c.RemoveUser(ctx, "sylph-missing", u); err == nil || !strings.Contains(err.Error(), "handler not found") {
@@ -71,7 +71,7 @@ func TestLiveTrafficCounters(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 	u := xraytest.NewUUID()
-	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, u, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.RemoveUser(context.Background(), xraytest.ClientTag, u) })
@@ -85,7 +85,7 @@ func TestLiveRemovedUserCannotConnect(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 	u := xraytest.NewUUID()
-	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, u, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.RemoveUser(ctx, xraytest.ClientTag, u); err != nil {
@@ -156,7 +156,7 @@ func TestLiveRoutingRulesByUser(t *testing.T) {
 	if route(u) != "blocked" || route(other) != "" {
 		t.Fatalf("user rule: %s / %s", route(u), route(other))
 	}
-	if err := c.AddUser(ctx, xraytest.ClientTag, u, ""); err != nil {
+	if err := c.AddUser(ctx, xraytest.ClientTag, u, u, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.RemoveUser(ctx, xraytest.ClientTag, u) })

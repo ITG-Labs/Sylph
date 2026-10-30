@@ -12,7 +12,7 @@ var ErrTrialUnavailable = errors.New("trial unavailable")
 
 const visibleToUser = `(p.visibility = 'public' OR EXISTS (SELECT 1 FROM plan_access a WHERE a.plan_id = p.id AND a.user_id = $1 AND a.revoked_at IS NULL))`
 
-const trialOffer = `SELECT ` + planColumnsP + ` FROM plans p
+var trialOffer = `SELECT ` + planColumnsP + ` FROM plans p
 	WHERE p.trial AND p.on_sale AND ` + visibleToUser + `
 	  AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1)
 	  AND NOT EXISTS (SELECT 1 FROM trials t WHERE t.user_id = $1)`

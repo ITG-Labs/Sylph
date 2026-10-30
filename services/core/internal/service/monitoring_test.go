@@ -83,7 +83,7 @@ func TestOverviewCountsUsersMoneyAndProblems(t *testing.T) {
 	a, p := userAndPlan(t, svc, 701, 199)
 	b, _, _ := svc.RegisterUser(ctx, 702)
 	c, _, _ := svc.RegisterUser(ctx, 703)
-	trial := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, Trial: true, Visibility: model.VisibilityPublic}
+	trial := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, Trial: true, Visibility: model.VisibilityPublic, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.CreatePlanChecked(ctx, trial); err != nil {
 		t.Fatal(err)
 	}

@@ -158,7 +158,7 @@ func TestManualSubscriptionIsAuditedOnTheUser(t *testing.T) {
 	if _, err := e.svc.RecordPayment(context.Background(), "gift-1", u.ID, p.ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	other := &model.Plan{Name: "other", PriceRub: 1, PeriodDays: 30}
+	other := &model.Plan{Name: "other", PriceRub: 1, PeriodDays: 30, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(context.Background(), other); err != nil {
 		t.Fatal(err)
 	}

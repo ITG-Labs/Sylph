@@ -12,7 +12,7 @@ import (
 
 func mkVisPlan(t *testing.T, s *Store, name string, price int64, visibility string) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: name, PriceRub: price, PeriodDays: 30, Visibility: visibility}
+	p := &model.Plan{Name: name, PriceRub: price, PeriodDays: 30, Visibility: visibility, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}

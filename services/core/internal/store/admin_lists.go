@@ -60,10 +60,13 @@ const currentPeriodJoin = `LEFT JOIN LATERAL (
 
 func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]UserRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT u.id, u.telegram_id, u.status, u.banned_at, u.created_at, cur.plan_id, cp.name,
+		`WITH `+poolRelevance+`
+		 SELECT u.id, u.telegram_id, u.status, u.banned_at, u.created_at, cur.plan_id, cp.name,
 		        (SELECT max(q.expires_at) FROM subscriptions q WHERE q.user_id = u.id AND NOT q.canceled AND q.expires_at > now()),
-		        coalesce(cur.traffic_used_bytes, 0),
-		        CASE WHEN cp.traffic_limit_bytes IS NOT NULL THEN LEAST(cp.traffic_limit_bytes::numeric + cur.traffic_bonus_bytes, 9223372036854775807)::bigint END,
+		        coalesce((SELECT LEAST(sum(x.used_bytes), 9223372036854775807)::bigint FROM period_pools x
+		                  WHERE x.period_id = cur.id AND `+poolCounts("cur.plan_id", "x.pool_id")+`), 0),
+		        (SELECT CASE WHEN bool_and(x.limit_bytes IS NOT NULL) THEN LEAST(sum(x.limit_bytes), 9223372036854775807)::bigint END
+		         FROM period_pools x WHERE x.period_id = cur.id AND `+poolCounts("cur.plan_id", "x.pool_id")+`),
 		        (SELECT count(*) FROM devices d WHERE d.user_id = u.id),
 		        tp.username, `+telegramNameSQL+`,
 		        (SELECT coalesce(json_agg(json_build_object('id', n.id, 'name', n.name) ORDER BY n.name), '[]'::json) FROM nodes n
@@ -193,19 +196,20 @@ func (s *Store) UserCard(ctx context.Context, userID int64) (*UserCard, error) {
 	return card, nil
 }
 
-const periodRowColumns = `s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, ` + effectiveLimit + `, s.created_at, p.name, pay.payment_id`
+var periodRowColumns = `s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, ` + effectiveLimit + `, s.created_at, p.name, pay.payment_id,
+	period_exhausted(s.id), ` + mainIdle("s.plan_id") + `, ` + periodPools("s")
 
 const periodRowFrom = ` FROM subscriptions s JOIN plans p ON p.id = s.plan_id LEFT JOIN payments pay ON pay.period_id = s.id`
 
 func (s *Store) userPeriods(ctx context.Context, userID int64) ([]PeriodRow, error) {
 	open, err := s.periodRows(ctx,
-		`SELECT `+periodRowColumns+periodRowFrom+` WHERE s.user_id = $1 AND NOT s.canceled AND s.expires_at > now()
+		`WITH `+poolRelevance+` SELECT `+periodRowColumns+periodRowFrom+` WHERE s.user_id = $1 AND NOT s.canceled AND s.expires_at > now()
 		 ORDER BY s.starts_at, s.id`, userID)
 	if err != nil {
 		return nil, err
 	}
 	closed, err := s.periodRows(ctx,
-		`SELECT `+periodRowColumns+periodRowFrom+` WHERE s.user_id = $1 AND (s.canceled OR s.expires_at <= now())
+		`WITH `+poolRelevance+` SELECT `+periodRowColumns+periodRowFrom+` WHERE s.user_id = $1 AND (s.canceled OR s.expires_at <= now())
 		 ORDER BY s.expires_at DESC, s.id DESC LIMIT $2`, userID, closedPeriodsInCard)
 	if err != nil {
 		return nil, err
@@ -233,7 +237,7 @@ func (s *Store) periodRows(ctx context.Context, query string, args ...any) ([]Pe
 	for rows.Next() {
 		var r PeriodRow
 		if err := rows.Scan(&r.ID, &r.UserID, &r.PlanID, &r.StartsAt, &r.ExpiresAt, &r.Canceled, &r.TrafficUsedBytes, &r.TrafficBonusBytes,
-			&r.TrafficLimitBytes, &r.CreatedAt, &r.PlanName, &r.PaymentID); err != nil {
+			&r.TrafficLimitBytes, &r.CreatedAt, &r.PlanName, &r.PaymentID, &r.TrafficExhausted, &r.MainIdle, &r.Pools); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

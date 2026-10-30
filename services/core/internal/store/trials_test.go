@@ -45,7 +45,7 @@ func warmPool(t *testing.T, s *Store) {
 
 func mkTrialPlan(t *testing.T, s *Store, visibility string) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: "trial-" + model.NewToken()[:6], PeriodDays: 3, Trial: true, Visibility: visibility}
+	p := &model.Plan{Name: "trial-" + model.NewToken()[:6], PeriodDays: 3, Trial: true, Visibility: visibility, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}

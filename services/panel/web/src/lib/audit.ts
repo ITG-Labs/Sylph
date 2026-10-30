@@ -9,7 +9,7 @@ const actions: Record<string, Record<string, string>> = {
   invite: { create: "создал приглашение", revoke: "отозвал приглашение" },
   node: { create: "завёл ноду", update: "изменил ноду" },
   inbound: { create: "создал вход", update: "изменил вход", delete: "удалил вход" },
-  group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу" },
+  group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу", members: "изменил состав группы" },
   settings: { update: "изменил настройки", terms_bump: "попросил принять соглашение заново" },
 }
 

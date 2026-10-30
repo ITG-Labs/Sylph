@@ -307,10 +307,13 @@ func (s *Store) UserAddresses(ctx context.Context, userID int64) ([]UserAddress,
 		 JOIN users u ON u.id = aa.user_id
 		 LEFT JOIN LATERAL (
 		   SELECT p.dedicated_ip, p.id AS plan_id,
-		          (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes) AS traffic_ok
+		          EXISTS (SELECT 1 FROM plan_inbounds pi
+		                  JOIN period_pools x ON x.period_id = sub.id AND x.pool_id IS NOT DISTINCT FROM pi.pool_id
+		                  WHERE pi.plan_id = p.id AND pi.node_id = n.id
+		                    AND (x.limit_bytes IS NULL OR x.used_bytes < x.limit_bytes)) AS traffic_ok
 		   FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
 		   WHERE sub.user_id = aa.user_id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
-		     AND (n.group_id IS NULL OR p.location_group_id = n.group_id)
+		     AND EXISTS (SELECT 1 FROM plan_inbounds pi WHERE pi.plan_id = p.id AND pi.node_id = n.id)
 		   ORDER BY sub.starts_at DESC, sub.id DESC LIMIT 1) cur ON TRUE
 		 WHERE aa.user_id = $1
 		 ORDER BY n.name, na.ip`, userID)

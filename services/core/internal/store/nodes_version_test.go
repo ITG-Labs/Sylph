@@ -40,15 +40,11 @@ func TestGroupChangeBumpsOnlyThatNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	before1, before2 := nodeVersion(t, s, "node-1"), nodeVersion(t, s, "node-2")
-	n1.GroupID = &g.ID
-	if err := s.UpsertNode(ctx, n1); err != nil {
+	if err := s.SetNodeGroups(ctx, n1.ID, []int64{g.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if got := nodeVersion(t, s, "node-1"); got <= before1 {
 		t.Fatalf("node-1 version %d not bumped from %d", got, before1)
-	}
-	if n1.UsersVersion != nodeVersion(t, s, "node-1") {
-		t.Fatalf("upsert returned version %d, stored %d", n1.UsersVersion, nodeVersion(t, s, "node-1"))
 	}
 	if got := nodeVersion(t, s, "node-2"); got != before2 {
 		t.Fatalf("node-2 version changed %d -> %d", before2, got)

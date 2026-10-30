@@ -54,6 +54,10 @@ type Notification struct {
 	PeriodEnds        *time.Time `json:"period_ends"`
 	TrafficUsedBytes  *int64     `json:"traffic_used_bytes"`
 	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	PoolID            *int64     `json:"pool_id,omitempty"`
+	PoolName          string     `json:"pool_name,omitempty"`
+	MultiPool         bool       `json:"multi_pool"`
+	TrafficExhausted  bool       `json:"traffic_exhausted"`
 }
 
 type NotificationSent struct {
@@ -65,6 +69,22 @@ type NotificationSent struct {
 
 func trafficRef(periodID, bonus int64) string {
 	return fmt.Sprintf("%d:%d", periodID, bonus)
+}
+
+func poolRef(periodID, bonus, poolID int64) string {
+	return fmt.Sprintf("%d:%d:%d", periodID, bonus, poolID)
+}
+
+func trafficKind(used, limit int64) string {
+	switch {
+	case used >= limit:
+		return "traffic_out"
+	case atLeastPercent(used, limit, 95):
+		return "traffic_95"
+	case atLeastPercent(used, limit, 80):
+		return "traffic_80"
+	}
+	return ""
 }
 
 func untilRef(t time.Time) string {
@@ -87,22 +107,30 @@ func expiryOn(st store.Settings, trial bool) bool {
 func dueFor(c store.NotifyCandidate, now time.Time, st store.Settings) []Notification {
 	var out []Notification
 	base := Notification{UserID: c.UserID, TelegramID: c.TelegramID}
-	if st.NotifyTraffic && c.PeriodID != nil && c.LimitBytes != nil && *c.LimitBytes > 0 {
-		used, limit := c.UsedBytes, *c.LimitBytes
-		kind := ""
-		switch {
-		case used >= limit:
-			kind = "traffic_out"
-		case atLeastPercent(used, limit, 95):
-			kind = "traffic_95"
-		case atLeastPercent(used, limit, 80):
-			kind = "traffic_80"
+	if st.NotifyTraffic && c.PeriodID != nil {
+		traffic := base
+		traffic.PeriodEnds, traffic.PaidUntil = c.PeriodEnds, c.PaidUntil
+		traffic.MultiPool, traffic.TrafficExhausted = len(c.Pools) > 0, c.Exhausted
+		if !c.MainIdle && c.LimitBytes != nil && *c.LimitBytes > 0 {
+			used, limit := c.UsedBytes, *c.LimitBytes
+			if kind := trafficKind(used, limit); kind != "" {
+				n := traffic
+				n.Kind, n.Ref = kind, trafficRef(*c.PeriodID, c.BonusBytes)
+				n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
+				out = append(out, n)
+			}
 		}
-		if kind != "" {
-			n := base
-			n.Kind, n.Ref, n.PeriodEnds, n.PaidUntil = kind, trafficRef(*c.PeriodID, c.BonusBytes), c.PeriodEnds, c.PaidUntil
-			n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
-			out = append(out, n)
+		for _, p := range c.Pools {
+			if p.Limit == nil || *p.Limit <= 0 {
+				continue
+			}
+			used, limit, id := p.Used, *p.Limit, p.ID
+			if kind := trafficKind(used, limit); kind != "" {
+				n := traffic
+				n.Kind, n.Ref, n.PoolID, n.PoolName = kind, poolRef(*c.PeriodID, p.Bonus, p.ID), &id, p.Name
+				n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
+				out = append(out, n)
+			}
 		}
 	}
 	switch {
@@ -200,10 +228,8 @@ func (s *Service) MarkNotified(ctx context.Context, in NotificationSent) error {
 	m := store.NotifyMark{UserID: in.UserID, Kind: in.Kind, Ref: in.Ref, Outcome: in.Outcome}
 	switch kind.family {
 	case familyTraffic:
-		period, bonus, found := strings.Cut(in.Ref, ":")
-		id, err1 := strconv.ParseInt(period, 10, 64)
-		b, err2 := strconv.ParseInt(bonus, 10, 64)
-		if !found || err1 != nil || err2 != nil || id <= 0 || b < 0 || trafficRef(id, b) != in.Ref {
+		id, ok := parseTrafficRef(in.Ref)
+		if !ok {
 			return fieldErr("ref", "malformed traffic reference")
 		}
 		m.PeriodID = &id
@@ -216,4 +242,26 @@ func (s *Service) MarkNotified(ctx context.Context, in NotificationSent) error {
 		m.PaidUntil = &until
 	}
 	return s.store.MarkNotified(ctx, m)
+}
+
+func parseTrafficRef(ref string) (int64, bool) {
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 && len(parts) != 3 {
+		return 0, false
+	}
+	nums := make([]int64, len(parts))
+	for i, part := range parts {
+		v, err := strconv.ParseInt(part, 10, 64)
+		if err != nil || v < 0 {
+			return 0, false
+		}
+		nums[i] = v
+	}
+	if nums[0] <= 0 {
+		return 0, false
+	}
+	if len(nums) == 2 {
+		return nums[0], trafficRef(nums[0], nums[1]) == ref
+	}
+	return nums[0], nums[2] > 0 && poolRef(nums[0], nums[1], nums[2]) == ref
 }

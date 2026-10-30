@@ -122,7 +122,7 @@ func TestReconcileXrayFailureNoCrash(t *testing.T) {
 
 func TestReconcileUnknownInboundsTouchesNothing(t *testing.T) {
 	fx := newFakeXray()
-	fx.users["main/live"] = true
+	fx.users["main/live@main"] = true
 	e := testEngine(t, fx, &fakeCore{})
 	e.setDesired(users("a"))
 	if err := e.Reconcile(context.Background(), nil); err != nil {
@@ -165,10 +165,24 @@ func TestReconcileStopsOnShutdownRemoving(t *testing.T) {
 	}
 }
 
-func TestRevokeOnlyRemoves(t *testing.T) {
+func TestRevokeKeepsLegacyEmailsOfActiveKeys(t *testing.T) {
 	fx := newFakeXray()
 	fx.users["vless-in/a"] = true
 	fx.users["vless-in/revoked"] = true
+	e := testEngine(t, fx, &fakeCore{})
+	e.setDesired(users("a"))
+	if err := e.Revoke(context.Background(), []string{"vless-in"}); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasEmail("vless-in", "a") || fx.hasEmail("vless-in", "revoked") {
+		t.Fatal("while the inbounds are unknown an active key must keep its old email and a revoked one must go")
+	}
+}
+
+func TestRevokeOnlyRemoves(t *testing.T) {
+	fx := newFakeXray()
+	fx.users["vless-in/a@vless-in"] = true
+	fx.users["vless-in/revoked@vless-in"] = true
 	e := testEngine(t, fx, &fakeCore{})
 	e.setDesired(users("a", "new"))
 	if err := e.Revoke(context.Background(), []string{"vless-in"}); err != nil {
@@ -184,7 +198,7 @@ func TestRevokeOnlyRemoves(t *testing.T) {
 
 func TestRevokeWithoutDesiredStateTouchesNothing(t *testing.T) {
 	fx := newFakeXray()
-	fx.users["vless-in/live"] = true
+	fx.users["vless-in/live@vless-in"] = true
 	e := testEngine(t, fx, &fakeCore{})
 	if err := e.Revoke(context.Background(), []string{"vless-in"}); err != nil {
 		t.Fatal(err)
@@ -196,7 +210,7 @@ func TestRevokeWithoutDesiredStateTouchesNothing(t *testing.T) {
 
 func TestNoDesiredStateDoesNotWipeXray(t *testing.T) {
 	fx := newFakeXray()
-	fx.users["main/live"] = true
+	fx.users["main/live@main"] = true
 	e := deadEngine(t, fx, filepath.Join(t.TempDir(), "missing.json"))
 	if err := e.LoadState(e.cfg.CachePath); err != nil {
 		t.Fatal(err)
@@ -229,7 +243,7 @@ func TestXrayRestartReappliesUsers(t *testing.T) {
 func TestLoadStateRestoresUsersAndInboundsWithoutTouchingXray(t *testing.T) {
 	fx := newFakeXray()
 	cachePath := filepath.Join(t.TempDir(), "c.json")
-	if err := SaveCache(cachePath, &Cache{Version: 9, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
+	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
 		t.Fatal(err)
 	}
 	e := deadEngine(t, fx, cachePath)

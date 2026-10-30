@@ -14,6 +14,7 @@ var (
 	ErrUserBanned     = errors.New("user is banned")
 	ErrNoActivePeriod = errors.New("user has no active period")
 	ErrUnlimitedPlan  = errors.New("plan has no traffic limit")
+	ErrPoolNotInPlan  = errors.New("pool is not part of the current plan")
 	ErrPeriodClosed   = errors.New("period is already closed")
 )
 
@@ -63,11 +64,14 @@ func lockCurrent(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) (*
 	return &timeline[0], timeline, nil
 }
 
-func (s *Store) AddTrafficBonus(ctx context.Context, userID, bytes int64, now time.Time) (*model.Subscription, error) {
+func (s *Store) AddTrafficBonus(ctx context.Context, userID int64, poolID *int64, bytes int64, now time.Time) (*model.Subscription, error) {
 	err := s.withTx(ctx, func(tx pgx.Tx) error {
 		cur, _, err := lockCurrent(ctx, tx, userID, now)
 		if err != nil {
 			return err
+		}
+		if poolID != nil {
+			return addPoolBonus(ctx, tx, cur, *poolID, bytes)
 		}
 		if cur.limit == nil {
 			return ErrUnlimitedPlan
@@ -81,6 +85,26 @@ func (s *Store) AddTrafficBonus(ctx context.Context, userID, bytes int64, now ti
 		return nil, err
 	}
 	return s.GetActiveSubscription(ctx, userID)
+}
+
+func addPoolBonus(ctx context.Context, tx pgx.Tx, cur *period, poolID, bytes int64) error {
+	var limit *int64
+	err := tx.QueryRow(ctx, `SELECT traffic_limit_bytes FROM plan_pools WHERE id = $1 AND plan_id = $2`, poolID, cur.planID).Scan(&limit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPoolNotInPlan
+	}
+	if err != nil {
+		return err
+	}
+	if limit == nil {
+		return ErrUnlimitedPlan
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO period_pool_usage (period_id, pool_id, bonus_bytes) VALUES ($1, $2, $3)
+		 ON CONFLICT (period_id, pool_id) DO UPDATE
+		 SET bonus_bytes = LEAST(period_pool_usage.bonus_bytes::numeric + EXCLUDED.bonus_bytes, 9223372036854775807)::bigint`,
+		cur.id, poolID, bytes)
+	return err
 }
 
 func (s *Store) ExtendPeriod(ctx context.Context, userID int64, days int, now time.Time) (*model.Subscription, error) {

@@ -95,7 +95,7 @@ func TestAdminGroupRenameAndDelete(t *testing.T) {
 	mustStatus(t, e.call(t, http.MethodPatch, "/v1/admin/groups/999", map[string]string{"name": "x"}), http.StatusNotFound)
 	nodeID := e.createNode(t, "node-eu", &g.ID)
 	mustField(t, e.call(t, http.MethodDelete, path, nil), http.StatusConflict, "conflict", "group")
-	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", nodeID), map[string]any{"group_id": other.ID}), http.StatusOK)
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", nodeID), map[string]any{"group_ids": []int64{other.ID}}), http.StatusOK)
 	mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusOK)
 	mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusNotFound)
 	entries := auditList(t, e, "?entity=group")

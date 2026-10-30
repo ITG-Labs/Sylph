@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
+import { Plus, X } from "lucide-react"
 import { ActionDialog } from "@/components/common/ActionDialog"
+import { Button } from "@/components/ui/button"
 import { MoveConsequences } from "@/components/group/MoveConsequences"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -7,14 +9,99 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { core } from "@/lib/api"
 import { parseGB } from "@/lib/format"
-import { describePlanMove, isHarsh, planMoveImpact, type ImpactLine } from "@/lib/groups"
+import { accessChanges, describeChanges, isHarsh, newOldAgentLines, poolCovers, type ImpactLine, type PlanLike, type World } from "@/lib/groups"
 import { useNodes } from "@/lib/queries"
-import type { Group, Plan } from "@/lib/types"
+import type { Group, Plan, PlanPool } from "@/lib/types"
+import { useWorld } from "@/lib/world"
 
 const GiB = 1024 ** 3
 
 function gbText(bytes: number | null | undefined) {
   return bytes ? String(Math.round((bytes / GiB) * 100) / 100) : ""
+}
+
+interface PoolDraft {
+  id: number
+  target: string
+  name: string
+  gb: string
+}
+
+const targetOf = (p: PlanPool) => (p.node_id !== null ? `n:${p.node_id}` : `g:${p.group_id}`)
+
+function draftOf(p: PlanPool): PoolDraft {
+  return { id: p.id, target: targetOf(p), name: p.name, gb: gbText(p.traffic_limit_bytes) }
+}
+
+function poolBody(d: PoolDraft) {
+  const [kind, id] = d.target.split(":")
+  return {
+    ...(d.id ? { id: d.id } : {}),
+    name: d.name.trim(),
+    node_id: kind === "n" ? Number(id) : null,
+    group_id: kind === "g" ? Number(id) : null,
+    traffic_limit_bytes: d.gb.trim() === "" ? null : parseGB(d.gb),
+  }
+}
+
+function PoolsEditor({
+  pools,
+  onChange,
+  groups,
+  covered,
+}: {
+  pools: PoolDraft[]
+  onChange: (p: PoolDraft[]) => void
+  groups: Group[]
+  covered: (d: PoolDraft) => number | null
+}) {
+  const nodes = useNodes()
+  const set = (i: number, patch: Partial<PoolDraft>) => onChange(pools.map((p, j) => (j === i ? { ...p, ...patch } : p)))
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label>Отдельные пулы</Label>
+          <p className="text-xs text-muted-foreground">трафик этих нод или групп считается отдельно, остальное — в основной лимит</p>
+        </div>
+        <Button type="button" size="sm" variant="secondary" onClick={() => onChange([...pools, { id: 0, target: "", name: "", gb: "" }])}>
+          <Plus />
+          Пул
+        </Button>
+      </div>
+      {pools.map((p, i) => (
+        <div key={i} className="well flex flex-col gap-2 rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <Select value={p.target} onValueChange={(v) => set(i, { target: v })}>
+              <SelectTrigger aria-label="Что считать" className="min-w-0 flex-1">
+                <SelectValue placeholder="нода или группа" />
+              </SelectTrigger>
+              <SelectContent>
+                {(nodes.data ?? []).map((n) => (
+                  <SelectItem key={`n${n.id}`} value={`n:${n.id}`}>
+                    Нода «{n.name}»
+                  </SelectItem>
+                ))}
+                {groups.map((g) => (
+                  <SelectItem key={`g${g.id}`} value={`g:${g.id}`}>
+                    Группа «{g.name}»
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" size="icon" variant="ghost" aria-label="Убрать пул" onClick={() => onChange(pools.filter((_, j) => j !== i))}>
+              <X />
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input aria-label="Название пула" value={p.name} onChange={(e) => set(i, { name: e.target.value })} maxLength={64} placeholder="название — как у цели" />
+            <Input aria-label="Лимит пула, ГБ" inputMode="decimal" value={p.gb} onChange={(e) => set(i, { gb: e.target.value })} placeholder="ГБ, пусто — безлимит" />
+          </div>
+          {covered(p) === 0 && <p className="text-xs text-warning">Тариф не видит ни одного входа этой цели — пул ничего не посчитает.</p>}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function Toggle({ title, hint, checked, onChange, disabled }: { title: string; hint: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -48,7 +135,8 @@ export function PlanFormDialog({
   const [gb, setGb] = useState("")
   const [devices, setDevices] = useState("")
   const [hwid, setHwid] = useState(false)
-  const [group, setGroup] = useState("none")
+  const [group, setGroup] = useState("")
+  const [pools, setPools] = useState<PoolDraft[]>([])
   const [trial, setTrial] = useState(false)
   const [priv, setPriv] = useState(false)
   const [onSale, setOnSale] = useState(true)
@@ -63,6 +151,7 @@ export function PlanFormDialog({
     setDevices(plan?.device_limit ? String(plan.device_limit) : "")
     setHwid(plan?.hwid_required ?? false)
     setGroup(plan?.location_group_id ? String(plan.location_group_id) : "none")
+    setPools(plan?.pools.map(draftOf) ?? [])
     setTrial(plan?.trial ?? false)
     setPriv(plan?.visibility === "private")
     setOnSale(plan?.on_sale ?? true)
@@ -82,7 +171,8 @@ export function PlanFormDialog({
     daysN >= 1 &&
     daysN <= 3650 &&
     (gb.trim() === "" || bytes !== null) &&
-    (devN === null || (Number.isInteger(devN) && devN >= 1 && devN <= 100))
+    (devN === null || (Number.isInteger(devN) && devN >= 1 && devN <= 100)) &&
+    pools.every((d) => d.target !== "" && (d.gb.trim() === "" || parseGB(d.gb) !== null))
   const hwidForced = devN !== null
 
   useEffect(() => {
@@ -93,6 +183,7 @@ export function PlanFormDialog({
   }, [priceN])
 
   const groupID = group === "none" ? null : Number(group)
+  const poolsBody = pools.map(poolBody)
   const full: Record<string, unknown> = {
     name: name.trim(),
     price_rub: priceN,
@@ -105,6 +196,7 @@ export function PlanFormDialog({
     visibility: priv ? "private" : "public",
     on_sale: onSale,
     dedicated_ip: dedicated,
+    pools: poolsBody,
   }
   const changed: Record<string, unknown> = {}
   if (plan) {
@@ -119,14 +211,24 @@ export function PlanFormDialog({
     if (full.visibility !== plan.visibility) changed.visibility = full.visibility
     if (onSale !== plan.on_sale) changed.on_sale = onSale
     if (dedicated !== plan.dedicated_ip) changed.dedicated_ip = dedicated
+    if (JSON.stringify(poolsBody) !== JSON.stringify(plan.pools.map((p) => poolBody(draftOf(p))))) changed.pools = poolsBody
   }
   const nothingChanged = !!plan && Object.keys(changed).length === 0
-  const nodes = useNodes()
-  const moveLines: ImpactLine[] =
-    plan && "location_group_id" in changed && nodes.data
-      ? describePlanMove({ ...plan, active_users: plan.active_users ?? 0 }, groupID, planMoveImpact({ ...plan, active_users: plan.active_users ?? 0 }, groupID, nodes.data))
-      : []
-  const limitLive = !!plan && "traffic_limit_bytes" in changed
+  const { world } = useWorld()
+  const draft: PlanLike = {
+    id: plan?.id ?? -1,
+    name: name.trim() || "новый тариф",
+    location_group_id: groupID,
+    active_users: plan?.active_users ?? 0,
+    pools: poolsBody.map((b) => ({ node_id: b.node_id, group_id: b.group_id })),
+  }
+  const after: World | null = world ? { ...world, plans: plan ? world.plans.map((x) => (x.id === plan.id ? draft : x)) : [...world.plans, draft] } : null
+  const covered = (d: PoolDraft) => (after && d.target !== "" ? poolCovers(after, draft, poolBody(d)).length : null)
+  const moveLines: ImpactLine[] = [
+    ...(plan && "location_group_id" in changed && world && after ? describeChanges(world, accessChanges(world, after)) : []),
+    ...(world && after && (!plan || "location_group_id" in changed || "pools" in changed) ? newOldAgentLines(world, after) : []),
+  ]
+  const limitLive = !!plan && ("traffic_limit_bytes" in changed || "pools" in changed)
   const dedicatedLive = !!plan && "dedicated_ip" in changed
 
   return (
@@ -137,7 +239,7 @@ export function PlanFormDialog({
       consequences={
         limitLive || dedicatedLive || moveLines.length > 0 ? (
           <>
-            {limitLive && <p>Новый лимит трафика действует и на текущие периоды этого тарифа — ноды пересинкуются.</p>}
+            {limitLive && <p>Новые лимиты действуют и на текущие периоды этого тарифа — ноды пересинкуются. Расход удалённого пула пропадёт, новый пул начнёт с нуля.</p>}
             {dedicatedLive && (
               <p>
                 {dedicated
@@ -172,7 +274,7 @@ export function PlanFormDialog({
           <Input id="pdays" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ""))} />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="pgb">Трафик, ГБ</Label>
+          <Label htmlFor="pgb">{pools.length > 0 ? "Основной лимит, ГБ" : "Трафик, ГБ"}</Label>
           <Input id="pgb" inputMode="decimal" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="пусто — безлимит" />
         </div>
         <div className="flex flex-col gap-2">
@@ -181,21 +283,22 @@ export function PlanFormDialog({
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        <Label>Группа нод</Label>
+        <Label>Группа</Label>
         <Select value={group} onValueChange={setGroup}>
-          <SelectTrigger>
+          <SelectTrigger aria-label="Группа">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">Без группы — только общие ноды</SelectItem>
+            <SelectItem value="none">Без группы — только то, что не в группах</SelectItem>
             {groups.map((g) => (
               <SelectItem key={g.id} value={String(g.id)}>
-                {g.name} + общие ноды
+                {g.name} + всё без группы
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
+      <PoolsEditor pools={pools} onChange={setPools} groups={groups} covered={covered} />
       <div className="flex flex-col gap-2">
         <Toggle title="Требовать HWID" hint={hwidForced ? "обязателен при лимите устройств" : "клиент без HWID получит заглушку"} checked={hwid} onChange={setHwid} disabled={hwidForced} />
         <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся кнопкой в боте новичкам, раз на аккаунт" : "только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />

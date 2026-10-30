@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { core } from "./api"
 import { normalizeDoc, type GeoSource, type Profile } from "./routing"
-import type { Group, Node, NodeAddress, Plan } from "./types"
+import type { Group, InboundRef, Node, NodeAddress, Plan } from "./types"
 
 export function usePlans() {
   return useQuery({ queryKey: ["plans"], queryFn: () => core.get<Plan[]>("/v1/admin/plans"), staleTime: 60_000 })
@@ -9,6 +9,10 @@ export function usePlans() {
 
 export function useGroups() {
   return useQuery({ queryKey: ["groups"], queryFn: () => core.get<Group[]>("/v1/admin/groups"), staleTime: 60_000 })
+}
+
+export function useInboundRefs() {
+  return useQuery({ queryKey: ["inbounds"], queryFn: () => core.get<InboundRef[]>("/v1/admin/inbounds"), staleTime: 15_000 })
 }
 
 export function useNodes() {

@@ -60,6 +60,18 @@ func validText(field, v string, max int) error {
 	return nil
 }
 
+const (
+	maxGroupMembers = 1000
+	maxPlanPools    = 32
+)
+
+func nonNilIDs(ids []int64) []int64 {
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
+}
+
 func validName(field, name string) error {
 	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 64 {
 		return fieldErr(field, "must be 1-64 characters, not only spaces")
@@ -90,9 +102,20 @@ func (s *Service) RenameGroup(ctx context.Context, id int64, name string) (*mode
 func (s *Service) DeleteGroup(ctx context.Context, id int64) error {
 	err := s.store.DeleteLocationGroup(ctx, id)
 	if errors.Is(err, store.ErrGroupNotEmpty) {
-		return &ConflictError{Field: "group", Message: "group is not empty: move its nodes and plans out first"}
+		return &ConflictError{Field: "group", Message: "group is in use: remove its members and move plans and pools off it first"}
 	}
 	return err
+}
+
+func (s *Service) SetGroupMembers(ctx context.Context, id int64, nodeIDs, inboundIDs []int64) error {
+	if len(nodeIDs)+len(inboundIDs) > maxGroupMembers {
+		return fieldErr("members", "too many members")
+	}
+	return referenceOr(s.store.SetGroupMembers(ctx, id, nodeIDs, inboundIDs), "members", "node or inbound not found")
+}
+
+func (s *Service) GetGroup(ctx context.Context, id int64) (*model.LocationGroup, error) {
+	return s.store.GetLocationGroup(ctx, id)
 }
 
 func validatePlan(p *model.Plan) error {
@@ -120,6 +143,32 @@ func validatePlan(p *model.Plan) error {
 	if p.Visibility != model.VisibilityPublic && p.Visibility != model.VisibilityPrivate {
 		return fieldErr("visibility", "must be public or private")
 	}
+	if len(p.Pools) > maxPlanPools {
+		return fieldErr("pools", "too many pools")
+	}
+	for _, pool := range p.Pools {
+		if (pool.NodeID == nil) == (pool.GroupID == nil) {
+			return fieldErr("pools", "each pool needs exactly one of node_id or group_id")
+		}
+		if pool.TrafficLimitBytes != nil && *pool.TrafficLimitBytes <= 0 {
+			return fieldErr("pools", "traffic_limit_bytes must be positive or null for unlimited")
+		}
+		if err := validText("pools", pool.Name, 64); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) planGroupExists(ctx context.Context, p *model.Plan) error {
+	if p.LocationGroupID == nil {
+		return nil
+	}
+	if _, err := s.store.GetLocationGroup(ctx, *p.LocationGroupID); errors.Is(err, store.ErrNotFound) {
+		return fieldErr("location_group_id", "group not found")
+	} else if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -127,7 +176,10 @@ func planWriteErr(err error) error {
 	if errors.Is(err, store.ErrTrialOnSale) {
 		return &ConflictError{Field: "trial", Message: "another trial plan is on sale"}
 	}
-	return referenceOr(conflictOr(err, "name", "plan already exists"), "location_group_id", "group not found")
+	if errors.Is(err, store.ErrPoolOverlap) {
+		return fieldErr("pools", "pools overlap: an inbound would count towards two pools")
+	}
+	return referenceOr(conflictOr(err, "name", "plan already exists"), "pools", "unknown pool, node or group")
 }
 
 func (s *Service) CreatePlanChecked(ctx context.Context, p *model.Plan) error {
@@ -138,21 +190,25 @@ func (s *Service) CreatePlanOnSale(ctx context.Context, p *model.Plan, onSale bo
 	if err := validatePlan(p); err != nil {
 		return err
 	}
+	if err := s.planGroupExists(ctx, p); err != nil {
+		return err
+	}
 	return planWriteErr(s.store.CreatePlanWith(ctx, p, onSale))
 }
 
 type PlanPatch struct {
-	Name              *string         `json:"name"`
-	PriceRub          *int64          `json:"price_rub"`
-	PeriodDays        *int            `json:"period_days"`
-	TrafficLimitBytes Optional[int64] `json:"traffic_limit_bytes"`
-	LocationGroupID   Optional[int64] `json:"location_group_id"`
-	DeviceLimit       Optional[int]   `json:"device_limit"`
-	OnSale            *bool           `json:"on_sale"`
-	HWIDRequired      *bool           `json:"hwid_required"`
-	Trial             *bool           `json:"trial"`
-	Visibility        *string         `json:"visibility"`
-	DedicatedIP       *bool           `json:"dedicated_ip"`
+	Name              *string           `json:"name"`
+	PriceRub          *int64            `json:"price_rub"`
+	PeriodDays        *int              `json:"period_days"`
+	TrafficLimitBytes Optional[int64]   `json:"traffic_limit_bytes"`
+	LocationGroupID   Optional[int64]   `json:"location_group_id"`
+	DeviceLimit       Optional[int]     `json:"device_limit"`
+	OnSale            *bool             `json:"on_sale"`
+	HWIDRequired      *bool             `json:"hwid_required"`
+	Trial             *bool             `json:"trial"`
+	Visibility        *string           `json:"visibility"`
+	DedicatedIP       *bool             `json:"dedicated_ip"`
+	Pools             *[]model.PlanPool `json:"pools"`
 }
 
 func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*model.Plan, error) {
@@ -193,10 +249,19 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	if patch.DedicatedIP != nil {
 		p.DedicatedIP = *patch.DedicatedIP
 	}
+	if patch.Pools != nil {
+		p.Pools = *patch.Pools
+	}
 	if err := validatePlan(p); err != nil {
 		return nil, err
 	}
-	return p, planWriteErr(s.store.UpdatePlan(ctx, p))
+	if err := s.planGroupExists(ctx, p); err != nil {
+		return nil, err
+	}
+	if err := planWriteErr(s.store.UpdatePlan(ctx, p)); err != nil {
+		return nil, err
+	}
+	return s.store.GetPlan(ctx, id)
 }
 
 func (s *Service) ListPlans(ctx context.Context) ([]store.PlanRow, error) {
@@ -266,13 +331,13 @@ func (s *Service) CreateNode(ctx context.Context, n *model.Node) error {
 		return err
 	}
 	err := s.store.CreateNode(ctx, n)
-	return referenceOr(conflictOr(err, "cert_cn", "node with this certificate already exists"), "group_id", "group not found")
+	return referenceOr(conflictOr(err, "cert_cn", "node with this certificate already exists"), "group_ids", "group not found")
 }
 
 type NodePatch struct {
 	Name      *string         `json:"name"`
 	Address   *string         `json:"address"`
-	GroupID   Optional[int64] `json:"group_id"`
+	GroupIDs  *[]int64        `json:"group_ids"`
 	Enabled   *bool           `json:"enabled"`
 	ProfileID Optional[int64] `json:"profile_id"`
 }
@@ -297,8 +362,9 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		}
 		n.Address = *patch.Address
 	}
-	if patch.GroupID.Set {
-		n.GroupID = patch.GroupID.Value
+	n.GroupIDs = nil
+	if patch.GroupIDs != nil {
+		n.GroupIDs = nonNilIDs(*patch.GroupIDs)
 	}
 	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != n.Address)
 	if patch.Enabled != nil {
@@ -315,7 +381,10 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		n.ProfileID = patch.ProfileID.Value
 	}
 	if err := s.store.UpdateNode(ctx, n); err != nil {
-		return nil, referenceOr(err, "group_id", "group or profile not found")
+		if errors.Is(err, store.ErrInvalidReference) && patch.GroupIDs != nil {
+			return nil, fieldErr("group_ids", "group not found")
+		}
+		return nil, referenceOr(err, "profile_id", "profile not found")
 	}
 	if profileChanged || (patch.Enabled != nil && exitChanged) {
 		if err := s.store.RefreshLinks(ctx); err != nil {
@@ -547,6 +616,10 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 
 func (s *Service) DeleteInbound(ctx context.Context, id int64) error {
 	return s.store.DeleteInbound(ctx, id)
+}
+
+func (s *Service) InboundRefs(ctx context.Context) ([]store.InboundRef, error) {
+	return s.store.InboundRefs(ctx)
 }
 
 func (s *Service) ListInbounds(ctx context.Context, nodeID int64) ([]InboundView, error) {

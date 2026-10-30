@@ -36,7 +36,8 @@ export function NodesPage() {
   const invalidate = useInvalidate()
   const [creating, setCreating] = useState(false)
   const q = useQuery({ queryKey: ["nodes"], queryFn: () => core.get<Node[]>("/v1/admin/nodes"), refetchInterval: 30_000 })
-  const groupName = (id: number | null) => (id === null ? "без группы" : (groups.data?.find((g) => g.id === id)?.name ?? `группа ${id}`))
+  const groupNames = (ids: number[]) =>
+    ids.length === 0 ? "без группы" : ids.map((id) => groups.data?.find((g) => g.id === id)?.name ?? `группа ${id}`).join(", ")
 
   return (
     <>
@@ -84,7 +85,7 @@ export function NodesPage() {
                 <Metric label="xray" value={n.xray_version ?? "—"} />
                 <Metric label="аптайм агента" value={fmtUptime(n.agent_uptime_sec)} />
                 <Metric label="аптайм xray" value={fmtUptime(n.xray_uptime_sec)} />
-                <Metric label="группа" value={groupName(n.group_id)} />
+                <Metric label={n.group_ids.length > 1 ? "группы" : "группа"} value={groupNames(n.group_ids)} />
                 <Metric label="heartbeat" value={fmtRelative(n.last_heartbeat)} />
                 <Metric label="синк" value={fmtRelative(n.last_sync_at)} />
               </div>

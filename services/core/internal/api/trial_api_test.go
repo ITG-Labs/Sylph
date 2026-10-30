@@ -57,7 +57,7 @@ func postCall(t *testing.T, client *http.Client, url string, in any, out any) (i
 func TestTrialEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t, mtls.RoleBot)
 	ctx := context.Background()
-	plan := &model.Plan{Name: "trial", PeriodDays: 3, Trial: true, HWIDRequired: true}
+	plan := &model.Plan{Name: "trial", PeriodDays: 3, Trial: true, HWIDRequired: true, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, plan); err != nil {
 		t.Fatal(err)
 	}

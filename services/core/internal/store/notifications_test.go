@@ -65,7 +65,7 @@ func TestNotifyCandidatesTraffic(t *testing.T) {
 func TestNotifyCandidatesUnlimitedPlanSkipsTraffic(t *testing.T) {
 	s := setupStore(t)
 	now := time.Now()
-	plan := &model.Plan{Name: "unlim", PriceRub: 100, PeriodDays: 30}
+	plan := &model.Plan{Name: "unlim", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}

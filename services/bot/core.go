@@ -58,25 +58,42 @@ type HelpButton struct {
 }
 
 type Plan struct {
-	ID                int64  `json:"id"`
-	Name              string `json:"name"`
-	PriceRub          int64  `json:"price_rub"`
-	PeriodDays        int    `json:"period_days"`
+	ID                int64      `json:"id"`
+	Name              string     `json:"name"`
+	PriceRub          int64      `json:"price_rub"`
+	PeriodDays        int        `json:"period_days"`
+	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	DeviceLimit       *int       `json:"device_limit"`
+	OnSale            bool       `json:"on_sale"`
+	HWIDRequired      bool       `json:"hwid_required"`
+	Trial             bool       `json:"trial"`
+	Visibility        string     `json:"visibility"`
+	Pools             []PlanPool `json:"pools"`
+}
+
+type PlanPool struct {
+	Label             string `json:"label"`
 	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
-	DeviceLimit       *int   `json:"device_limit"`
-	OnSale            bool   `json:"on_sale"`
-	HWIDRequired      bool   `json:"hwid_required"`
-	Trial             bool   `json:"trial"`
-	Visibility        string `json:"visibility"`
+}
+
+type PoolUsage struct {
+	PoolID            int64  `json:"pool_id"`
+	Name              string `json:"name"`
+	UsedBytes         int64  `json:"used_bytes"`
+	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+	Exhausted         bool   `json:"exhausted"`
 }
 
 type Period struct {
-	PlanID            int64      `json:"plan_id"`
-	StartsAt          time.Time  `json:"starts_at"`
-	ExpiresAt         time.Time  `json:"expires_at"`
-	TrafficUsedBytes  int64      `json:"traffic_used_bytes"`
-	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
-	PaidUntil         *time.Time `json:"paid_until"`
+	PlanID            int64       `json:"plan_id"`
+	StartsAt          time.Time   `json:"starts_at"`
+	ExpiresAt         time.Time   `json:"expires_at"`
+	TrafficUsedBytes  int64       `json:"traffic_used_bytes"`
+	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
+	TrafficExhausted  bool        `json:"traffic_exhausted"`
+	MainIdle          bool        `json:"main_idle"`
+	Pools             []PoolUsage `json:"pools"`
+	PaidUntil         *time.Time  `json:"paid_until"`
 }
 
 type Status struct {

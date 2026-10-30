@@ -13,7 +13,7 @@ import (
 func trialFixture(t *testing.T, hwid bool) (*Service, *model.Plan) {
 	t.Helper()
 	svc := setupService(t)
-	p := &model.Plan{Name: "trial", PeriodDays: 3, Trial: true, HWIDRequired: hwid, Visibility: model.VisibilityPublic}
+	p := &model.Plan{Name: "trial", PeriodDays: 3, Trial: true, HWIDRequired: hwid, Visibility: model.VisibilityPublic, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestPaidPlanIgnoresTrialDevices(t *testing.T) {
 	if v := viewOf(t, svc, first, "phone-1"); v.Status != StatusOK {
 		t.Fatalf("trial = %s", v.Status)
 	}
-	paid := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, HWIDRequired: true, Visibility: model.VisibilityPublic}
+	paid := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, HWIDRequired: true, Visibility: model.VisibilityPublic, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(context.Background(), paid); err != nil {
 		t.Fatal(err)
 	}

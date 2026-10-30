@@ -34,13 +34,13 @@ func TestSyncKeepsRoutingServiceKeysAndPlans(t *testing.T) {
 	if d.Routing == nil || d.Routing.Default != "direct" || !reflect.DeepEqual(d.ServiceKeys, []string{"svc-1"}) || d.Geo == nil || d.Geo.Generation != 2 || len(d.Geo.Sources) != 1 {
 		t.Fatalf("desired = %+v", d)
 	}
-	if got := e.PlanUsers(); !reflect.DeepEqual(got, map[int64][]string{3: {"a"}}) {
+	if got := e.PlanUsers(); !reflect.DeepEqual(got, map[int64][]string{3: {"a@main"}}) {
 		t.Fatalf("plan users = %v", got)
 	}
 	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
 		t.Fatal(err)
 	}
-	if !fx.hasUser("main", "svc-1") {
+	if !fx.hasEmail("main", "svc-1") || fx.hasUser("main", "svc-1") {
 		t.Fatal("service key is not let into the inbound")
 	}
 	restored := deadEngine(t, newFakeXray(), filepath.Join(filepath.Dir(e.cfg.CachePath), "c.json"))
@@ -50,7 +50,7 @@ func TestSyncKeepsRoutingServiceKeysAndPlans(t *testing.T) {
 	if rd := restored.Desired(nil); rd.Routing == nil || len(rd.ServiceKeys) != 1 || rd.Geo == nil || !restored.ActiveUsers()["svc-1"] {
 		t.Fatalf("restored = %+v", rd)
 	}
-	if got := restored.PlanUsers(); !reflect.DeepEqual(got, map[int64][]string{3: {"a"}}) {
+	if got := restored.PlanUsers(); !reflect.DeepEqual(got, map[int64][]string{3: {"a@main"}}) {
 		t.Fatalf("restored plan users = %v", got)
 	}
 }

@@ -57,7 +57,7 @@ func TestUsersGetEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t, mtls.RoleBot)
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 800)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestPaymentsEndpointIdempotent(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t, mtls.RolePanel)
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 900)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestUserByTokenEndpoint(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t, mtls.RoleSubs)
 	ctx := context.Background()
 	u, key, _ := svc.RegisterUser(ctx, 1000)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestRotateEndpointHidesKey(t *testing.T) {
 	ts, client, svc := newAPITestEnv(t, mtls.RoleBot)
 	ctx := context.Background()
 	u, oldKey, _ := svc.RegisterUser(ctx, 1100)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

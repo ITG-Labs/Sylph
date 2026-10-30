@@ -32,7 +32,7 @@ func TestPlans(t *testing.T) {
 	ctx := context.Background()
 	limit := int64(100 * 1024 * 1024 * 1024)
 	devices := 3
-	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, TrafficLimitBytes: &limit, DeviceLimit: &devices, HWIDRequired: true}
+	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, TrafficLimitBytes: &limit, DeviceLimit: &devices, HWIDRequired: true, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestTouchNodeSyncKeepsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.TouchNodeSync(ctx, n.ID); err != nil {
+	if err := s.TouchNodeSync(ctx, n.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetNodeByCN(ctx, "node-1")
@@ -162,7 +162,7 @@ func TestFreePlansAreNotOnSale(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	paid := mkPlan(t, s)
-	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3}
+	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, free); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	devices := 2
-	p := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, DeviceLimit: &devices, HWIDRequired: true, Trial: true, Visibility: "private"}
+	p := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, DeviceLimit: &devices, HWIDRequired: true, Trial: true, Visibility: "private", LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 	if again.HWIDRequired || again.Trial || again.Visibility != "public" {
 		t.Fatalf("after update %+v", again)
 	}
-	plain := &model.Plan{Name: "plain", PriceRub: 100, PeriodDays: 30}
+	plain := &model.Plan{Name: "plain", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, plain); err != nil {
 		t.Fatal(err)
 	}
@@ -210,18 +210,18 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 func TestSecondTrialOnSaleIsConflict(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
-	if err := s.CreatePlan(ctx, &model.Plan{Name: "t1", PeriodDays: 3, Trial: true}); err != nil {
+	if err := s.CreatePlan(ctx, &model.Plan{Name: "t1", PeriodDays: 3, Trial: true, LocationGroupID: testGroup(t, s)}); err != nil {
 		t.Fatal(err)
 	}
-	err := s.CreatePlan(ctx, &model.Plan{Name: "t2", PeriodDays: 3, Trial: true})
+	err := s.CreatePlan(ctx, &model.Plan{Name: "t2", PeriodDays: 3, Trial: true, LocationGroupID: testGroup(t, s)})
 	if !errors.Is(err, ErrTrialOnSale) {
 		t.Fatalf("second trial: %v", err)
 	}
-	other := &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3}
+	other := &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	err = s.CreatePlan(ctx, &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3})
+	err = s.CreatePlan(ctx, &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: testGroup(t, s)})
 	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrTrialOnSale) {
 		t.Fatalf("duplicate name: %v", err)
 	}

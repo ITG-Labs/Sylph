@@ -81,6 +81,10 @@ func TestEgressStatus(t *testing.T) {
 	}
 }
 
+func onMain(u SyncUser) []string {
+	return []string{userEmail(u.UUID, "main")}
+}
+
 func TestBuildEgress(t *testing.T) {
 	status := []AddressStatus{{IP: "203.0.113.8", OK: true, Source: "172.31.227.10"}, {IP: "203.0.113.7", OK: true, Source: "172.31.226.10"}, {IP: "203.0.113.9", Source: "172.31.228.10"}}
 	got := buildEgress(status, []SyncUser{
@@ -91,15 +95,15 @@ func TestBuildEgress(t *testing.T) {
 		{UUID: "k5", PlanID: 3, EgressIP: "203.0.113.9"},
 		{UUID: "k6", PlanID: 3, EgressIP: "198.51.100.1"},
 		{UUID: "k7", PlanID: 3},
-	})
+	}, onMain)
 	want := []noderoute.Egress{
-		{Name: "203-0-113-7", SendThrough: "172.31.226.10", Users: map[int64][]string{3: {"k1", "k2"}, 5: {"k3"}}},
-		{Name: "203-0-113-8", SendThrough: "172.31.227.10", Users: map[int64][]string{3: {"k4"}}},
+		{Name: "203-0-113-7", SendThrough: "172.31.226.10", Users: map[int64][]string{3: {"k1@main", "k2@main"}, 5: {"k3@main"}}},
+		{Name: "203-0-113-8", SendThrough: "172.31.227.10", Users: map[int64][]string{3: {"k4@main"}}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("egress =\n%+v\nwant\n%+v", got, want)
 	}
-	if got := buildEgress(status, []SyncUser{{UUID: "k7", PlanID: 3}}); len(got) != 0 {
+	if got := buildEgress(status, []SyncUser{{UUID: "k7", PlanID: 3}}, onMain); len(got) != 0 {
 		t.Fatalf("egress without bound users = %+v", got)
 	}
 }
@@ -167,7 +171,7 @@ func TestLoopAppliesEgressAndReportsAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(disk), `"sendThrough": "172.31.226.10"`) || !strings.Contains(string(disk), `"u-1"`) || strings.Contains(string(disk), `"u-2"`) ||
+	if !strings.Contains(string(disk), `"sendThrough": "172.31.226.10"`) || !strings.Contains(string(disk), `"u-1@main"`) || strings.Contains(string(disk), `"u-2@main"`) ||
 		strings.Contains(string(disk), "203-0-113-8") {
 		t.Fatalf("xray config does not route only u-1 through its address: %s", disk)
 	}
@@ -322,7 +326,7 @@ func TestEgressChangesAreSpacedAndHeldOutMeanwhile(t *testing.T) {
 	fc.syncVersion, fc.syncUsers = 3, []SyncUser{{UUID: "u-1", PlanID: 3, EgressIP: "203.0.113.7"}, {UUID: "u-2", PlanID: 3}}
 	fc.mu.Unlock()
 	tick(t, loop)
-	if names := egressNames(loop.node.AppliedEgress()); names["u-1"] != "203-0-113-7" {
+	if names := egressNames(loop.node.AppliedEgress()); names["u-1@main"] != "203-0-113-7" {
 		t.Fatalf("first binding not applied at once: %+v", loop.node.AppliedEgress())
 	}
 
@@ -330,7 +334,7 @@ func TestEgressChangesAreSpacedAndHeldOutMeanwhile(t *testing.T) {
 	fc.syncVersion, fc.syncUsers = 4, []SyncUser{{UUID: "u-1", PlanID: 3}, {UUID: "u-2", PlanID: 3, EgressIP: "203.0.113.7"}}
 	fc.mu.Unlock()
 	tick(t, loop)
-	if names := egressNames(loop.node.AppliedEgress()); names["u-1"] != "203-0-113-7" || names["u-2"] != "" {
+	if names := egressNames(loop.node.AppliedEgress()); names["u-1@main"] != "203-0-113-7" || names["u-2@main"] != "" {
 		t.Fatalf("second change within the cooldown applied: %+v", loop.node.AppliedEgress())
 	}
 	if fx.hasUser("main", "u-1") {
@@ -342,7 +346,7 @@ func TestEgressChangesAreSpacedAndHeldOutMeanwhile(t *testing.T) {
 
 	loop.node.egressAt = time.Now().Add(-egressCooldown)
 	tick(t, loop)
-	if names := egressNames(loop.node.AppliedEgress()); names["u-2"] != "203-0-113-7" || names["u-1"] != "" {
+	if names := egressNames(loop.node.AppliedEgress()); names["u-2@main"] != "203-0-113-7" || names["u-1@main"] != "" {
 		t.Fatalf("change not applied after the cooldown: %+v", loop.node.AppliedEgress())
 	}
 	if !fx.hasUser("main", "u-1") {

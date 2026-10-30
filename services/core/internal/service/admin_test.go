@@ -65,7 +65,7 @@ func TestNamesRejectSpacesAndControlCharacters(t *testing.T) {
 		if _, err := svc.CreateGroup(ctx, name); !errors.As(err, &fe) || fe.Field != "name" {
 			t.Fatalf("group %q: %v", name, err)
 		}
-		if err := svc.CreatePlanChecked(ctx, &model.Plan{Name: name, PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic}); !errors.As(err, &fe) || fe.Field != "name" {
+		if err := svc.CreatePlanChecked(ctx, &model.Plan{Name: name, PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic, LocationGroupID: testGroup(t, svc.store)}); !errors.As(err, &fe) || fe.Field != "name" {
 			t.Fatalf("plan %q: %v", name, err)
 		}
 		if err := svc.CreateNode(ctx, &model.Node{CertCN: "n-1", Name: name, Address: "n1.example.com"}); !errors.As(err, &fe) || fe.Field != "name" {

@@ -98,12 +98,23 @@ func newAdminEnv(t *testing.T) *adminEnv {
 
 func (e *adminEnv) call(t *testing.T, method, path string, body any) adminResp {
 	t.Helper()
+	if m, ok := body.(map[string]any); ok && method == http.MethodPost && path == "/v1/admin/plans" {
+		if _, set := m["location_group_id"]; !set {
+			m["location_group_id"] = *testGroup(t, e.svc)
+		}
+	}
 	return adminCall(t, e.panel, method, e.ts.URL+path, body)
+}
+
+func (e *adminEnv) createInbound(t *testing.T, nodeID int64, tag string) {
+	t.Helper()
+	mustStatus(t, e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", nodeID), map[string]any{
+		"tag": tag, "port": 443, "reality": map[string]any{"dest": "www.example.org:443", "server_names": []string{tag + ".example.org"}}}), http.StatusOK)
 }
 
 func (e *adminEnv) createNode(t *testing.T, cn string, groupID *int64) int64 {
 	t.Helper()
-	r := e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": cn, "name": cn, "address": cn + ".example.com", "group_id": groupID})
+	r := e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": cn, "name": cn, "address": cn + ".example.com", "group_ids": idsOf(groupID)})
 	mustStatus(t, r, http.StatusOK)
 	var n struct {
 		ID int64 `json:"id"`
@@ -228,29 +239,30 @@ func TestAdminNodes(t *testing.T) {
 		ID int64 `json:"id"`
 	}
 	e.call(t, http.MethodPost, "/v1/admin/groups", map[string]string{"name": "premium"}).decode(t, &g)
-	r := e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-de-1", "name": "Germany", "address": "de1.example.com", "group_id": g.ID})
+	r := e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-de-1", "name": "Germany", "address": "de1.example.com", "group_ids": []int64{g.ID}})
 	mustStatus(t, r, http.StatusOK)
 	var n struct {
-		ID      int64  `json:"id"`
-		CertCN  string `json:"cert_cn"`
-		Address string `json:"address"`
-		GroupID *int64 `json:"group_id"`
-		Enabled bool   `json:"enabled"`
+		ID       int64   `json:"id"`
+		CertCN   string  `json:"cert_cn"`
+		Address  string  `json:"address"`
+		GroupIDs []int64 `json:"group_ids"`
+		Enabled  bool    `json:"enabled"`
 	}
 	r.decode(t, &n)
-	if n.ID == 0 || !n.Enabled || n.GroupID == nil || n.Address != "de1.example.com" {
+	if n.ID == 0 || !n.Enabled || len(n.GroupIDs) != 1 || n.GroupIDs[0] != g.ID || n.Address != "de1.example.com" {
 		t.Fatalf("node = %+v", n)
 	}
-	r = e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", n.ID), map[string]any{"enabled": false, "group_id": nil, "address": "203.0.113.7"})
+	r = e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", n.ID), map[string]any{"enabled": false, "group_ids": []int64{}, "address": "203.0.113.7"})
 	mustStatus(t, r, http.StatusOK)
 	r.decode(t, &n)
-	if n.Enabled || n.GroupID != nil || n.Address != "203.0.113.7" || n.CertCN != "node-de-1" {
+	if n.Enabled || len(n.GroupIDs) != 0 || n.GroupIDs == nil || n.Address != "203.0.113.7" || n.CertCN != "node-de-1" {
 		t.Fatalf("patched node = %+v", n)
 	}
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", n.ID), map[string]any{"group_ids": []int64{999999}}), http.StatusBadRequest, "bad_request", "group_ids")
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-de-1", "name": "dup", "address": "x.example.com"}), http.StatusConflict, "conflict", "cert_cn")
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-2", "name": "n2", "address": "not a host"}), http.StatusBadRequest, "bad_request", "address")
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "bad cn", "name": "n2", "address": "x.example.com"}), http.StatusBadRequest, "bad_request", "cert_cn")
-	mustField(t, e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-3", "name": "n3", "address": "x.example.com", "group_id": 424242}), http.StatusBadRequest, "bad_request", "group_id")
+	mustField(t, e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-3", "name": "n3", "address": "x.example.com", "group_ids": []int64{424242}}), http.StatusBadRequest, "bad_request", "group_ids")
 	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/nodes/%d", n.ID), map[string]any{"cert_cn": "renamed"}), http.StatusBadRequest, "bad_request", "")
 	mustStatus(t, e.call(t, http.MethodPatch, "/v1/admin/nodes/424242", map[string]any{"name": "x"}), http.StatusNotFound)
 	r = e.call(t, http.MethodGet, "/v1/admin/nodes", nil)
@@ -446,4 +458,91 @@ func TestAdminPlanHWIDTrialVisibility(t *testing.T) {
 	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", trial.ID), map[string]any{"on_sale": false}), http.StatusOK)
 	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "trial-2", "price_rub": 0, "period_days": 3, "trial": true}), http.StatusOK)
 	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", trial.ID), map[string]any{"on_sale": true}), http.StatusConflict, "conflict", "trial")
+}
+
+func TestAdminGroupMembersAndPlanPools(t *testing.T) {
+	e := newAdminEnv(t)
+	var g struct {
+		ID         int64   `json:"id"`
+		NodeIDs    []int64 `json:"node_ids"`
+		InboundIDs []int64 `json:"inbound_ids"`
+	}
+	e.call(t, http.MethodPost, "/v1/admin/groups", map[string]string{"name": "premium"}).decode(t, &g)
+	if g.NodeIDs == nil || g.InboundIDs == nil {
+		t.Fatalf("a new group must list empty members: %+v", g)
+	}
+	var n struct {
+		ID int64 `json:"id"`
+	}
+	e.call(t, http.MethodPost, "/v1/admin/nodes", map[string]any{"cert_cn": "node-1", "name": "n1", "address": "n1.example.com"}).decode(t, &n)
+	var in struct {
+		ID int64 `json:"id"`
+	}
+	r := e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", n.ID), map[string]any{
+		"tag": "cdn", "port": 443, "reality": map[string]any{"dest": "www.example.org:443", "server_names": []string{"www.example.org"}}})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &in)
+	r = e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/groups/%d/members", g.ID), map[string]any{"inbound_ids": []int64{in.ID}})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &g)
+	if len(g.InboundIDs) != 1 || g.InboundIDs[0] != in.ID || len(g.NodeIDs) != 0 {
+		t.Fatalf("members = %+v", g)
+	}
+	mustField(t, e.call(t, http.MethodPut, fmt.Sprintf("/v1/admin/groups/%d/members", g.ID), map[string]any{"node_ids": []int64{999999}}), http.StatusBadRequest, "bad_request", "members")
+	mustStatus(t, e.call(t, http.MethodPut, "/v1/admin/groups/999999/members", map[string]any{}), http.StatusNotFound)
+
+	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "no-group", "price_rub": 1, "period_days": 30, "location_group_id": nil}), http.StatusOK)
+	var p struct {
+		ID    int64 `json:"id"`
+		Pools []struct {
+			ID                int64  `json:"id"`
+			NodeID            *int64 `json:"node_id"`
+			TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+		} `json:"pools"`
+	}
+	r = e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "premium", "price_rub": 1, "period_days": 30, "location_group_id": g.ID,
+		"pools": []map[string]any{{"node_id": n.ID, "traffic_limit_bytes": 100}}})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &p)
+	if len(p.Pools) != 1 || p.Pools[0].ID == 0 || *p.Pools[0].NodeID != n.ID || *p.Pools[0].TrafficLimitBytes != 100 {
+		t.Fatalf("plan = %+v", p)
+	}
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"pools": []map[string]any{{"node_id": n.ID}, {"group_id": g.ID}}}),
+		http.StatusBadRequest, "bad_request", "pools")
+	var plans []struct {
+		ID    int64             `json:"id"`
+		Pools []json.RawMessage `json:"pools"`
+	}
+	e.call(t, http.MethodGet, "/v1/admin/plans", nil).decode(t, &plans)
+	if len(plans) != 2 || len(plans[0].Pools) != 0 || plans[1].ID != p.ID || len(plans[1].Pools) != 1 {
+		t.Fatalf("plans = %+v", plans)
+	}
+	var ce struct {
+		Code string `json:"code"`
+	}
+	r = e.call(t, http.MethodDelete, fmt.Sprintf("/v1/admin/groups/%d", g.ID), nil)
+	mustStatus(t, r, http.StatusConflict)
+	r.decode(t, &ce)
+}
+
+func TestAdminListsEveryInboundWithoutSecrets(t *testing.T) {
+	e := newAdminEnv(t)
+	a, b := e.createNode(t, "node-a", nil), e.createNode(t, "node-b", nil)
+	e.createInbound(t, a, "main")
+	e.createInbound(t, b, "cdn")
+	r := e.call(t, http.MethodGet, "/v1/admin/inbounds", nil)
+	mustStatus(t, r, http.StatusOK)
+	if strings.Contains(string(r.body), "private_key") || strings.Contains(string(r.body), `"reality":`) {
+		t.Fatalf("inbound refs leak settings: %s", r.body)
+	}
+	var list []struct {
+		ID     int64  `json:"id"`
+		NodeID int64  `json:"node_id"`
+		Tag    string `json:"tag"`
+		Label  string `json:"label"`
+	}
+	r.decode(t, &list)
+	if len(list) != 2 || list[0].NodeID != a || list[0].Tag != "main" || list[1].NodeID != b || list[1].Tag != "cdn" || list[0].ID == 0 {
+		t.Fatalf("inbounds = %+v", list)
+	}
 }

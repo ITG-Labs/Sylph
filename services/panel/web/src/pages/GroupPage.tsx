@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
-import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react"
+import { ArrowLeft, ListChecks, Pencil, Plus, Trash2, X } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { ActionDialog } from "@/components/common/ActionDialog"
+import { CheckList, type CheckItem } from "@/components/common/CheckList"
 import { NodeStatusBadge } from "@/components/common/NodeStatusBadge"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
@@ -12,19 +13,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
 import { fmtDate, fmtRub, plural } from "@/lib/format"
-import { describeNodeMove, describePlanMove, hiddenReason, isHarsh, nodeMoveImpact, planMoveImpact, type ImpactLine, type PlanLike } from "@/lib/groups"
-import { useGroups, useInvalidate, useNodes, usePlans } from "@/lib/queries"
-import type { Node, Plan } from "@/lib/types"
+import { accessChanges, describeChanges, hiddenReason, isHarsh, newOldAgentLines, withMembers, withPlanGroup, type ImpactLine, type World } from "@/lib/groups"
+import { useInvalidate, useNodes } from "@/lib/queries"
+import type { Plan } from "@/lib/types"
+import { useWorld } from "@/lib/world"
 
-type PlanRow = Plan & PlanLike
-
-type Dialog =
-  | { kind: "rename" }
-  | { kind: "delete" }
-  | { kind: "addNode" }
-  | { kind: "addPlan" }
-  | { kind: "removeNode"; node: Node }
-  | { kind: "removePlan"; plan: PlanRow }
+type Dialog = { kind: "rename" } | { kind: "delete" } | { kind: "members" } | { kind: "addPlan" } | { kind: "removePlan"; plan: Plan }
 
 const quoted = (names: string[]) => names.map((n) => `«${n}»`).join(", ")
 
@@ -63,42 +57,69 @@ export function GroupPage() {
   const { id } = useParams()
   const gid = Number(id)
   const navigate = useNavigate()
-  const groups = useGroups()
+  const { world, groups, plans, error, retry } = useWorld()
   const nodes = useNodes()
-  const plans = usePlans()
   const invalidate = useInvalidate()
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [pick, setPick] = useState<number | null>(null)
   const [name, setName] = useState("")
+  const [checked, setChecked] = useState<number[]>([])
 
-  const query = [groups, nodes, plans].find((q) => q.isError)
-  if (query) return <LoadError error={query.error} onRetry={() => query.refetch()} />
-  if (!groups.data || !nodes.data || !plans.data) return <LoadingBlock rows={4} />
+  if (error) return <LoadError error={error} onRetry={retry} />
+  if (!world || !groups || !plans || !nodes.data) return <LoadingBlock rows={4} />
 
-  const g = groups.data.find((x) => x.id === gid)
+  const g = groups.find((x) => x.id === gid)
   if (!g) return <Empty>Группа не найдена</Empty>
-  const allNodes = nodes.data
-  const allPlans: PlanRow[] = plans.data.map((p) => ({ ...p, active_users: p.active_users ?? 0 }))
-  const gNodes = allNodes.filter((n) => n.group_id === gid)
-  const gPlans = allPlans.filter((p) => p.location_group_id === gid)
-  const where = (group: number | null) => (group === null ? null : (groups.data.find((x) => x.id === group)?.name ?? `группа ${group}`))
+  const nodeOf = (nid: number) => nodes.data.find((n) => n.id === nid)
+  const inboundName = (iid: number) => {
+    const i = world.inbounds.find((x) => x.id === iid)
+    return i ? `${nodeOf(i.node_id)?.name ?? `нода ${i.node_id}`} · ${i.label || i.tag}` : `вход ${iid}`
+  }
+  const gPlans = plans.filter((p) => p.location_group_id === gid)
+  const poolPlans = plans.filter((p) => p.pools.some((pool) => pool.group_id === gid))
+  const memberCount = g.node_ids.length + g.inbound_ids.length
+  const removable = memberCount === 0 && gPlans.length === 0 && poolPlans.length === 0
+  const where = (group: number | null) => (group === null ? null : (groups.find((x) => x.id === group)?.name ?? `группа ${group}`))
   const refresh = () => invalidate(["nodes"], ["plans"], ["groups"], ["overview"])
   const open = (d: Dialog) => {
     setPick(null)
     setName(g.name)
+    setChecked([...g.node_ids, ...g.inbound_ids.map((x) => -x)])
     setDialog(d)
   }
   const close = (v: boolean) => !v && setDialog(null)
 
-  const pickedNode = dialog?.kind === "addNode" ? allNodes.find((n) => n.id === pick) : undefined
-  const pickedPlan = dialog?.kind === "addPlan" ? allPlans.find((p) => p.id === pick) : undefined
-  let lines: ImpactLine[] = []
-  if (pickedNode) lines = describeNodeMove(pickedNode, gid, nodeMoveImpact(pickedNode, gid, allPlans, allNodes))
-  if (pickedPlan) lines = describePlanMove(pickedPlan, gid, planMoveImpact(pickedPlan, gid, allNodes))
-  if (dialog?.kind === "removeNode") lines = describeNodeMove(dialog.node, null, nodeMoveImpact(dialog.node, null, allPlans, allNodes))
-  if (dialog?.kind === "removePlan") lines = describePlanMove(dialog.plan, null, planMoveImpact(dialog.plan, null, allNodes))
+  const pickedNodes = checked.filter((x) => x > 0)
+  const pickedInbounds = checked.filter((x) => x < 0 && !pickedNodes.includes(world.inbounds.find((i) => i.id === -x)?.node_id ?? 0)).map((x) => -x)
+  const tree: CheckItem[] = nodes.data.flatMap((n) => {
+    const own = world.inbounds.filter((i) => i.node_id === n.id)
+    const why = hiddenReason(n)
+    const head: CheckItem = {
+      id: n.id,
+      title: (
+        <>
+          <span className="font-medium">{n.name}</span>
+          {why && <span className="text-muted-foreground"> · {why}</span>}
+        </>
+      ),
+      hint: "вся нода",
+    }
+    const whole = pickedNodes.includes(n.id)
+    return [head, ...own.map((i) => ({ id: -i.id, title: i.label || i.tag, hint: whole ? "входит с нодой" : "только этот вход", indent: true, disabled: whole }))]
+  })
+  const sameMembers =
+    pickedNodes.length === g.node_ids.length &&
+    pickedNodes.every((x) => g.node_ids.includes(x)) &&
+    pickedInbounds.length === g.inbound_ids.length &&
+    pickedInbounds.every((x) => g.inbound_ids.includes(x))
+
+  const pickedPlan = dialog?.kind === "addPlan" ? world.plans.find((p) => p.id === pick) : undefined
+  let after: World | null = null
+  if (dialog?.kind === "members" && !sameMembers) after = withMembers(world, gid, pickedNodes, pickedInbounds)
+  if (pickedPlan) after = withPlanGroup(world, pickedPlan.id, gid)
+  if (dialog?.kind === "removePlan") after = withPlanGroup(world, dialog.plan.id, null)
+  const lines: ImpactLine[] = after ? [...describeChanges(world, accessChanges(world, after)), ...newOldAgentLines(world, after)] : []
   const consequences = lines.length > 0 ? <MoveConsequences lines={lines} /> : undefined
-  const empty = gNodes.length === 0 && gPlans.length === 0
 
   return (
     <>
@@ -108,7 +129,7 @@ export function GroupPage() {
       </Link>
       <PageHeader
         title={g.name}
-        description={`создана ${fmtDate(g.created_at)} · тарифы группы видят её ноды и общие ноды`}
+        description={`создана ${fmtDate(g.created_at)} · тарифы группы видят её состав и всё, что не входит ни в одну группу`}
         actions={
           <>
             <Button variant="secondary" onClick={() => open({ kind: "rename" })}>
@@ -125,31 +146,37 @@ export function GroupPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Section
-          title="Ноды"
-          description="видны только тарифам этой группы"
+          title="Состав"
+          description="ноды целиком и отдельные входы; видны только тарифам этой группы и других групп, где они есть"
           action={
-            <Button size="sm" onClick={() => open({ kind: "addNode" })}>
-              <Plus />
-              Добавить
+            <Button size="sm" onClick={() => open({ kind: "members" })}>
+              <ListChecks />
+              Изменить
             </Button>
           }
         >
-          {gNodes.length === 0 ? (
-            <Empty>Нод нет — тарифы группы видят только общие ноды</Empty>
+          {memberCount === 0 ? (
+            <Empty>Пусто — тарифы группы видят только то, что не входит ни в одну группу</Empty>
           ) : (
             <div className="flex flex-col gap-2">
-              {gNodes.map((n) => (
-                <div key={n.id} className="well flex items-center gap-3 rounded-xl py-2 pr-2 pl-3.5">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
-                    <Link to={`/nodes/${n.id}`} className="truncate font-medium hover:underline">
-                      {n.name}
-                    </Link>
-                    <NodeStatusBadge status={n.status} />
+              {g.node_ids.map((nid) => {
+                const n = nodeOf(nid)
+                return (
+                  <div key={`n${nid}`} className="well flex items-center gap-3 rounded-xl py-2 pr-3 pl-3.5">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <Link to={`/nodes/${nid}`} className="truncate font-medium hover:underline">
+                        {n?.name ?? `нода ${nid}`}
+                      </Link>
+                      {n && <NodeStatusBadge status={n.status} />}
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">вся нода</span>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => open({ kind: "removeNode", node: n })}>
-                    <X />
-                    Убрать
-                  </Button>
+                )
+              })}
+              {g.inbound_ids.map((iid) => (
+                <div key={`i${iid}`} className="well flex items-center gap-3 rounded-xl py-2 pr-3 pl-3.5">
+                  <span className="min-w-0 flex-1 truncate font-medium">{inboundName(iid)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">вход</span>
                 </div>
               ))}
             </div>
@@ -158,16 +185,16 @@ export function GroupPage() {
 
         <Section
           title="Тарифы"
-          description="их юзеры видят ноды группы и общие ноды"
+          description="их юзеры видят состав группы и всё, что не входит ни в одну группу"
           action={
             <Button size="sm" onClick={() => open({ kind: "addPlan" })}>
               <Plus />
-              Добавить
+              Перенести сюда
             </Button>
           }
         >
-          {gPlans.length === 0 ? (
-            <Empty>Тарифов нет — ноды группы сейчас никому не видны</Empty>
+          {gPlans.length === 0 && poolPlans.length === 0 ? (
+            <Empty>Тарифов нет — состав группы сейчас никому не виден</Empty>
           ) : (
             <div className="flex flex-col gap-2">
               {gPlans.map((p) => (
@@ -177,7 +204,7 @@ export function GroupPage() {
                       {p.name}
                     </Link>
                     <div className="text-xs text-muted-foreground tabular-nums">
-                      {p.active_users} {plural(p.active_users, "юзер", "юзера", "юзеров")} сейчас · {fmtRub(p.price_rub)}
+                      {p.active_users ?? 0} {plural(p.active_users ?? 0, "юзер", "юзера", "юзеров")} сейчас · {fmtRub(p.price_rub)}
                     </div>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => open({ kind: "removePlan", plan: p })}>
@@ -185,6 +212,12 @@ export function GroupPage() {
                     Убрать
                   </Button>
                 </div>
+              ))}
+              {poolPlans.map((p) => (
+                <Link key={`pool${p.id}`} to={`/plans/${p.id}`} className="well block rounded-xl py-2 pr-3 pl-3.5 transition-colors hover:bg-white/6">
+                  <div className="truncate font-medium">{p.name}</div>
+                  <div className="text-xs text-muted-foreground">считает трафик группы отдельным пулом</div>
+                </Link>
               ))}
             </div>
           )}
@@ -195,7 +228,7 @@ export function GroupPage() {
         open={dialog?.kind === "rename"}
         onOpenChange={close}
         title="Переименовать группу"
-        description="Имя группы видно только в панели — юзеры его не видят"
+        description="Имя группы видно в панели и как подпись пула в боте, если у пула нет своего имени"
         confirmLabel="Сохранить"
         canConfirm={name.trim() !== "" && name.trim() !== g.name}
         success="Группа переименована"
@@ -213,21 +246,22 @@ export function GroupPage() {
       <ActionDialog
         open={dialog?.kind === "delete"}
         onOpenChange={close}
-        title={empty ? `Удалить группу «${g.name}»` : "Группу пока не удалить"}
+        title={removable ? `Удалить группу «${g.name}»` : "Группу пока не удалить"}
         consequences={
-          empty ? (
-            <p>Группа пустая — ни нод, ни тарифов в ней нет, юзеров это не коснётся.</p>
+          removable ? (
+            <p>Группа пустая и нигде не используется — юзеров это не коснётся.</p>
           ) : (
             <>
-              <p>Удалить можно только пустую группу. Сначала убери или перенеси в другую группу:</p>
-              {gNodes.length > 0 && <p>ноды {quoted(gNodes.map((n) => n.name))};</p>}
-              {gPlans.length > 0 && <p>тарифы {quoted(gPlans.map((p) => p.name))}.</p>}
+              <p>Удалить можно только неиспользуемую группу. Сначала:</p>
+              {memberCount > 0 && <p>очисти состав;</p>}
+              {gPlans.length > 0 && <p>перенеси в другие группы тарифы {quoted(gPlans.map((p) => p.name))};</p>}
+              {poolPlans.length > 0 && <p>убери пулы с этой группой из тарифов {quoted(poolPlans.map((p) => p.name))}.</p>}
             </>
           )
         }
         destructive
         confirmLabel="Удалить"
-        canConfirm={empty}
+        canConfirm={removable}
         success="Группа удалена"
         onConfirm={async () => {
           await core.del(`/v1/admin/groups/${g.id}`)
@@ -237,48 +271,29 @@ export function GroupPage() {
       />
 
       <ActionDialog
-        open={dialog?.kind === "addNode"}
+        open={dialog?.kind === "members"}
         onOpenChange={close}
-        title={`Добавить ноду в «${g.name}»`}
-        description="Нода бывает только в одной группе — выбранная перенесётся сюда"
+        title={`Состав «${g.name}»`}
+        description="Отметь ноду целиком или только нужные входы. Нода или вход могут быть в нескольких группах сразу"
         consequences={consequences}
         consequencesBelow
         destructive={isHarsh(lines)}
-        confirmLabel="Перенести"
-        canConfirm={!!pickedNode}
-        success="Нода перенесена"
+        confirmLabel="Сохранить"
+        canConfirm={!sameMembers}
+        success="Состав сохранён"
         onConfirm={async () => {
-          if (!pickedNode) return
-          await core.patch(`/v1/admin/nodes/${pickedNode.id}`, { group_id: gid })
+          await core.put(`/v1/admin/groups/${g.id}/members`, { node_ids: pickedNodes, inbound_ids: pickedInbounds })
           await refresh()
         }}
       >
-        {allNodes.filter((n) => n.group_id !== gid).length === 0 ? (
-          <Empty>Все ноды уже в этой группе</Empty>
-        ) : (
-          <Picker
-            label="Нода"
-            items={allNodes.filter((n) => n.group_id !== gid)}
-            value={pick}
-            onChange={setPick}
-            render={(n) => (
-              <>
-                <span className="min-w-0 truncate font-medium">
-                  {n.name}
-                  {hiddenReason(n) && <span className="font-normal text-muted-foreground"> · {hiddenReason(n)}</span>}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">{where(n.group_id) ? `в «${where(n.group_id)}»` : "общая"}</span>
-              </>
-            )}
-          />
-        )}
+        {nodes.data.length === 0 ? <Empty>Нод пока нет</Empty> : <CheckList label="Состав" items={tree} value={checked} onChange={setChecked} />}
       </ActionDialog>
 
       <ActionDialog
         open={dialog?.kind === "addPlan"}
         onOpenChange={close}
-        title={`Добавить тариф в «${g.name}»`}
-        description="Тариф бывает только в одной группе — выбранный перенесётся сюда"
+        title={`Перенести тариф в «${g.name}»`}
+        description="У тарифа одна группа или ни одной — выбранный перенесётся сюда"
         consequences={consequences}
         consequencesBelow
         destructive={isHarsh(lines)}
@@ -291,12 +306,12 @@ export function GroupPage() {
           await refresh()
         }}
       >
-        {allPlans.filter((p) => p.location_group_id !== gid).length === 0 ? (
+        {world.plans.filter((p) => p.location_group_id !== gid).length === 0 ? (
           <Empty>Все тарифы уже в этой группе</Empty>
         ) : (
           <Picker
             label="Тариф"
-            items={allPlans.filter((p) => p.location_group_id !== gid)}
+            items={world.plans.filter((p) => p.location_group_id !== gid)}
             value={pick}
             onChange={setPick}
             render={(p) => (
@@ -313,26 +328,10 @@ export function GroupPage() {
       </ActionDialog>
 
       <ActionDialog
-        open={dialog?.kind === "removeNode"}
-        onOpenChange={close}
-        title={dialog?.kind === "removeNode" ? `Убрать «${dialog.node.name}» из группы` : "Убрать ноду"}
-        description="Нода останется без группы и станет общей"
-        consequences={consequences}
-        destructive={isHarsh(lines)}
-        confirmLabel="Убрать"
-        success="Нода теперь общая"
-        onConfirm={async () => {
-          if (dialog?.kind !== "removeNode") return
-          await core.patch(`/v1/admin/nodes/${dialog.node.id}`, { group_id: null })
-          await refresh()
-        }}
-      />
-
-      <ActionDialog
         open={dialog?.kind === "removePlan"}
         onOpenChange={close}
         title={dialog?.kind === "removePlan" ? `Убрать «${dialog.plan.name}» из группы` : "Убрать тариф"}
-        description="Тариф останется без группы"
+        description="Тариф останется без группы и будет видеть только то, что не входит ни в одну группу"
         consequences={consequences}
         destructive={isHarsh(lines)}
         confirmLabel="Убрать"

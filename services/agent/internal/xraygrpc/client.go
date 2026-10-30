@@ -67,7 +67,7 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string, flow string) error {
+func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string, email string, flow string) error {
 	if !uuidPattern.MatchString(uuid) {
 		return errInvalidUserID
 	}
@@ -75,28 +75,28 @@ func (c *Client) AddUser(ctx context.Context, inboundTag string, uuid string, fl
 	if err != nil {
 		return err
 	}
-	op, err := typed(&proxymancmd.AddUserOperation{User: &protocol.User{Email: uuid, Account: account}})
+	op, err := typed(&proxymancmd.AddUserOperation{User: &protocol.User{Email: email, Account: account}})
 	if err != nil {
 		return err
 	}
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
 	_, err = c.handler.AlterInbound(ctx, &proxymancmd.AlterInboundRequest{Tag: inboundTag, Operation: op})
-	if err != nil && !isUserError(err, uuid, "already exists") {
+	if err != nil && !isUserError(err, email, "already exists") {
 		return fmt.Errorf("xray add user: %w", err)
 	}
 	return nil
 }
 
-func (c *Client) RemoveUser(ctx context.Context, inboundTag string, uuid string) error {
-	op, err := typed(&proxymancmd.RemoveUserOperation{Email: uuid})
+func (c *Client) RemoveUser(ctx context.Context, inboundTag string, email string) error {
+	op, err := typed(&proxymancmd.RemoveUserOperation{Email: email})
 	if err != nil {
 		return err
 	}
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
 	_, err = c.handler.AlterInbound(ctx, &proxymancmd.AlterInboundRequest{Tag: inboundTag, Operation: op})
-	if err != nil && !isUserError(err, uuid, "not found") {
+	if err != nil && !isUserError(err, email, "not found") {
 		return fmt.Errorf("xray remove user: %w", err)
 	}
 	return nil

@@ -32,6 +32,7 @@ type NodeKey struct {
 	UUID     string
 	PlanID   int64
 	EgressIP string
+	Inbounds []string
 }
 
 type GeoSource struct {
@@ -293,20 +294,42 @@ func (s *Store) BumpNodesCascadingTo(ctx context.Context, nodeID int64) error {
 }
 
 func (s *Store) ListNodeKeys(ctx context.Context, nodeID int64) ([]NodeKey, error) {
+	return s.listNodeKeys(ctx, nodeID, false)
+}
+
+func (s *Store) ListNodeKeysLegacy(ctx context.Context, nodeID int64) ([]NodeKey, error) {
+	return s.listNodeKeys(ctx, nodeID, true)
+}
+
+func (s *Store) listNodeKeys(ctx context.Context, nodeID int64, everyInbound bool) ([]NodeKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT ON (uk.uuid) uk.uuid, p.id, COALESCE(na.ip, '')
-		 FROM user_keys uk
-		 JOIN users u ON u.id = uk.user_id
-		 JOIN subscriptions sub ON sub.user_id = u.id AND NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
-		 JOIN plans p ON p.id = sub.plan_id
-		 JOIN nodes n ON n.id = $1
-		 LEFT JOIN address_assignments aa ON aa.user_id = u.id AND aa.node_id = n.id AND p.dedicated_ip
+		`WITH pi AS MATERIALIZED (SELECT plan_id, inbound_id, pool FROM plan_inbounds WHERE node_id = $1),
+		 cur AS MATERIALIZED (
+		     SELECT DISTINCT ON (sub.user_id) sub.id, sub.user_id, sub.plan_id
+		     FROM subscriptions sub
+		     WHERE NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now()
+		     ORDER BY sub.user_id, sub.starts_at DESC, sub.id DESC),
+		 spent AS MATERIALIZED (
+		     SELECT x.period_id, COALESCE(x.pool_id, 0) AS pool
+		     FROM cur JOIN period_pools x ON x.period_id = cur.id
+		     WHERE x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes),
+		 open AS (
+		     SELECT cur.user_id, cur.plan_id, pi.inbound_id
+		     FROM cur JOIN pi ON pi.plan_id = cur.plan_id
+		     WHERE NOT EXISTS (SELECT 1 FROM spent WHERE spent.period_id = cur.id AND spent.pool = pi.pool))
+		 SELECT uk.uuid, o.plan_id, COALESCE(na.ip, ''), array_agg(i.tag ORDER BY i.tag)
+		 FROM open o
+		 JOIN node_inbounds i ON i.id = o.inbound_id
+		 JOIN users u ON u.id = o.user_id
+		 JOIN user_keys uk ON uk.user_id = u.id
+		 JOIN plans p ON p.id = o.plan_id
+		 LEFT JOIN address_assignments aa ON aa.user_id = u.id AND aa.node_id = $1 AND p.dedicated_ip
 		 LEFT JOIN node_addresses na ON na.id = aa.address_id AND na.status = 'ok'
 		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
-		   AND (p.traffic_limit_bytes IS NULL OR sub.traffic_used_bytes::numeric < p.traffic_limit_bytes::numeric + sub.traffic_bonus_bytes)
-		   AND (n.group_id IS NULL OR p.location_group_id = n.group_id)
-		 ORDER BY uk.uuid, sub.starts_at DESC, sub.id DESC`,
-		nodeID)
+		 GROUP BY uk.uuid, o.plan_id, na.ip
+		 HAVING NOT $2 OR count(*) = (SELECT count(*) FROM node_inbounds WHERE node_id = $1)
+		 ORDER BY uk.uuid`,
+		nodeID, everyInbound)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +337,7 @@ func (s *Store) ListNodeKeys(ctx context.Context, nodeID int64) ([]NodeKey, erro
 	var keys []NodeKey
 	for rows.Next() {
 		var k NodeKey
-		if err := rows.Scan(&k.UUID, &k.PlanID, &k.EgressIP); err != nil {
+		if err := rows.Scan(&k.UUID, &k.PlanID, &k.EgressIP, &k.Inbounds); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)

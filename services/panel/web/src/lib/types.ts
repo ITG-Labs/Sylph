@@ -127,10 +127,22 @@ export interface Period {
   traffic_used_bytes: number
   traffic_bonus_bytes: number
   traffic_limit_bytes: number | null
+  traffic_exhausted: boolean
+  main_idle: boolean
+  pools: PoolUsage[]
   created_at: string
   plan_name: string
   state: PeriodState
   payment_id: string | null
+}
+
+export interface PoolUsage {
+  pool_id: number
+  name: string
+  used_bytes: number
+  bonus_bytes: number
+  traffic_limit_bytes: number | null
+  exhausted: boolean
 }
 
 export interface Device {
@@ -243,7 +255,7 @@ export interface Node {
   id: number
   cert_cn: string
   name: string
-  group_id: number | null
+  group_ids: number[]
   address: string
   users_version: number
   enabled: boolean
@@ -255,6 +267,7 @@ export interface Node {
   agent_uptime_sec: number | null
   xray_uptime_sec: number | null
   last_sync_at: string | null
+  agent_per_inbound: boolean
   status: NodeStatus
   inbounds: number
   online_users: number
@@ -287,7 +300,28 @@ export interface Inbound {
 export interface Group {
   id: number
   name: string
+  node_ids: number[]
+  inbound_ids: number[]
   created_at: string
+}
+
+export interface InboundRef {
+  id: number
+  node_id: number
+  tag: string
+  label: string
+  port: number
+  transport: string
+  security: string
+}
+
+export interface PlanPool {
+  id: number
+  name: string
+  label: string
+  node_id: number | null
+  group_id: number | null
+  traffic_limit_bytes: number | null
 }
 
 export interface Plan {
@@ -303,8 +337,10 @@ export interface Plan {
   trial: boolean
   visibility: "public" | "private"
   dedicated_ip: boolean
+  pools: PlanPool[]
   created_at: string
   active_users?: number
+  pool_overlaps?: number
 }
 
 export interface UpDown {

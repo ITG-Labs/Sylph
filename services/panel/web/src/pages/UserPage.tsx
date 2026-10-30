@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { core, qs } from "@/lib/api"
-import { fmtBytes, fmtDate, fmtDateTime, fmtRelative, fmtRub } from "@/lib/format"
+import { fmtBytes, fmtDate, fmtDateTime, fmtRelative, fmtRub, plural } from "@/lib/format"
 import { addressReason, assignable, needsAddress } from "@/lib/addresses"
 import { useAddresses, useInvalidate, usePlans } from "@/lib/queries"
 import type { AuditPage, Period, UserCard, UserStats } from "@/lib/types"
@@ -136,7 +136,7 @@ export function UserPage() {
                 <CalendarPlus />
                 Продлить
               </Button>
-              <Button variant="secondary" className="max-sm:h-8 max-sm:px-2 max-sm:[&_svg]:hidden" onClick={open({ kind: "traffic" })} disabled={!current || current.traffic_limit_bytes === null}>
+              <Button variant="secondary" className="max-sm:h-8 max-sm:px-2 max-sm:[&_svg]:hidden" onClick={open({ kind: "traffic" })} disabled={!current || (current.traffic_limit_bytes === null && current.pools.every((x) => x.traffic_limit_bytes === null))}>
                 <Gauge />
                 Трафик
               </Button>
@@ -203,8 +203,23 @@ export function UserPage() {
                   </span>
                   {c.trial?.period_id === current.id && <Badge variant="info">пробный</Badge>}
                 </div>
-                <TrafficBar used={current.traffic_used_bytes} limit={current.traffic_limit_bytes} />
-                {current.traffic_bonus_bytes > 0 && <div className="text-xs text-muted-foreground">в лимите бонус {fmtBytes(current.traffic_bonus_bytes)}</div>}
+                {!(current.main_idle && current.pools.length > 0) && (
+                  <>
+                    {current.pools.length > 0 && <div className="-mb-2 text-xs text-muted-foreground">Основной</div>}
+                    <TrafficBar used={current.traffic_used_bytes} limit={current.traffic_limit_bytes} />
+                    {current.traffic_bonus_bytes > 0 && <div className="text-xs text-muted-foreground">в лимите бонус {fmtBytes(current.traffic_bonus_bytes)}</div>}
+                  </>
+                )}
+                {current.pools.map((pool) => (
+                  <div key={pool.pool_id} className="flex flex-col gap-2">
+                    <div className="-mb-2 text-xs text-muted-foreground">
+                      {pool.name}
+                      {pool.exhausted && " · исчерпан"}
+                      {pool.bonus_bytes > 0 && ` · бонус ${fmtBytes(pool.bonus_bytes)}`}
+                    </div>
+                    <TrafficBar used={pool.used_bytes} limit={pool.traffic_limit_bytes} />
+                  </div>
+                ))}
                 {queued.length > 0 && (
                   <div>
                     <div className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">В очереди</div>
@@ -488,7 +503,8 @@ function PeriodLine({ p, onClose }: { p: Period; onClose?: () => void }) {
         </div>
       </div>
       <div className="text-xs text-muted-foreground tabular-nums">
-        {fmtBytes(p.traffic_used_bytes)} / {fmtBytes(p.traffic_limit_bytes)}
+        {fmtBytes(p.traffic_used_bytes + p.pools.reduce((sum, x) => sum + x.used_bytes, 0))}
+        {p.pools.length > 0 ? ` · ${p.pools.length + 1} ${plural(p.pools.length + 1, "пул", "пула", "пулов")}` : ` / ${fmtBytes(p.traffic_limit_bytes)}`}
       </div>
       {onClose && (
         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onClose}>

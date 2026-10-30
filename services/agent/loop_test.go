@@ -364,7 +364,7 @@ func TestRevokedUserLosesAccessWhileRunningInboundsAreUnknown(t *testing.T) {
 	if fx.hasUser("vless-in", "revoked") {
 		t.Fatal("revoked user kept access because the agent did not know the running inbounds")
 	}
-	if !fx.hasUser("vless-in", "keep") {
+	if !fx.hasEmail("vless-in", "keep") {
 		t.Fatal("active user removed")
 	}
 }

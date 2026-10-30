@@ -17,7 +17,7 @@ func TestSubscriptionEndpoint(t *testing.T) {
 	subs := e.client(t, "subs", mtls.RoleSubs)
 	nodeID := e.createNode(t, "node-1", nil)
 	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/nodes/"+itoa(nodeID)+"/inbounds", realityBody("main", "www.example.com")), http.StatusOK)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestSubscriptionLogsWithoutSecrets(t *testing.T) {
 	e := newAdminEnv(t)
 	ctx := context.Background()
 	subs := e.client(t, "subs", mtls.RoleSubs)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

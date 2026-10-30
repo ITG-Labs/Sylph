@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,8 +43,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 31 {
-		t.Fatalf("tables = %d, want 31", count)
+	if count != 38 {
+		t.Fatalf("tables = %d, want 38", count)
 	}
 }
 
@@ -248,7 +250,8 @@ func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes) VALUES ('p', 1, 30, 1000)`,
+		`INSERT INTO location_groups (name) VALUES ('g')`,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id) SELECT 'p', 1, 30, 1000, id FROM location_groups`,
 		`INSERT INTO users (telegram_id, sub_token, status) VALUES (1, 't1', 'active'), (2, 't2', 'active')`,
 		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes) VALUES
 		     (1, 1, now() - interval '1 day', now() + interval '29 days', 1500),
@@ -1103,5 +1106,106 @@ func TestMigration015DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 015 again: %v", err)
+	}
+}
+
+func TestMigration016DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(15); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO location_groups (name) VALUES ('g1')`,
+		`INSERT INTO nodes (cert_cn, name, group_id) SELECT 'n1', 'n1', id FROM location_groups WHERE name = 'g1'`,
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n2', 'n2')`,
+		`INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security) SELECT id, 'a', 443, 'vless', 'tcp', 'reality' FROM nodes`,
+		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id) SELECT 'p1', 100, 30, 1000, id FROM location_groups WHERE name = 'g1'`,
+		`INSERT INTO plans (name, price_rub, period_days) VALUES ('p2', 100, 30)`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes) SELECT u.id, p.id, now() - interval '1 day', now() + interval '1 day', 10 FROM users u, plans p WHERE p.name = 'p1'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 016: %v", err)
+	}
+	for _, table := range []string{"group_nodes", "group_inbounds", "plan_pools", "period_pool_usage"} {
+		if !tableExists(t, pool, table) {
+			t.Fatalf("up 016 did not create %s", table)
+		}
+	}
+	var members int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_nodes gn JOIN nodes n ON n.id = gn.node_id JOIN location_groups g ON g.id = gn.group_id WHERE n.name = 'n1' AND g.name = 'g1'`).Scan(&members); err != nil || members != 1 {
+		t.Fatalf("n1 membership = %d, %v", members, err)
+	}
+	var p2Group *int64
+	var groups int
+	if err := pool.QueryRow(ctx, `SELECT location_group_id, (SELECT count(*) FROM location_groups) FROM plans WHERE name = 'p2'`).Scan(&p2Group, &groups); err != nil || p2Group != nil || groups != 1 {
+		t.Fatalf("a plan without a group must stay so: group %v, groups %d, %v", p2Group, groups, err)
+	}
+	seen := func(plan string) []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT n.name FROM plan_inbounds pi JOIN plans p ON p.id = pi.plan_id JOIN nodes n ON n.id = pi.node_id WHERE p.name = $1 ORDER BY n.name`, plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
+	if got := seen("p1"); !slices.Equal(got, []string{"n1", "n2"}) {
+		t.Fatalf("p1 sees %v", got)
+	}
+	if got := seen("p2"); !slices.Equal(got, []string{"n2"}) {
+		t.Fatalf("p2 sees %v", got)
+	}
+	var exhausted bool
+	if err := pool.QueryRow(ctx, `SELECT period_exhausted(id) FROM subscriptions`).Scan(&exhausted); err != nil || exhausted {
+		t.Fatalf("exhausted = %v, %v", exhausted, err)
+	}
+	for _, q := range []string{
+		`INSERT INTO location_groups (name) VALUES ('g2')`,
+		`INSERT INTO group_inbounds (group_id, inbound_id) SELECT g.id, i.id FROM location_groups g, node_inbounds i JOIN nodes n ON n.id = i.node_id WHERE g.name = 'g2' AND n.name = 'n2'`,
+		`INSERT INTO plan_pools (plan_id, position, node_id, traffic_limit_bytes) SELECT p.id, 0, n.id, 500 FROM plans p, nodes n WHERE p.name = 'p1' AND n.name = 'n1'`,
+		`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes) SELECT s.id, pp.id, 7 FROM subscriptions s, plan_pools pp`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if got := seen("p1"); !slices.Equal(got, []string{"n1"}) {
+		t.Fatalf("p1 after n2 moved into g2 sees %v", got)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 016: %v", err)
+	}
+	if tableExists(t, pool, "group_nodes") || tableExists(t, pool, "plan_pools") || tableExists(t, pool, "period_pool_usage") {
+		t.Fatal("down 016 left its tables")
+	}
+	var g1, g2 string
+	if err := pool.QueryRow(ctx,
+		`SELECT (SELECT g.name FROM nodes n JOIN location_groups g ON g.id = n.group_id WHERE n.name = 'n1'),
+		        (SELECT g.name FROM nodes n JOIN location_groups g ON g.id = n.group_id WHERE n.name = 'n2')`).Scan(&g1, &g2); err != nil || g1 != "g1" || g2 != "g2" {
+		t.Fatalf("groups after down: n1=%q n2=%q, %v", g1, g2, err)
+	}
+	var used int64
+	if err := pool.QueryRow(ctx, `SELECT traffic_used_bytes FROM subscriptions`).Scan(&used); err != nil || used != 17 {
+		t.Fatalf("used after down = %d, %v (pool usage must fold into the period)", used, err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 016 again: %v", err)
 	}
 }

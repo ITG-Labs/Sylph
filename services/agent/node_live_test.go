@@ -246,11 +246,17 @@ func TestNodeLive(t *testing.T) {
 			t.Fatal("a VPN user reached 127.0.0.1 on the node through the production config")
 		}
 		eventually(t, "user traffic reached xray before the block", func() error {
-			stats, err := x.QueryStats(ctx, "user>>>"+liveUser+">>>traffic>>>uplink")
+			stats, err := x.QueryStats(ctx, "user>>>"+liveUser+"@")
 			if err != nil {
 				return err
 			}
-			if stats["user>>>"+liveUser+">>>traffic>>>uplink"] == 0 {
+			var uplink int64
+			for name, v := range stats {
+				if strings.HasSuffix(name, ">>>traffic>>>uplink") {
+					uplink += v
+				}
+			}
+			if uplink == 0 {
 				return errors.New("no uplink yet: the connection did not get past REALITY")
 			}
 			return nil

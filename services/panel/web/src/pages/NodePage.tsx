@@ -44,8 +44,16 @@ export function NodePage() {
   const n = nodes.data.find((x) => String(x.id) === id)
   if (!n) return <Empty>Нода не найдена</Empty>
   const close = (v: boolean) => !v && setDialog(null)
-  const refresh = () => invalidate(["nodes"], ["inbounds", id], ["overview"])
-  const group = n.group_id === null ? "без группы — видна всем тарифам" : (groups.data?.find((g) => g.id === n.group_id)?.name ?? `группа ${n.group_id}`)
+  const refresh = () => invalidate(["nodes"], ["inbounds"], ["overview"])
+  const nameOf = (gid: number) => groups.data?.find((g) => g.id === gid)?.name ?? `группа ${gid}`
+  const byInbound = (groups.data ?? []).filter((g) => !n.group_ids.includes(g.id) && g.inbound_ids.some((iid) => inbounds.data?.some((i) => i.id === iid)))
+  const group =
+    n.group_ids.length === 0 && byInbound.length === 0
+      ? "без группы — видна всем тарифам"
+      : [
+          ...n.group_ids.map(nameOf),
+          ...byInbound.map((g) => `${g.name} (входы ${(inbounds.data ?? []).filter((i) => g.inbound_ids.includes(i.id)).map((i) => i.label || i.tag).join(", ")})`),
+        ].join(", ")
 
   return (
     <>
@@ -75,6 +83,19 @@ export function NodePage() {
         }
       />
 
+      {!n.agent_per_inbound && n.last_sync_at && (
+        <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <div className="font-medium">Агент старой версии — обнови ноду</div>
+            <div className="mt-1 text-muted-foreground">
+              Он не умеет раздавать ключи по отдельным входам. Юзеры, которым открыта только часть входов ноды или чьи входы разложены по разным пулам, не смогут к ней
+              подключиться, пока агент не обновят.
+            </div>
+          </div>
+        </div>
+      )}
+
       {n.config_error && (
         <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
@@ -87,7 +108,7 @@ export function NodePage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section title="Состояние" className="xl:col-span-1">
-          <KV label="Группа">{group}</KV>
+          <KV label="Группы">{group}</KV>
           <KV label="С доступом">{n.active_users ?? "—"}</KV>
           <KV label="Онлайн">{n.online_users}</KV>
           <KV label="Агент">{n.agent_version ?? "—"}</KV>

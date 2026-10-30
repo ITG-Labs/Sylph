@@ -112,12 +112,13 @@ func (s *Server) handleUserTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Bytes int64 `json:"bytes"`
+		Bytes  int64  `json:"bytes"`
+		PoolID *int64 `json:"pool_id"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	sub, err := s.svc.AddTraffic(r.Context(), id, body.Bytes)
+	sub, err := s.svc.AddTraffic(r.Context(), id, body.PoolID, body.Bytes)
 	if err != nil {
 		s.writeServiceError(w, err, "user")
 		return

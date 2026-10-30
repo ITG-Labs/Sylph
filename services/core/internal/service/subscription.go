@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -99,9 +100,8 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 		return nil, err
 	}
 	view.ExpiresAt = sub.PaidUntil
-	view.TrafficUsedBytes = sub.TrafficUsedBytes
-	view.TrafficLimitBytes = sub.TrafficLimitBytes
-	if sub.TrafficLimitBytes != nil && sub.TrafficUsedBytes >= *sub.TrafficLimitBytes {
+	view.TrafficUsedBytes, view.TrafficLimitBytes = TrafficTotals(sub)
+	if sub.TrafficExhausted {
 		view.Status = StatusTrafficExceeded
 		return view, nil
 	}
@@ -142,7 +142,7 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 	if len(keys) == 0 {
 		return view, nil
 	}
-	conns, err := s.connections(ctx, plan.LocationGroupID, keys[0].UUID)
+	conns, err := s.connections(ctx, sub.ID, keys[0].UUID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +150,37 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 	return view, nil
 }
 
-func (s *Service) connections(ctx context.Context, groupID *int64, uuid string) ([]Connection, error) {
-	endpoints, err := s.store.ListVisibleEndpoints(ctx, groupID)
+func TrafficTotals(sub *model.Subscription) (used int64, limit *int64) {
+	used, limit = sub.TrafficUsedBytes, sub.TrafficLimitBytes
+	if sub.MainIdle && len(sub.Pools) > 0 {
+		used, limit = sub.Pools[0].UsedBytes, sub.Pools[0].TrafficLimitBytes
+		return addPools(used, limit, sub.Pools[1:])
+	}
+	return addPools(used, limit, sub.Pools)
+}
+
+func addPools(used int64, limit *int64, pools []model.PoolUsage) (int64, *int64) {
+	for _, p := range pools {
+		used = satSum(used, p.UsedBytes)
+		if limit != nil && p.TrafficLimitBytes != nil {
+			total := satSum(*limit, *p.TrafficLimitBytes)
+			limit = &total
+		} else {
+			limit = nil
+		}
+	}
+	return used, limit
+}
+
+func satSum(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+func (s *Service) connections(ctx context.Context, periodID int64, uuid string) ([]Connection, error) {
+	endpoints, err := s.store.ListPeriodEndpoints(ctx, periodID)
 	if err != nil {
 		return nil, err
 	}
