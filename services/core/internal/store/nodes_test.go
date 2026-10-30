@@ -15,8 +15,11 @@ func TestCreateNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := &model.Node{CertCN: "node-de-1", Name: "Germany", GroupID: &g.ID, Address: "de1.example.com", Enabled: true}
+	n := &model.Node{CertCN: "node-de-1", Name: "Germany", Address: "de1.example.com", Enabled: true}
 	if err := s.CreateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{g.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if n.ID == 0 || n.CreatedAt.IsZero() {
@@ -26,7 +29,7 @@ func TestCreateNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CertCN != "node-de-1" || got.Name != "Germany" || got.GroupID == nil || *got.GroupID != g.ID ||
+	if got.CertCN != "node-de-1" || got.Name != "Germany" || len(got.GroupIDs) != 1 || got.GroupIDs[0] != g.ID ||
 		got.Address != "de1.example.com" || !got.Enabled || got.ConfigError != nil {
 		t.Fatalf("got %+v", got)
 	}
@@ -44,8 +47,11 @@ func TestCreateNodeConflictAndUnknownGroup(t *testing.T) {
 	if err := s.CreateNode(ctx, &model.Node{CertCN: "node-1", Name: "b", Address: "b.example.com", Enabled: true}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate cert_cn: %v, want ErrConflict", err)
 	}
-	missing := int64(424242)
-	if err := s.CreateNode(ctx, &model.Node{CertCN: "node-2", Name: "c", GroupID: &missing, Address: "c.example.com", Enabled: true}); !errors.Is(err, ErrInvalidReference) {
+	n := &model.Node{CertCN: "node-2", Name: "c", Address: "c.example.com", Enabled: true}
+	if err := s.CreateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{424242}); !errors.Is(err, ErrInvalidReference) {
 		t.Fatalf("unknown group: %v, want ErrInvalidReference", err)
 	}
 }
@@ -61,24 +67,26 @@ func TestUpdateNode(t *testing.T) {
 	if err := s.CreateNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
-	n.Name, n.Address, n.Enabled, n.GroupID = "renamed", "b.example.com", false, &g.ID
+	n.Name, n.Address, n.Enabled = "renamed", "b.example.com", false
 	if err := s.UpdateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{g.ID}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetNode(ctx, n.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "renamed" || got.Address != "b.example.com" || got.Enabled || got.GroupID == nil || *got.GroupID != g.ID {
+	if got.Name != "renamed" || got.Address != "b.example.com" || got.Enabled || len(got.GroupIDs) != 1 || got.GroupIDs[0] != g.ID {
 		t.Fatalf("got %+v", got)
 	}
-	if got.UsersVersion != n.UsersVersion {
-		t.Fatalf("update returned version %d, stored %d", n.UsersVersion, got.UsersVersion)
+	if err := s.UpdateNode(ctx, n); err != nil {
+		t.Fatal(err)
 	}
-	missing := int64(424242)
-	n.GroupID = &missing
-	if err := s.UpdateNode(ctx, n); !errors.Is(err, ErrInvalidReference) {
-		t.Fatalf("unknown group: %v, want ErrInvalidReference", err)
+	again, err := s.GetNode(ctx, n.ID)
+	if err != nil || again.UsersVersion != n.UsersVersion {
+		t.Fatalf("update returned version %d, stored %+v, %v", n.UsersVersion, again, err)
 	}
 	ghost := &model.Node{ID: 424242, CertCN: "x", Name: "x", Address: "x.example.com"}
 	if err := s.UpdateNode(ctx, ghost); !errors.Is(err, ErrNotFound) {

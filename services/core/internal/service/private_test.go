@@ -13,7 +13,7 @@ import (
 
 func privatePlan(t *testing.T, svc *Service, name string) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: name, PriceRub: 300, PeriodDays: 30, Visibility: model.VisibilityPrivate}
+	p := &model.Plan{Name: name, PriceRub: 300, PeriodDays: 30, Visibility: model.VisibilityPrivate, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}

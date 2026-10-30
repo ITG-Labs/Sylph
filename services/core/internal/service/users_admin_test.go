@@ -104,7 +104,7 @@ func TestAdminCannotManageABannedUser(t *testing.T) {
 	if _, err := f.svc.RecordPayment(ctx, "manual-1", f.user.ID, f.plan.ID, 0); !errors.As(err, &ce) || ce.Field != "user_id" {
 		t.Fatalf("manual payment: %v", err)
 	}
-	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate}
+	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate, LocationGroupID: testGroup(t, f.svc.store)}
 	if err := f.svc.CreatePlanChecked(ctx, vip); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestManualSubscriptionInputIsChecked(t *testing.T) {
 		}
 	}
 	for _, b := range []int64{0, -1, 1<<50 + 1} {
-		if _, err := f.svc.AddTraffic(ctx, f.user.ID, b); !errors.As(err, &fe) || fe.Field != "bytes" {
+		if _, err := f.svc.AddTraffic(ctx, f.user.ID, nil, b); !errors.As(err, &fe) || fe.Field != "bytes" {
 			t.Fatalf("bytes %d: %v", b, err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestManualSubscriptionInputIsChecked(t *testing.T) {
 		t.Fatalf("reason with a control character: %v", err)
 	}
 	var ce *ConflictError
-	if _, err := f.svc.AddTraffic(ctx, f.user.ID, 10); !errors.As(err, &ce) || ce.Field != "bytes" {
+	if _, err := f.svc.AddTraffic(ctx, f.user.ID, nil, 10); !errors.As(err, &ce) || ce.Field != "bytes" {
 		t.Fatalf("bonus on an unlimited plan: %v", err)
 	}
 	if _, err := f.svc.ExtendSubscription(ctx, 999999, 5); !errors.Is(err, store.ErrNotFound) {
@@ -153,7 +153,7 @@ func TestSubscriptionCountsTheTrafficBonus(t *testing.T) {
 	if v := f.view(t, ""); v.Status != StatusTrafficExceeded {
 		t.Fatalf("status before the bonus = %s", v.Status)
 	}
-	sub, err := f.svc.AddTraffic(ctx, f.user.ID, 500)
+	sub, err := f.svc.AddTraffic(ctx, f.user.ID, nil, 500)
 	if err != nil {
 		t.Fatal(err)
 	}

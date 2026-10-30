@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -36,8 +37,7 @@ func TestRenameGroup(t *testing.T) {
 	ctx := context.Background()
 	g1, g2 := mkGroup(t, s, "eu"), mkGroup(t, s, "asia")
 	n := deltaNode(t, s)
-	n.GroupID = &g1.ID
-	if err := s.UpdateNode(ctx, n); err != nil {
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{g1.ID}); err != nil {
 		t.Fatal(err)
 	}
 	before := nodeVersion(t, s, n.CertCN)
@@ -64,8 +64,7 @@ func TestDeleteOnlyEmptyGroup(t *testing.T) {
 	ctx := context.Background()
 	withNode, withPlan, empty := mkGroup(t, s, "nodes"), mkGroup(t, s, "plans"), mkGroup(t, s, "empty")
 	n := deltaNode(t, s)
-	n.GroupID = &withNode.ID
-	if err := s.UpdateNode(ctx, n); err != nil {
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{withNode.ID}); err != nil {
 		t.Fatal(err)
 	}
 	p := mkPlan(t, s)
@@ -85,14 +84,13 @@ func TestDeleteOnlyEmptyGroup(t *testing.T) {
 	if v := nodeVersion(t, s, n.CertCN); v != before {
 		t.Fatalf("delete bumped the node %d -> %d", before, v)
 	}
-	if got := groupNames(t, s); len(got) != 2 || got[0] != "nodes" || got[1] != "plans" {
+	if got := groupNames(t, s); len(got) != 3 || !slices.Contains(got, "nodes") || !slices.Contains(got, "plans") || slices.Contains(got, "empty") {
 		t.Fatalf("groups = %v", got)
 	}
 	if err := s.DeleteLocationGroup(ctx, empty.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete twice: %v", err)
 	}
-	n.GroupID = &empty.ID
-	if err := s.UpdateNode(ctx, n); !errors.Is(err, ErrInvalidReference) {
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{empty.ID}); !errors.Is(err, ErrInvalidReference) {
 		t.Fatalf("move into a deleted group: %v", err)
 	}
 }
@@ -108,7 +106,7 @@ func TestDeleteGroupWaitsForAMoveInto(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE nodes SET group_id = $1 WHERE id = $2`, g.ID, n.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO group_nodes (group_id, node_id) VALUES ($1, $2)`, g.ID, n.ID); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})

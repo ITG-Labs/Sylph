@@ -134,7 +134,7 @@ func TestPrivatePlanPaymentsThroughTheAPI(t *testing.T) {
 	e, yk := newPaymentsEnv(t)
 	bot := e.client(t, "bot", mtls.RoleBot)
 	panel := e.client(t, "panel", mtls.RolePanel)
-	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate}
+	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(context.Background(), vip); err != nil {
 		t.Fatal(err)
 	}

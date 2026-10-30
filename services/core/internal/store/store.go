@@ -18,6 +18,8 @@ var ErrTrialOnSale = fmt.Errorf("%w: another trial plan is on sale", ErrConflict
 
 var ErrGroupNotEmpty = errors.New("group is not empty")
 
+var ErrPoolOverlap = errors.New("plan pools overlap")
+
 type Store struct {
 	pool    *pgxpool.Pool
 	statsTZ string

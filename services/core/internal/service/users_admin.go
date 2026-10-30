@@ -38,7 +38,9 @@ func adminErr(err error) error {
 	case errors.Is(err, store.ErrNoActivePeriod):
 		return &ConflictError{Field: "subscription", Message: "user has no active period"}
 	case errors.Is(err, store.ErrUnlimitedPlan):
-		return &ConflictError{Field: "bytes", Message: "plan of the current period has no traffic limit"}
+		return &ConflictError{Field: "bytes", Message: "this pool of the current period has no traffic limit"}
+	case errors.Is(err, store.ErrPoolNotInPlan):
+		return fieldErr("pool_id", "pool is not part of the plan of the current period")
 	case errors.Is(err, store.ErrPeriodClosed):
 		return &ConflictError{Field: "id", Message: "period is already closed or over"}
 	}
@@ -82,11 +84,11 @@ func (s *Service) ExtendSubscription(ctx context.Context, userID int64, days int
 	return sub, nil
 }
 
-func (s *Service) AddTraffic(ctx context.Context, userID, bytes int64) (*model.Subscription, error) {
+func (s *Service) AddTraffic(ctx context.Context, userID int64, poolID *int64, bytes int64) (*model.Subscription, error) {
 	if bytes < 1 || bytes > maxBonusBytes {
 		return nil, fieldErr("bytes", "must be 1 byte to 1 PiB")
 	}
-	sub, err := s.store.AddTrafficBonus(ctx, userID, bytes, time.Now().UTC())
+	sub, err := s.store.AddTrafficBonus(ctx, userID, poolID, bytes, time.Now().UTC())
 	if err != nil {
 		return nil, adminErr(err)
 	}

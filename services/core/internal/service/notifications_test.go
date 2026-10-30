@@ -160,6 +160,40 @@ func TestDueForExpired(t *testing.T) {
 	}
 }
 
+func TestDueForPools(t *testing.T) {
+	now := time.Now()
+	c := trafficCand(100, 1000)
+	c.Pools = []store.PoolTraffic{{ID: 3, Name: "Премиум", Used: 96, Bonus: 5, Limit: i64(100)}, {ID: 4, Name: "Без лимита", Used: 1 << 40}}
+	got := dueFor(c, now, allOn)
+	if len(got) != 1 || got[0].Kind != "traffic_95" || got[0].Ref != "7:5:3" || got[0].PoolID == nil || *got[0].PoolID != 3 ||
+		got[0].PoolName != "Премиум" || !got[0].MultiPool || *got[0].TrafficUsedBytes != 96 {
+		t.Fatalf("pool notifications = %+v", got)
+	}
+	c.UsedBytes = 1000
+	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_out", "traffic_95") || got[0].PoolID != nil || got[0].Ref != "7:0" || !got[0].MultiPool {
+		t.Fatalf("main and pool = %+v", got)
+	}
+	c.MainIdle = true
+	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_95") {
+		t.Fatalf("an idle main pool must stay quiet: %v", kinds(got))
+	}
+	plain := trafficCand(1000, 1000)
+	if got := dueFor(plain, now, allOn); got[0].MultiPool || got[0].PoolName != "" {
+		t.Fatalf("a single-pool plan = %+v", got[0])
+	}
+}
+
+func TestMarkNotifiedAcceptsPoolRefs(t *testing.T) {
+	svc, _, u := notifyFixture(t)
+	ctx := context.Background()
+	for _, ref := range []string{"1:0:x", "1:0:0", "1:0:-2", "1:0:3:4", "1:0:03"} {
+		var fe *FieldError
+		if err := svc.MarkNotified(ctx, NotificationSent{UserID: u.ID, Kind: "traffic_80", Ref: ref, Outcome: "sent"}); !errors.As(err, &fe) {
+			t.Errorf("ref %q: %v", ref, err)
+		}
+	}
+}
+
 func TestDueForTrafficAndExpiryTogether(t *testing.T) {
 	now := time.Now()
 	c := expiryCand(now, 29*day, time.Hour, false)
@@ -173,7 +207,7 @@ func notifyFixture(t *testing.T) (*Service, *model.Plan, *model.User) {
 	t.Helper()
 	svc := setupService(t)
 	limit := int64(1000)
-	plan := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit}
+	plan := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}

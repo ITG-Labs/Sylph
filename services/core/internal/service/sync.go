@@ -10,9 +10,10 @@ import (
 )
 
 type NodeUser struct {
-	UUID     string `json:"uuid"`
-	PlanID   int64  `json:"plan_id"`
-	EgressIP string `json:"egress_ip,omitempty"`
+	UUID     string   `json:"uuid"`
+	PlanID   int64    `json:"plan_id"`
+	EgressIP string   `json:"egress_ip,omitempty"`
+	Inbounds []string `json:"inbounds,omitempty"`
 }
 
 type SyncGeoSource struct {
@@ -46,12 +47,12 @@ type SyncResponse struct {
 	Geo         *SyncGeo           `json:"geo,omitempty"`
 }
 
-func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64) (*SyncResponse, error) {
+func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64, perInbound bool) (*SyncResponse, error) {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.syncResponse(ctx, node, knownVersion)
+	resp, err := s.syncResponse(ctx, node, knownVersion, perInbound)
 	if err != nil {
 		return nil, err
 	}
@@ -63,17 +64,25 @@ func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion
 	return resp, nil
 }
 
-func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersion int64) (*SyncResponse, error) {
+func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersion int64, perInbound bool) (*SyncResponse, error) {
 	if node.UsersVersion == knownVersion {
 		return &SyncResponse{Version: node.UsersVersion}, nil
 	}
-	keys, err := s.store.ListNodeKeys(ctx, node.ID)
+	list := s.store.ListNodeKeysLegacy
+	if perInbound {
+		list = s.store.ListNodeKeys
+	}
+	keys, err := list(ctx, node.ID)
 	if err != nil {
 		return nil, err
 	}
 	nodeUsers := make([]NodeUser, 0, len(keys))
 	for _, k := range keys {
-		nodeUsers = append(nodeUsers, NodeUser{UUID: k.UUID, PlanID: k.PlanID, EgressIP: k.EgressIP})
+		u := NodeUser{UUID: k.UUID, PlanID: k.PlanID, EgressIP: k.EgressIP}
+		if perInbound {
+			u.Inbounds = k.Inbounds
+		}
+		nodeUsers = append(nodeUsers, u)
 	}
 	stored, err := s.store.ListNodeInbounds(ctx, node.ID)
 	if err != nil {

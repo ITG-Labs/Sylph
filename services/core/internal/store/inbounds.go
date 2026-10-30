@@ -197,20 +197,43 @@ func (s *Store) InboundCounts(ctx context.Context) (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+type InboundRef struct {
+	ID        int64  `json:"id"`
+	NodeID    int64  `json:"node_id"`
+	Tag       string `json:"tag"`
+	Label     string `json:"label"`
+	Port      int    `json:"port"`
+	Transport string `json:"transport"`
+	Security  string `json:"security"`
+}
+
+func (s *Store) InboundRefs(ctx context.Context) ([]InboundRef, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, node_id, tag, label, port, transport, security FROM node_inbounds ORDER BY node_id, tag`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[InboundRef])
+}
+
 type Endpoint struct {
 	NodeName    string
 	NodeAddress string
 	Inbound     model.NodeInbound
 }
 
-func (s *Store) ListVisibleEndpoints(ctx context.Context, groupID *int64) ([]Endpoint, error) {
+func (s *Store) ListPeriodEndpoints(ctx context.Context, periodID int64) ([]Endpoint, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT n.name, n.address, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
-		 FROM nodes n
-		 JOIN node_inbounds i ON i.node_id = n.id
-		 WHERE n.enabled AND n.address <> '' AND (n.group_id IS NULL OR n.group_id = $1)
+		 FROM subscriptions sub
+		 JOIN plan_inbounds pi ON pi.plan_id = sub.plan_id
+		 JOIN period_pools x ON x.period_id = sub.id AND x.pool_id IS NOT DISTINCT FROM pi.pool_id
+		 JOIN node_inbounds i ON i.id = pi.inbound_id
+		 JOIN nodes n ON n.id = i.node_id
+		 WHERE sub.id = $1 AND n.enabled AND n.address <> ''
+		   AND (x.limit_bytes IS NULL OR x.used_bytes < x.limit_bytes)
 		 ORDER BY n.name, n.id, i.tag`,
-		groupID)
+		periodID)
 	if err != nil {
 		return nil, err
 	}

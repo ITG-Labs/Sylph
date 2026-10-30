@@ -31,7 +31,7 @@ func botUserAndPlan(t *testing.T, e *apiEnv, tg int64, price int64) (*model.User
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: fmt.Sprintf("Месяц %d", tg), PriceRub: price, PeriodDays: 30}
+	p := &model.Plan{Name: fmt.Sprintf("Месяц %d", tg), PriceRub: price, PeriodDays: 30, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestRotateGivesANewLinkAndUnknownUsersAre404(t *testing.T) {
 	bot := e.client(t, "bot", mtls.RoleBot)
 	subs := e.client(t, "subs", mtls.RoleSubs)
 	u, oldKey, _ := e.svc.RegisterUser(context.Background(), 5202)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}

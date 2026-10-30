@@ -59,6 +59,8 @@ var routeMatrix = []routeCase{
 	{http.MethodPatch, "/v1/admin/nodes/1", []string{mtls.RolePanel}},
 	{http.MethodGet, "/v1/admin/nodes/1/inbounds", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/nodes/1/inbounds", []string{mtls.RolePanel}},
+	{http.MethodGet, "/v1/admin/inbounds", []string{mtls.RolePanel}},
+	{http.MethodPut, "/v1/admin/groups/1/members", []string{mtls.RolePanel}},
 	{http.MethodPatch, "/v1/admin/inbounds/1", []string{mtls.RolePanel}},
 	{http.MethodDelete, "/v1/admin/inbounds/1", []string{mtls.RolePanel}},
 	{http.MethodPost, "/v1/admin/users/1/ban", []string{mtls.RolePanel}},

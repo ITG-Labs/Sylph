@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -90,7 +90,7 @@ func userAndPlan(t *testing.T, svc *Service, tg int64, price int64) (*model.User
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "Месяц " + strconv.FormatInt(tg, 10), PriceRub: price, PeriodDays: 30}
+	p := &model.Plan{Name: "Месяц " + strconv.FormatInt(tg, 10), PriceRub: price, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestCreatePaymentDescribesPlanAndTelegramID(t *testing.T) {
 	for range 200 {
 		long += "я"
 	}
-	p := &model.Plan{Name: long, PriceRub: 10, PeriodDays: 30}
+	p := &model.Plan{Name: long, PriceRub: 10, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

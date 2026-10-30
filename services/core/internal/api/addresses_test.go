@@ -103,6 +103,7 @@ func TestDedicatedAddressFlow(t *testing.T) {
 	e := newAdminEnv(t)
 	ctx := t.Context()
 	nodeID := e.createNode(t, "node-1", nil)
+	e.createInbound(t, nodeID, "main")
 	node := e.client(t, "node-1", mtls.RoleNode)
 	bot := e.client(t, "bot", mtls.RoleBot)
 	if status := postJSON(t, node, e.ts.URL+"/v1/sync/heartbeat", heartbeatWith([]map[string]any{{"ip": "203.0.113.7", "ok": true}, {"ip": "203.0.113.8", "ok": true}}), nil); status != http.StatusOK {
@@ -236,6 +237,7 @@ func TestDedicatedAddressFlow(t *testing.T) {
 func TestAddressBalancerWarning(t *testing.T) {
 	e := newAdminEnv(t)
 	nodeID := e.createNode(t, "node-1", nil)
+	e.createInbound(t, nodeID, "main")
 	node := e.client(t, "node-1", mtls.RoleNode)
 	if status := postJSON(t, node, e.ts.URL+"/v1/sync/heartbeat", heartbeatWith([]map[string]any{{"ip": "203.0.113.7", "ok": true}}), nil); status != http.StatusOK {
 		t.Fatalf("heartbeat = %d", status)

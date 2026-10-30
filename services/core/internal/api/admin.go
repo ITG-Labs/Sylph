@@ -14,6 +14,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "GET /v1/admin/groups", s.handleGroupList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/groups/{id}", s.handleGroupRename, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/groups/{id}", s.handleGroupDelete, mtls.RolePanel)
+	s.route(mux, "PUT /v1/admin/groups/{id}/members", s.handleGroupMembers, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/plans", s.handlePlanCreate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/plans", s.handlePlanList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/plans/{id}", s.handlePlanUpdate, mtls.RolePanel)
@@ -22,6 +23,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "PATCH /v1/admin/nodes/{id}", s.handleNodeUpdate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes/{id}/stats", s.handleNodeStats, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes/{id}/inbounds", s.handleInboundList, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/inbounds", s.handleInboundRefs, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/nodes/{id}/inbounds", s.handleInboundCreate, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/inbounds/{id}", s.handleInboundUpdate, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/inbounds/{id}", s.handleInboundDelete, mtls.RolePanel)
@@ -122,19 +124,45 @@ func (s *Server) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		NodeIDs    []int64 `json:"node_ids"`
+		InboundIDs []int64 `json:"inbound_ids"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := s.svc.SetGroupMembers(r.Context(), id, body.NodeIDs, body.InboundIDs); err != nil {
+		s.writeServiceError(w, err, "group")
+		return
+	}
+	g, err := s.svc.GetGroup(r.Context(), id)
+	if err != nil {
+		s.writeServiceError(w, err, "group")
+		return
+	}
+	s.logChange(r, "group", "members", id)
+	writeJSON(w, http.StatusOK, g)
+}
+
 func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name              string `json:"name"`
-		PriceRub          int64  `json:"price_rub"`
-		PeriodDays        int    `json:"period_days"`
-		TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
-		LocationGroupID   *int64 `json:"location_group_id"`
-		DeviceLimit       *int   `json:"device_limit"`
-		HWIDRequired      *bool  `json:"hwid_required"`
-		Trial             bool   `json:"trial"`
-		Visibility        string `json:"visibility"`
-		OnSale            *bool  `json:"on_sale"`
-		DedicatedIP       bool   `json:"dedicated_ip"`
+		Name              string           `json:"name"`
+		PriceRub          int64            `json:"price_rub"`
+		PeriodDays        int              `json:"period_days"`
+		TrafficLimitBytes *int64           `json:"traffic_limit_bytes"`
+		LocationGroupID   *int64           `json:"location_group_id"`
+		DeviceLimit       *int             `json:"device_limit"`
+		HWIDRequired      *bool            `json:"hwid_required"`
+		Trial             bool             `json:"trial"`
+		Visibility        string           `json:"visibility"`
+		OnSale            *bool            `json:"on_sale"`
+		DedicatedIP       bool             `json:"dedicated_ip"`
+		Pools             []model.PlanPool `json:"pools"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -143,6 +171,7 @@ func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name, PriceRub: body.PriceRub, PeriodDays: body.PeriodDays,
 		TrafficLimitBytes: body.TrafficLimitBytes, LocationGroupID: body.LocationGroupID, DeviceLimit: body.DeviceLimit,
 		HWIDRequired: body.DeviceLimit != nil, Trial: body.Trial, Visibility: body.Visibility, DedicatedIP: body.DedicatedIP,
+		Pools: body.Pools,
 	}
 	if body.HWIDRequired != nil {
 		p.HWIDRequired = *body.HWIDRequired
@@ -188,16 +217,16 @@ func (s *Server) handlePlanUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleNodeCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CertCN  string `json:"cert_cn"`
-		Name    string `json:"name"`
-		Address string `json:"address"`
-		GroupID *int64 `json:"group_id"`
-		Enabled *bool  `json:"enabled"`
+		CertCN   string  `json:"cert_cn"`
+		Name     string  `json:"name"`
+		Address  string  `json:"address"`
+		GroupIDs []int64 `json:"group_ids"`
+		Enabled  *bool   `json:"enabled"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	n := &model.Node{CertCN: body.CertCN, Name: body.Name, Address: body.Address, GroupID: body.GroupID, Enabled: true}
+	n := &model.Node{CertCN: body.CertCN, Name: body.Name, Address: body.Address, GroupIDs: body.GroupIDs, Enabled: true}
 	if body.Enabled != nil {
 		n.Enabled = *body.Enabled
 	}
@@ -265,6 +294,15 @@ func (s *Server) handleInboundList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleInboundRefs(w http.ResponseWriter, r *http.Request) {
+	list, err := s.svc.InboundRefs(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err, "inbounds")
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(list))
 }
 
 func (s *Server) handleInboundCreate(w http.ResponseWriter, r *http.Request) {

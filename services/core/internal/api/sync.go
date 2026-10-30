@@ -79,11 +79,12 @@ func (s *Server) handleSyncUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		KnownVersion int64 `json:"known_version"`
+		PerInbound   bool  `json:"per_inbound"`
 	}
 	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
 	}
-	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion)
+	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion, body.PerInbound)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
@@ -106,6 +107,7 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		BatchID string `json:"batch_id"`
 		Deltas  []struct {
 			KeyUUID   string `json:"key_uuid"`
+			Inbound   string `json:"inbound"`
 			BytesUp   int64  `json:"bytes_up"`
 			BytesDown int64  `json:"bytes_down"`
 		} `json:"deltas"`
@@ -123,7 +125,11 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request", "traffic bytes must be between 0 and 1 PiB")
 			return
 		}
-		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
+		if len(d.Inbound) > 64 {
+			writeError(w, http.StatusBadRequest, "bad_request", "inbound must be at most 64 characters")
+			return
+		}
+		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, Inbound: d.Inbound, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
 	duplicate, err := s.svc.RecordNodeDeltasInput(r.Context(), cn, body.BatchID, deltas)
 	if err != nil {

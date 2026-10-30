@@ -13,7 +13,7 @@ const day = 24 * time.Hour
 
 func mkLimitedPlan(t *testing.T, s *Store, days int, limit int64) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: days, TrafficLimitBytes: &limit}
+	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: days, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +191,7 @@ func deltaNode(t *testing.T, s *Store) *model.Node {
 	if err := s.UpsertNode(context.Background(), n); err != nil {
 		t.Fatal(err)
 	}
+	mkInbound(t, s, n.ID, "main")
 	return n
 }
 

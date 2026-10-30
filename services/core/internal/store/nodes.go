@@ -10,12 +10,12 @@ import (
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
-const nodeColumns = `id, cert_cn, name, group_id, address, users_version, enabled, config_error, last_heartbeat, agent_version, xray_version,
+const nodeColumns = `id, cert_cn, name, ARRAY(SELECT gn.group_id FROM group_nodes gn WHERE gn.node_id = nodes.id ORDER BY gn.group_id), address, users_version, enabled, config_error, last_heartbeat, agent_version, xray_version,
 	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, profile_id, geo_status, routing_error, cert_not_after, created_at`
 
 func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 	n := &model.Node{}
-	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupID, &n.Address, &n.UsersVersion, &n.Enabled, &n.ConfigError, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
+	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupIDs, &n.Address, &n.UsersVersion, &n.Enabled, &n.ConfigError, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
 		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CertNotAfter, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -28,35 +28,61 @@ func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 
 func (s *Store) UpsertNode(ctx context.Context, n *model.Node) error {
 	return s.pool.QueryRow(ctx,
-		`INSERT INTO nodes (cert_cn, name, group_id, address)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (cert_cn) DO UPDATE SET name = $2, group_id = $3, address = $4
+		`INSERT INTO nodes (cert_cn, name, address)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (cert_cn) DO UPDATE SET name = $2, address = $3
 		 RETURNING id, users_version, enabled, created_at`,
-		n.CertCN, n.Name, n.GroupID, n.Address,
+		n.CertCN, n.Name, n.Address,
 	).Scan(&n.ID, &n.UsersVersion, &n.Enabled, &n.CreatedAt)
 }
 
 func (s *Store) CreateNode(ctx context.Context, n *model.Node) error {
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO nodes (cert_cn, name, group_id, address, enabled)
-		 VALUES ($1, $2, $3, $4, $5)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO nodes (cert_cn, name, address, enabled)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, users_version, created_at`,
-		n.CertCN, n.Name, n.GroupID, n.Address, n.Enabled,
+		n.CertCN, n.Name, n.Address, n.Enabled,
 	).Scan(&n.ID, &n.UsersVersion, &n.CreatedAt)
-	return mapWriteErr(err)
+	if err != nil {
+		return mapWriteErr(err)
+	}
+	if n.GroupIDs != nil {
+		if err := setNodeGroups(ctx, tx, n.ID, n.GroupIDs); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
-	err := s.pool.QueryRow(ctx,
-		`UPDATE nodes SET name = $2, group_id = $3, address = $4, enabled = $5, profile_id = $6
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if n.GroupIDs != nil {
+		if err := setNodeGroups(ctx, tx, n.ID, n.GroupIDs); err != nil {
+			return err
+		}
+	}
+	err = tx.QueryRow(ctx,
+		`UPDATE nodes SET name = $2, address = $3, enabled = $4, profile_id = $5
 		 WHERE id = $1
 		 RETURNING users_version`,
-		n.ID, n.Name, n.GroupID, n.Address, n.Enabled, n.ProfileID,
+		n.ID, n.Name, n.Address, n.Enabled, n.ProfileID,
 	).Scan(&n.UsersVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return mapWriteErr(err)
+	if err != nil {
+		return mapWriteErr(err)
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) GetNode(ctx context.Context, id int64) (*model.Node, error) {

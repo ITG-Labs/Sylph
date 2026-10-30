@@ -67,7 +67,10 @@ func (f *subFixture) view(t *testing.T, hwid string) *SubscriptionView {
 func (f *subFixture) node(t *testing.T, cn string, groupID *int64, enabled bool, tags ...string) *model.Node {
 	t.Helper()
 	ctx := context.Background()
-	n := &model.Node{CertCN: cn, Name: cn, Address: cn + ".example.com", GroupID: groupID, Enabled: enabled}
+	n := &model.Node{CertCN: cn, Name: cn, Address: cn + ".example.com", Enabled: enabled}
+	if groupID != nil {
+		n.GroupIDs = []int64{*groupID}
+	}
 	if err := f.svc.CreateNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
@@ -311,8 +314,11 @@ func TestSubscriptionStatusOrder(t *testing.T) {
 func TestSubscriptionSkipsNodeWithoutAddress(t *testing.T) {
 	f := newSubFixture(t, nil, nil)
 	ctx := context.Background()
-	legacy := &model.Node{CertCN: "legacy", Name: "legacy", GroupID: &f.group.ID}
+	legacy := &model.Node{CertCN: "legacy", Name: "legacy"}
 	if err := f.svc.store.UpsertNode(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.store.SetNodeGroups(ctx, legacy.ID, []int64{f.group.ID}); err != nil {
 		t.Fatal(err)
 	}
 	spec := inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.legacy.com:443", ServerNames: []string{"www.legacy.com"}}}
@@ -333,7 +339,7 @@ func TestSubscriptionConnectionNamesAreUnique(t *testing.T) {
 		t.Helper()
 		n, err := f.svc.store.GetNodeByCN(ctx, cn)
 		if errors.Is(err, store.ErrNotFound) {
-			n = &model.Node{CertCN: cn, Name: name, Address: cn + ".example.com", GroupID: &f.group.ID, Enabled: true}
+			n = &model.Node{CertCN: cn, Name: name, Address: cn + ".example.com", GroupIDs: []int64{f.group.ID}, Enabled: true}
 			if err := f.svc.CreateNode(ctx, n); err != nil {
 				t.Fatal(err)
 			}

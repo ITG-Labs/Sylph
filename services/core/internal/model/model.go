@@ -6,16 +6,18 @@ import (
 )
 
 type LocationGroup struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	NodeIDs    []int64   `json:"node_ids"`
+	InboundIDs []int64   `json:"inbound_ids"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Node struct {
 	ID             int64           `json:"id"`
 	CertCN         string          `json:"cert_cn"`
 	Name           string          `json:"name"`
-	GroupID        *int64          `json:"group_id"`
+	GroupIDs       []int64         `json:"group_ids"`
 	Address        string          `json:"address"`
 	UsersVersion   int64           `json:"users_version"`
 	Enabled        bool            `json:"enabled"`
@@ -114,19 +116,38 @@ const (
 )
 
 type Plan struct {
-	ID                int64     `json:"id"`
-	Name              string    `json:"name"`
-	PriceRub          int64     `json:"price_rub"`
-	PeriodDays        int       `json:"period_days"`
-	TrafficLimitBytes *int64    `json:"traffic_limit_bytes"`
-	LocationGroupID   *int64    `json:"location_group_id"`
-	DeviceLimit       *int      `json:"device_limit"`
-	OnSale            bool      `json:"on_sale"`
-	HWIDRequired      bool      `json:"hwid_required"`
-	Trial             bool      `json:"trial"`
-	Visibility        string    `json:"visibility"`
-	DedicatedIP       bool      `json:"dedicated_ip"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                int64      `json:"id"`
+	Name              string     `json:"name"`
+	PriceRub          int64      `json:"price_rub"`
+	PeriodDays        int        `json:"period_days"`
+	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	LocationGroupID   *int64     `json:"location_group_id"`
+	DeviceLimit       *int       `json:"device_limit"`
+	OnSale            bool       `json:"on_sale"`
+	HWIDRequired      bool       `json:"hwid_required"`
+	Trial             bool       `json:"trial"`
+	Visibility        string     `json:"visibility"`
+	DedicatedIP       bool       `json:"dedicated_ip"`
+	Pools             []PlanPool `json:"pools"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+type PlanPool struct {
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Label             string `json:"label"`
+	NodeID            *int64 `json:"node_id"`
+	GroupID           *int64 `json:"group_id"`
+	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+}
+
+type PoolUsage struct {
+	PoolID            int64  `json:"pool_id"`
+	Name              string `json:"name"`
+	UsedBytes         int64  `json:"used_bytes"`
+	BonusBytes        int64  `json:"bonus_bytes"`
+	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+	Exhausted         bool   `json:"exhausted"`
 }
 
 type Invite struct {
@@ -175,17 +196,19 @@ type UserKey struct {
 }
 
 type Subscription struct {
-	ID                int64      `json:"id"`
-	UserID            int64      `json:"user_id"`
-	PlanID            int64      `json:"plan_id"`
-	StartsAt          time.Time  `json:"starts_at"`
-	ExpiresAt         time.Time  `json:"expires_at"`
-	Canceled          bool       `json:"canceled"`
-	TrafficUsedBytes  int64      `json:"traffic_used_bytes"`
-	TrafficBonusBytes int64      `json:"traffic_bonus_bytes"`
-	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
-	PaidUntil         *time.Time `json:"paid_until,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
+	ID                int64       `json:"id"`
+	UserID            int64       `json:"user_id"`
+	PlanID            int64       `json:"plan_id"`
+	StartsAt          time.Time   `json:"starts_at"`
+	ExpiresAt         time.Time   `json:"expires_at"`
+	Canceled          bool        `json:"canceled"`
+	TrafficUsedBytes  int64       `json:"traffic_used_bytes"`
+	TrafficBonusBytes int64       `json:"traffic_bonus_bytes"`
+	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
+	TrafficExhausted  bool        `json:"traffic_exhausted"`
+	Pools             []PoolUsage `json:"pools"`
+	PaidUntil         *time.Time  `json:"paid_until,omitempty"`
+	CreatedAt         time.Time   `json:"created_at"`
 }
 
 type Payment struct {
@@ -208,6 +231,7 @@ type TrafficDelta struct {
 	ID         int64     `json:"id"`
 	NodeID     int64     `json:"node_id"`
 	KeyUUID    string    `json:"key_uuid"`
+	Inbound    string    `json:"inbound"`
 	BytesUp    int64     `json:"bytes_up"`
 	BytesDown  int64     `json:"bytes_down"`
 	ReportedAt time.Time `json:"reported_at"`

@@ -107,7 +107,7 @@ func TestAttentionCountsCutoff(t *testing.T) {
 	if err := s.CreateUser(ctx, u); err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

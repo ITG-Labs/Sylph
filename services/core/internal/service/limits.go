@@ -30,10 +30,11 @@ func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID s
 			slog.String("batch_id", batchID))
 	}
 	for _, e := range res.Exhausted {
-		s.log.LogAttrs(ctx, slog.LevelInfo, "traffic_period_exhausted",
-			slog.Int64("user_id", e.UserID),
-			slog.Int64("used", e.Used),
-			slog.Int64("limit", e.Limit))
+		attrs := []slog.Attr{slog.Int64("user_id", e.UserID), slog.Int64("used", e.Used), slog.Int64("limit", e.Limit)}
+		if e.PoolID != nil {
+			attrs = append(attrs, slog.Int64("pool_id", *e.PoolID))
+		}
+		s.log.LogAttrs(ctx, slog.LevelInfo, "traffic_period_exhausted", attrs...)
 	}
 	return res.Duplicate, nil
 }
@@ -88,6 +89,7 @@ func (s *Service) CheckAndExpire(ctx context.Context, now time.Time) (int64, err
 
 type TrafficDeltaInput struct {
 	KeyUUID   string
+	Inbound   string
 	BytesUp   int64
 	BytesDown int64
 }
@@ -95,7 +97,7 @@ type TrafficDeltaInput struct {
 func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, batchID string, deltas []TrafficDeltaInput) (bool, error) {
 	models := make([]model.TrafficDelta, 0, len(deltas))
 	for _, d := range deltas {
-		models = append(models, model.TrafficDelta{KeyUUID: d.KeyUUID, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
+		models = append(models, model.TrafficDelta{KeyUUID: d.KeyUUID, Inbound: d.Inbound, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
 	return s.RecordNodeDeltas(ctx, nodeCN, batchID, models)
 }

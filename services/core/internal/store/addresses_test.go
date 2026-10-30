@@ -13,6 +13,9 @@ import (
 
 func mkDedicatedPlan(t *testing.T, s *Store, groupID *int64) *model.Plan {
 	t.Helper()
+	if groupID == nil {
+		groupID = testGroup(t, s)
+	}
 	p := &model.Plan{Name: model.NewToken(), PriceRub: 500, PeriodDays: 30, LocationGroupID: groupID, DedicatedIP: true, Visibility: model.VisibilityPrivate}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -221,6 +224,8 @@ func TestNodeKeysCarryEgressIP(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	n, m := mkNode(t, s, "n1"), mkNode(t, s, "n2")
+	mkInbound(t, s, n.ID, "main")
+	mkInbound(t, s, m.ID, "main")
 	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
 	a := addressByIP(t, s, n.ID, "203.0.113.7")
 	ded := mkDedicatedPlan(t, s, nil)
@@ -279,8 +284,8 @@ func TestUserAddressReasons(t *testing.T) {
 	now := time.Now().UTC()
 	g, h := mkGroup(t, s, "de"), mkGroup(t, s, "nl")
 	n := mkNode(t, s, "n1")
-	n.GroupID = &g.ID
-	if err := s.UpdateNode(ctx, n); err != nil {
+	mkInbound(t, s, n.ID, "a")
+	if err := s.SetNodeGroups(ctx, n.ID, []int64{g.ID}); err != nil {
 		t.Fatal(err)
 	}
 	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})

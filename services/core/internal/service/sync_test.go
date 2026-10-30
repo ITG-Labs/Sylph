@@ -16,8 +16,14 @@ func TestSyncNodeUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := &model.Node{CertCN: "node-1", Name: "n1", GroupID: &g.ID}
+	n := &model.Node{CertCN: "node-1", Name: "n1"}
 	if err := svc.store.UpsertNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetNodeGroups(ctx, n.ID, []int64{g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"www.example.org"}}}); err != nil {
 		t.Fatal(err)
 	}
 	u1, key1, _ := svc.RegisterUser(ctx, 500)
@@ -29,14 +35,14 @@ func TestSyncNodeUsers(t *testing.T) {
 	if _, err := svc.store.ApplyPayment(ctx, u1.ID, pGroup.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	pAll := &model.Plan{Name: "all", PriceRub: 200, PeriodDays: 30}
+	pAll := &model.Plan{Name: "all", PriceRub: 200, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, pAll); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.store.ApplyPayment(ctx, u2.ID, pAll.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := svc.SyncNodeUsers(ctx, "node-1", 0)
+	resp, err := svc.SyncNodeUsers(ctx, "node-1", 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +59,7 @@ func TestSyncNodeUsers(t *testing.T) {
 	if uuids[key2] {
 		t.Fatal("u2 (no group) should not be in sync")
 	}
-	resp2, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version)
+	resp2, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +74,7 @@ func TestSyncMarksLastSyncWithoutBump(t *testing.T) {
 	if err := svc.store.UpsertNode(ctx, &model.Node{CertCN: "node-1", Name: "n1"}); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := svc.SyncNodeUsers(ctx, "node-1", -1)
+	resp, err := svc.SyncNodeUsers(ctx, "node-1", -1, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +88,7 @@ func TestSyncMarksLastSyncWithoutBump(t *testing.T) {
 	if first.UsersVersion != resp.Version {
 		t.Fatalf("version moved by sync mark: %d -> %d", resp.Version, first.UsersVersion)
 	}
-	if _, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version); err != nil {
+	if _, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version, true); err != nil {
 		t.Fatal(err)
 	}
 	second, err := svc.store.GetNodeByCN(ctx, "node-1")
@@ -112,7 +118,7 @@ func TestSyncReturnsInbounds(t *testing.T) {
 	if err := svc.CreateNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
-	empty, err := svc.SyncNodeUsers(ctx, "node-1", -1)
+	empty, err := svc.SyncNodeUsers(ctx, "node-1", -1, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +127,7 @@ func TestSyncReturnsInbounds(t *testing.T) {
 	}
 	addReality(t, svc, n.ID, "b-second", "www.second.com")
 	addReality(t, svc, n.ID, "a-first", "www.first.com")
-	resp, err := svc.SyncNodeUsers(ctx, "node-1", empty.Version)
+	resp, err := svc.SyncNodeUsers(ctx, "node-1", empty.Version, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +145,7 @@ func TestSyncReturnsInbounds(t *testing.T) {
 		len(a.Reality.ServerNames) != 1 || len(a.Reality.ShortIDs) != 1 || a.Reality.Fingerprint != "chrome" {
 		t.Fatalf("reality = %+v", a.Reality)
 	}
-	same, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version)
+	same, err := svc.SyncNodeUsers(ctx, "node-1", resp.Version, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +165,7 @@ func TestSyncInboundsAreNodeScoped(t *testing.T) {
 		}
 	}
 	addReality(t, svc, n1.ID, "main", "www.one.com")
-	resp, err := svc.SyncNodeUsers(ctx, "node-2", -1)
+	resp, err := svc.SyncNodeUsers(ctx, "node-2", -1, true)
 	if err != nil {
 		t.Fatal(err)
 	}

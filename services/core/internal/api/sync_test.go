@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
@@ -20,8 +21,11 @@ func TestSyncUsersEndpoint(t *testing.T) {
 	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"www.example.org"}}}); err != nil {
+		t.Fatal(err)
+	}
 	u, key, _ := svc.RegisterUser(ctx, 600)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +54,31 @@ func TestSyncUsersEndpoint(t *testing.T) {
 		um, _ := u.(map[string]any)
 		if um["uuid"] == key {
 			found = true
+			if _, ok := um["inbounds"]; ok {
+				t.Fatalf("an old agent got per-inbound keys: %v", um)
+			}
 		}
 	}
 	if !found {
 		t.Fatalf("key %s not in sync response", key)
 	}
-	if inbounds, ok := m["inbounds"].([]any); !ok || len(inbounds) != 0 {
-		t.Fatalf("inbounds = %#v, want empty list on full sync", m["inbounds"])
+	if inbounds, ok := m["inbounds"].([]any); !ok || len(inbounds) != 1 {
+		t.Fatalf("inbounds = %#v, want the node's one inbound on full sync", m["inbounds"])
+	}
+	body, _ = json.Marshal(map[string]any{"known_version": 0, "per_inbound": true})
+	resp2, err := client.Post(ts.URL+"/v1/sync/users", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	var per struct {
+		Users []struct {
+			UUID     string   `json:"uuid"`
+			Inbounds []string `json:"inbounds"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&per); err != nil || len(per.Users) != 1 || per.Users[0].UUID != key || len(per.Users[0].Inbounds) != 1 || per.Users[0].Inbounds[0] != "main" {
+		t.Fatalf("per-inbound sync = %+v, %v", per, err)
 	}
 	if _, ok := m["config"]; ok {
 		t.Fatalf("legacy config field still sent: %v", m)
@@ -176,7 +198,7 @@ func TestSyncDeltasDuplicateBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, key, _ := svc.RegisterUser(ctx, 602)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
