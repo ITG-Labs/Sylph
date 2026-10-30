@@ -318,21 +318,26 @@ func (s *Service) addressFreeOfDests(ctx context.Context, address string) error 
 	return nil
 }
 
-func (s *Service) destNotANode(ctx context.Context, spec *inbound.Spec) error {
-	if spec.Reality == nil {
-		return nil
-	}
-	addrs, err := s.nodeHosts(ctx)
-	if err != nil {
-		return err
-	}
-	if slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
-		return fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
+func destNotOurs(spec *inbound.Spec, ours []string) error {
+	if spec.Reality != nil && slices.Contains(ours, inbound.DestHost(spec.Reality.Dest)) {
+		return fieldErr("reality.dest", "points to one of our nodes or domains: REALITY would loop into the node")
 	}
 	return nil
 }
 
-func (s *Service) decoyLoops(ctx context.Context) ([]string, error) {
+func domainNotADest(spec *inbound.Spec, dests []string) error {
+	if spec.TLS == nil {
+		return nil
+	}
+	for _, d := range dests {
+		if inbound.DestHost(d) == spec.TLS.Domain {
+			return fieldErr("tls.domain", "is used as reality.dest of an inbound: REALITY would loop into the node")
+		}
+	}
+	return nil
+}
+
+func (s *Service) ourHosts(ctx context.Context) ([]string, error) {
 	hosts, err := s.nodeHosts(ctx)
 	if err != nil {
 		return nil, err
@@ -341,12 +346,12 @@ func (s *Service) decoyLoops(ctx context.Context) ([]string, error) {
 	return append(hosts, domains...), err
 }
 
-func decoyNotOurs(spec *inbound.Spec, loops []string) error {
+func decoyNotOurs(spec *inbound.Spec, ours []string) error {
 	if spec.TLS == nil || spec.TLS.Decoy == "" {
 		return nil
 	}
 	host := inbound.DecoyHost(spec.TLS.Decoy)
-	if host == spec.TLS.Domain || slices.Contains(loops, host) {
+	if host == spec.TLS.Domain || slices.Contains(ours, host) {
 		return fieldErr("tls.decoy", "points to one of our nodes or domains: the decoy would loop into a node")
 	}
 	return nil
@@ -573,14 +578,15 @@ func (s *Service) CreateInbound(ctx context.Context, nodeID int64, spec inbound.
 	if spec.Transport != inbound.TransportTCP && node.LastSyncAt != nil && !node.AgentXHTTP {
 		return nil, &ConflictError{Field: "transport", Message: "the agent of this node does not know xhttp yet: update the agent first"}
 	}
-	if err := s.destNotANode(ctx, &spec); err != nil {
-		return nil, err
-	}
-	loops, err := s.decoyLoops(ctx)
+	ours, err := s.ourHosts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := decoyNotOurs(&spec, loops); err != nil {
+	dests, err := s.store.RealityDests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := errors.Join(destNotOurs(&spec, ours), domainNotADest(&spec, dests), decoyNotOurs(&spec, ours)); err != nil {
 		return nil, err
 	}
 	in, err := modelOf(nodeID, &spec)
@@ -661,11 +667,11 @@ func applyInboundPatch(spec *inbound.Spec, patch InboundPatch) error {
 }
 
 func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatch) (*InboundView, error) {
-	addrs, err := s.nodeHosts(ctx)
+	ours, err := s.ourHosts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	loops, err := s.decoyLoops(ctx)
+	dests, err := s.store.RealityDests(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -680,10 +686,7 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 		if err := inbound.Normalize(&spec); err != nil {
 			return nil, err
 		}
-		if spec.Reality != nil && slices.Contains(addrs, inbound.DestHost(spec.Reality.Dest)) {
-			return nil, fieldErr("reality.dest", "points to one of our nodes: REALITY would loop into the node")
-		}
-		if err := decoyNotOurs(&spec, loops); err != nil {
+		if err := errors.Join(destNotOurs(&spec, ours), domainNotADest(&spec, dests), decoyNotOurs(&spec, ours)); err != nil {
 			return nil, err
 		}
 		if err := inboundGuard(&spec)(others); err != nil {

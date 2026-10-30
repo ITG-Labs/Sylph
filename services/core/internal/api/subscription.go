@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
 )
@@ -23,7 +24,6 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		UserAgent   string `json:"user_agent"`
 		DeviceOS    string `json:"device_os"`
 		DeviceModel string `json:"device_model"`
-		XHTTP       bool   `json:"xhttp"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -42,11 +42,22 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		UserAgent:   clip(body.UserAgent, 256),
 		DeviceOS:    clip(body.DeviceOS, 64),
 		DeviceModel: clip(body.DeviceModel, 64),
-		XHTTP:       body.XHTTP,
+		XHTTP:       hasCap(r, "xhttp"),
 	})
 	if err != nil {
 		s.writeServiceErrorAs(w, err, "subscription", "subscription_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+func hasCap(r *http.Request, name string) bool {
+	for _, v := range r.Header.Values("X-Sylph-Caps") {
+		for c := range strings.SplitSeq(v, ",") {
+			if strings.TrimSpace(c) == name {
+				return true
+			}
+		}
+	}
+	return false
 }

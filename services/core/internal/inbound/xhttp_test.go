@@ -113,6 +113,8 @@ func TestNormalizeRejectsXHTTP(t *testing.T) {
 		{"relative path", func(x *XHTTP) { x.Path = "api" }, "xhttp.path"},
 		{"path with query", func(x *XHTTP) { x.Path = "/a?b=1" }, "xhttp.path"},
 		{"path with space", func(x *XHTTP) { x.Path = "/a b" }, "xhttp.path"},
+		{"path with wildcard", func(x *XHTTP) { x.Path = "/api*" }, "xhttp.path"},
+		{"path with escape", func(x *XHTTP) { x.Path = "/a%2Fb" }, "xhttp.path"},
 		{"long path", func(x *XHTTP) { x.Path = "/" + strings.Repeat("a", 200) }, "xhttp.path"},
 		{"bad mode", func(x *XHTTP) { x.Mode = "stream" }, "xhttp.mode"},
 		{"bad client mode", func(x *XHTTP) { x.ClientMode = "grpc" }, "xhttp.client_mode"},
@@ -139,6 +141,8 @@ func TestNormalizeRejectsXHTTP(t *testing.T) {
 		{"bad method", func(x *XHTTP) { x.Extra.UplinkHTTPMethod = "PO ST" }, "xhttp.extra.uplinkHTTPMethod"},
 		{"tiny session table", func(x *XHTTP) { x.Extra.SessionIDTable = "hex"; x.Extra.SessionIDLength = "4" }, "xhttp.extra.sessionIDTable"},
 		{"table without length", func(x *XHTTP) { x.Extra.SessionIDTable = "Base62" }, "xhttp.extra.sessionIDLength"},
+		{"endless session length", func(x *XHTTP) { x.Extra.SessionIDTable = "hex"; x.Extra.SessionIDLength = "1-2147483647" }, "xhttp.extra.sessionIDLength"},
+		{"long session length alone", func(x *XHTTP) { x.Extra.SessionIDLength = "200" }, "xhttp.extra.sessionIDLength"},
 		{"non ascii table", func(x *XHTTP) {
 			x.Extra.SessionIDTable = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 			x.Extra.SessionIDLength = "16"
@@ -186,6 +190,8 @@ func TestNormalizeRejectsTLS(t *testing.T) {
 		{"decoy ftp", func(t *TLS) { t.Decoy = "ftp://example.com" }, "tls.decoy"},
 		{"decoy localhost", func(t *TLS) { t.Decoy = "http://localhost:2019" }, "tls.decoy"},
 		{"decoy private ip", func(t *TLS) { t.Decoy = "https://10.0.0.1" }, "tls.decoy"},
+		{"decoy documentation ip", func(t *TLS) { t.Decoy = "https://203.0.113.5" }, "tls.decoy"},
+		{"decoy benchmark ip", func(t *TLS) { t.Decoy = "http://198.18.0.1:8080" }, "tls.decoy"},
 		{"decoy with path", func(t *TLS) { t.Decoy = "https://example.com/landing" }, "tls.decoy"},
 		{"decoy with query", func(t *TLS) { t.Decoy = "https://example.com/?a=1" }, "tls.decoy"},
 		{"decoy with user", func(t *TLS) { t.Decoy = "https://u:p@example.com" }, "tls.decoy"},
@@ -197,6 +203,8 @@ func TestNormalizeRejectsTLS(t *testing.T) {
 		{"bad host", func(t *TLS) { t.Host = "a b.com" }, "tls.host"},
 		{"bad alpn", func(t *TLS) { t.ALPN = []string{"spdy/3"} }, "tls.alpn"},
 		{"duplicate alpn", func(t *TLS) { t.ALPN = []string{"h2", "h2"} }, "tls.alpn"},
+		{"h3 straight to the node", func(t *TLS) { t.Address = ""; t.ALPN = []string{"h3", "h2"} }, "tls.alpn"},
+		{"h3 to the node's own domain", func(t *TLS) { t.Address = "Static.Example.RU"; t.ALPN = []string{"h3"} }, "tls.alpn"},
 		{"bad fingerprint", func(t *TLS) { t.Fingerprint = "netscape" }, "tls.fingerprint"},
 	}
 	for _, c := range cases {
@@ -208,8 +216,25 @@ func TestNormalizeRejectsTLS(t *testing.T) {
 	}
 }
 
+func TestDomainsLoseTheTrailingDot(t *testing.T) {
+	s := xhttpTLSSpec()
+	s.TLS.Domain, s.TLS.SNI, s.TLS.Host, s.TLS.Address = "Static.Example.RU.", "X.cdn.example.net.", "x.cdn.example.net.", "Edge.Example.NET."
+	if err := Normalize(&s); err != nil {
+		t.Fatal(err)
+	}
+	if s.TLS.Domain != "static.example.ru" || s.TLS.SNI != "x.cdn.example.net" || s.TLS.Host != "x.cdn.example.net" || s.TLS.Address != "edge.example.net" {
+		t.Fatalf("tls = %+v", s.TLS)
+	}
+	ok := xhttpTLSSpec()
+	ok.TLS.ALPN = []string{"h3", "h2"}
+	if err := Normalize(&ok); err != nil {
+		t.Fatalf("h3 through a cdn refused: %v", err)
+	}
+}
+
 func TestDecoyIsStoredAsOrigin(t *testing.T) {
 	for in, want := range map[string]string{
+		"https://example.com./":   "https://example.com",
 		"https://Example.COM":     "https://example.com",
 		"https://example.com/":    "https://example.com",
 		"http://example.com:8080": "http://example.com:8080",
@@ -306,5 +331,50 @@ func TestSNINames(t *testing.T) {
 	r := xhttpRealitySpec()
 	if got := SNINames(&r); !reflect.DeepEqual(got, []string{"www.example.com"}) {
 		t.Fatalf("reality names = %v", got)
+	}
+}
+
+func TestNormalizeRefusesModesTheServerWouldReject(t *testing.T) {
+	cases := []struct {
+		reality        bool
+		server, client string
+		ok             bool
+	}{
+		{false, "auto", "auto", true},
+		{false, "packet-up", "auto", true},
+		{false, "stream-one", "auto", false},
+		{false, "stream-up", "stream-one", true},
+		{false, "stream-up", "stream-up", true},
+		{false, "packet-up", "stream-up", false},
+		{false, "stream-one", "stream-up", false},
+		{false, "stream-up", "packet-up", false},
+		{true, "packet-up", "auto", false},
+		{true, "stream-up", "auto", true},
+		{true, "stream-one", "auto", true},
+		{true, "packet-up", "packet-up", true},
+	}
+	for _, c := range cases {
+		s := xhttpTLSSpec()
+		if c.reality {
+			s = xhttpRealitySpec()
+		}
+		s.XHTTP.Mode, s.XHTTP.ClientMode = c.server, c.client
+		err := Normalize(&s)
+		if c.ok && err != nil {
+			t.Errorf("reality=%v %s/%s refused: %v", c.reality, c.server, c.client, err)
+		}
+		if !c.ok && (err == nil || fieldOf(t, err) != "xhttp.client_mode") {
+			t.Errorf("reality=%v %s/%s: err = %v, want xhttp.client_mode", c.reality, c.server, c.client, err)
+		}
+	}
+}
+
+func TestRealityDestRefusesAddressesTheAgentRefuses(t *testing.T) {
+	for _, dest := range []string{"192.0.2.10:443", "198.51.100.7:443", "203.0.113.9:443", "198.19.1.1:443", "192.88.99.1:443", "192.0.0.8:443", "240.0.0.1:443", "0.1.2.3:443"} {
+		s := validSpec()
+		s.Reality.Dest = dest
+		if got := fieldOf(t, Normalize(&s)); got != "reality.dest" {
+			t.Errorf("%s: field = %q", dest, got)
+		}
 	}
 }

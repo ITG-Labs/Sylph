@@ -35,12 +35,37 @@ var (
 		"alphabet": 26, "base36": 36, "hex": 16, "number": 10,
 	}
 
-	pathPattern   = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$`)
+	pathPattern   = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()+,;=:@/-]*$`)
 	keyPattern    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 	headerPattern = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
 	methodPattern = regexp.MustCompile(`^[A-Za-z]{1,16}$`)
 	rangePattern  = regexp.MustCompile(`^(\d{1,10})(?:-(\d{1,10}))?$`)
 )
+
+var unroutable = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+}
+
+func unroutableHost(host string) bool {
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	for _, p := range unroutable {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
 
 type Range string
 
@@ -158,10 +183,31 @@ func normalizeTransport(s *Spec) error {
 	if s.XHTTP == nil {
 		return fieldErr("xhttp", "is required for transport %s", TransportXHTTP)
 	}
-	return normalizeXHTTP(s.XHTTP)
+	return normalizeXHTTP(s.XHTTP, s.Security)
 }
 
-func normalizeXHTTP(x *XHTTP) error {
+func ClientModeInEffect(clientMode, security string) string {
+	if clientMode != ModeAuto {
+		return clientMode
+	}
+	if security == SecurityReality {
+		return "stream-one"
+	}
+	return ModePacketUp
+}
+
+func serverTakes(server, client string) bool {
+	switch server {
+	case ModeAuto:
+		return true
+	case "stream-up":
+		return client == "stream-up" || client == "stream-one"
+	default:
+		return server == client
+	}
+}
+
+func normalizeXHTTP(x *XHTTP, security string) error {
 	if len(x.Path) > 200 || !pathPattern.MatchString(x.Path) {
 		return fieldErr("xhttp.path", "must start with / and hold only URL path characters, at most 200")
 	}
@@ -175,6 +221,9 @@ func normalizeXHTTP(x *XHTTP) error {
 		if !slices.Contains(XHTTPModes, *m.value) {
 			return fieldErr(m.field, "must be one of %s", strings.Join(XHTTPModes, ", "))
 		}
+	}
+	if eff := ClientModeInEffect(x.ClientMode, security); !serverTakes(x.Mode, eff) {
+		return fieldErr("xhttp.client_mode", "client mode %s (%s in effect) is refused by server mode %s", x.ClientMode, eff, x.Mode)
 	}
 	packetUp := x.Mode == ModePacketUp && x.ClientMode == ModePacketUp
 	return normalizeExtra(&x.Extra, packetUp)
@@ -258,10 +307,15 @@ func normalizeExtra(e *Extra, packetUp bool) error {
 	return nil
 }
 
+const maxSessionIDLength = 128
+
 func checkSessionTable(e *Extra) error {
 	const f = "xhttp.extra."
 	if err := checkRange(f+"sessionIDLength", e.SessionIDLength, 0); err != nil {
 		return err
+	}
+	if _, to, _ := rangeBounds(e.SessionIDLength); to > maxSessionIDLength {
+		return fieldErr(f+"sessionIDLength", "must be at most %d", maxSessionIDLength)
 	}
 	if e.SessionIDTable == "" {
 		return nil
@@ -277,11 +331,11 @@ func checkSessionTable(e *Extra) error {
 	if from <= 0 {
 		return fieldErr(f+"sessionIDLength", "must be set and above 0 when sessionIDTable is set")
 	}
-	room, term, base := new(big.Int), new(big.Int), big.NewInt(int64(size))
-	for k := from; k <= to; k++ {
+	room, term, base, need := new(big.Int), new(big.Int), big.NewInt(int64(size)), big.NewInt(2<<30)
+	for k := from; k <= to && room.Cmp(need) < 0; k++ {
 		room.Add(room, term.Exp(base, big.NewInt(k), nil))
 	}
-	if room.Cmp(big.NewInt(2<<30)) < 0 {
+	if room.Cmp(need) < 0 {
 		return fieldErr(f+"sessionIDTable", "table and length give fewer than 2^31 session ids")
 	}
 	return nil
@@ -336,7 +390,7 @@ func checkRange(field string, r Range, min int64) error {
 }
 
 func normalizeTLS(t *TLS) error {
-	t.Domain = strings.ToLower(t.Domain)
+	t.Domain = strings.TrimSuffix(strings.ToLower(t.Domain), ".")
 	if net.ParseIP(t.Domain) != nil || !netaddr.PublicHost(t.Domain) {
 		return fieldErr("tls.domain", "must be a public domain name")
 	}
@@ -345,7 +399,7 @@ func normalizeTLS(t *TLS) error {
 		return err
 	}
 	t.Decoy = decoy
-	t.Address = netaddr.CanonicalHost(t.Address)
+	t.Address = netaddr.CanonicalHost(strings.TrimSuffix(t.Address, "."))
 	if t.Address != "" && !netaddr.PublicHost(t.Address) {
 		return fieldErr("tls.address", "must be a public IP or domain name")
 	}
@@ -359,7 +413,7 @@ func normalizeTLS(t *TLS) error {
 		field string
 		value *string
 	}{{"tls.sni", &t.SNI}, {"tls.host", &t.Host}} {
-		*h.value = strings.ToLower(*h.value)
+		*h.value = strings.TrimSuffix(strings.ToLower(*h.value), ".")
 		if *h.value != "" && (net.ParseIP(*h.value) != nil || !netaddr.IsHostname(*h.value) || !strings.Contains(*h.value, ".")) {
 			return fieldErr(h.field, "must be a domain name")
 		}
@@ -368,6 +422,9 @@ func normalizeTLS(t *TLS) error {
 		if !slices.Contains(ALPNs, a) || slices.Contains(t.ALPN[:i], a) {
 			return fieldErr("tls.alpn", "each must be one of %s, listed once", strings.Join(ALPNs, ", "))
 		}
+	}
+	if slices.Contains(t.ALPN, "h3") && (t.Address == "" || t.Address == t.Domain) {
+		return fieldErr("tls.alpn", "h3 works only through a CDN: the node itself does not serve QUIC")
 	}
 	if t.Fingerprint == "" {
 		t.Fingerprint = "chrome"
@@ -383,7 +440,7 @@ func DecoyHost(decoy string) string {
 	if err != nil {
 		return ""
 	}
-	return netaddr.CanonicalHost(u.Hostname())
+	return netaddr.CanonicalHost(strings.TrimSuffix(u.Hostname(), "."))
 }
 
 func normalizeDecoy(raw string) (string, error) {
@@ -396,8 +453,8 @@ func normalizeDecoy(raw string) (string, error) {
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return "", bad
 	}
-	host := netaddr.CanonicalHost(u.Hostname())
-	if !netaddr.PublicHost(host) {
+	host := netaddr.CanonicalHost(strings.TrimSuffix(u.Hostname(), "."))
+	if !netaddr.PublicHost(host) || unroutableHost(host) {
 		return "", bad
 	}
 	if port := u.Port(); port != "" {

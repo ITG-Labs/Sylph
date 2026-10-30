@@ -327,7 +327,7 @@ func (s *Store) listNodeKeys(ctx context.Context, nodeID int64, everyInbound boo
 		 LEFT JOIN node_addresses na ON na.id = aa.address_id AND na.status = 'ok'
 		 WHERE u.status = 'active' AND uk.revoked_at IS NULL
 		 GROUP BY uk.uuid, o.plan_id, na.ip
-		 HAVING NOT $2 OR count(*) = (SELECT count(*) FROM node_inbounds WHERE node_id = $1)
+		 HAVING NOT $2 OR count(*) FILTER (WHERE i.transport = 'tcp') = (SELECT count(*) FROM node_inbounds WHERE node_id = $1 AND transport = 'tcp')
 		 ORDER BY uk.uuid`,
 		nodeID, everyInbound)
 	if err != nil {

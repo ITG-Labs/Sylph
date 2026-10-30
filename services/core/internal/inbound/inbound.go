@@ -144,7 +144,7 @@ func normalizeReality(r *Reality) error {
 		return fieldErr("reality.dest", "host must be a hostname or an IP in its usual notation")
 	}
 	host = CanonicalHost(host)
-	if netaddr.Internal(host) {
+	if netaddr.Internal(host) || unroutableHost(host) {
 		return fieldErr("reality.dest", "must not point to localhost, a private, link-local or special address")
 	}
 	r.Dest = net.JoinHostPort(host, port)

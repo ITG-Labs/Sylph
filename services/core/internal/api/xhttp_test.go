@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,11 +119,15 @@ func TestAdminXHTTPConflictsOnANode(t *testing.T) {
 	n1 := e.createNode(t, "node-1", nil)
 	n2 := e.createNode(t, "node-2", nil)
 	path1 := fmt.Sprintf("/v1/admin/nodes/%d/inbounds", n1)
-	mustStatus(t, e.call(t, http.MethodPost, path1, realityBody("tcp", "www.example.com")), http.StatusOK)
+	tcp := realityBody("tcp", "www.example.com")
+	tcp["reality"].(map[string]any)["dest"] = "www.microsoft.com:443"
+	mustStatus(t, e.call(t, http.MethodPost, path1, tcp), http.StatusOK)
 	mustField(t, e.call(t, http.MethodPost, path1, tlsBody("cdn", "www.example.com", "/a")), http.StatusConflict, "conflict", "tls.domain")
 	mustStatus(t, e.call(t, http.MethodPost, path1, tlsBody("cdn", "static.example.ru", "/api/v2")), http.StatusOK)
-	mustField(t, e.call(t, http.MethodPost, path1, realityBody("tcp2", "static.example.ru")), http.StatusConflict, "conflict", "reality.server_names")
-	mustField(t, e.call(t, http.MethodPost, path1, xhttpRealityBody("rx", "static.example.ru")), http.StatusConflict, "conflict", "reality.server_names")
+	for _, b := range []map[string]any{realityBody("tcp2", "static.example.ru"), xhttpRealityBody("rx", "static.example.ru")} {
+		b["reality"].(map[string]any)["dest"] = "www.microsoft.com:443"
+		mustField(t, e.call(t, http.MethodPost, path1, b), http.StatusConflict, "conflict", "reality.server_names")
+	}
 	mustField(t, e.call(t, http.MethodPost, path1, tlsBody("cdn2", "static.example.ru", "/api/v2/catalog")), http.StatusConflict, "conflict", "xhttp.path")
 	mustField(t, e.call(t, http.MethodPost, path1, tlsBody("cdn2", "static.example.ru", "/api")), http.StatusConflict, "conflict", "xhttp.path")
 	other := tlsBody("cdn2", "static.example.ru", "/feed")
@@ -310,25 +315,60 @@ func TestSubscriptionAPIPassesXHTTPSupport(t *testing.T) {
 		t.Fatal(err)
 	}
 	subs := e.client(t, "subs", mtls.RoleSubs)
-	paths := func(body map[string]any) []string {
-		r := adminCall(t, subs, http.MethodPost, e.ts.URL+"/v1/subscription", body)
-		mustStatus(t, r, http.StatusOK)
+	paths := func(caps string) []string {
+		req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/subscription", strings.NewReader(`{"sub_token":"`+u.SubToken+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if caps != "" {
+			req.Header.Set("X-Sylph-Caps", caps)
+		}
+		resp, err := subs.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
 		var view struct {
 			Connections []struct {
 				Path string `json:"path"`
 			} `json:"connections"`
 		}
-		r.decode(t, &view)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status %d", resp.StatusCode)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&view); err != nil {
+			t.Fatal(err)
+		}
 		var out []string
 		for _, c := range view.Connections {
 			out = append(out, c.Path)
 		}
 		return out
 	}
-	if got := paths(map[string]any{"sub_token": u.SubToken}); len(got) != 0 {
+	if got := paths(""); len(got) != 0 {
 		t.Fatalf("old subs got %v", got)
 	}
-	if got := paths(map[string]any{"sub_token": u.SubToken, "xhttp": true}); fmt.Sprint(got) != "[/api]" {
+	if got := paths("other, xhttp"); fmt.Sprint(got) != "[/api]" {
 		t.Fatalf("new subs got %v", got)
 	}
+	mustStatus(t, adminCall(t, subs, http.MethodPost, e.ts.URL+"/v1/subscription", map[string]any{"sub_token": u.SubToken, "xhttp": true}), http.StatusBadRequest)
+}
+
+func TestRealityDestMustNotBeOneOfOurTLSDomains(t *testing.T) {
+	e := newAdminEnv(t)
+	n1 := e.createNode(t, "node-1", nil)
+	n2 := e.createNode(t, "node-2", nil)
+	path1 := fmt.Sprintf("/v1/admin/nodes/%d/inbounds", n1)
+	path2 := fmt.Sprintf("/v1/admin/nodes/%d/inbounds", n2)
+	mustStatus(t, e.call(t, http.MethodPost, path1, tlsBody("cdn", "static.example.ru", "/api")), http.StatusOK)
+	loop := realityBody("r", "www.example.com")
+	loop["reality"].(map[string]any)["dest"] = "Static.Example.RU:443"
+	mustField(t, e.call(t, http.MethodPost, path2, loop), http.StatusBadRequest, "bad_request", "reality.dest")
+	r := e.call(t, http.MethodPost, path2, realityBody("r", "www.example.com"))
+	mustStatus(t, r, http.StatusOK)
+	var in xhttpInboundView
+	r.decode(t, &in)
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/inbounds/%d", in.ID), map[string]any{"reality": map[string]any{"dest": "static.example.ru:443"}}), http.StatusBadRequest, "bad_request", "reality.dest")
+	mustField(t, e.call(t, http.MethodPost, path1, tlsBody("cdn2", "www.example.com", "/api")), http.StatusBadRequest, "bad_request", "tls.domain")
 }
