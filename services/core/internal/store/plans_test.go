@@ -117,7 +117,7 @@ func TestTouchNodeSyncKeepsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.TouchNodeSync(ctx, n.ID); err != nil {
+	if err := s.TouchNodeSync(ctx, n.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetNodeByCN(ctx, "node-1")

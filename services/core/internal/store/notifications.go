@@ -43,17 +43,19 @@ type NotifyMark struct {
 
 func (s *Store) NotifyCandidates(ctx context.Context, now time.Time) ([]NotifyCandidate, error) {
 	rows, err := s.pool.Query(ctx,
-		`WITH cur AS (
+		`WITH rel AS MATERIALIZED (SELECT DISTINCT plan_id, pool FROM plan_inbounds),
+		 cur AS (
 		     SELECT DISTINCT ON (s.user_id) s.user_id, s.id, s.plan_id, s.starts_at, s.expires_at, s.traffic_used_bytes, s.traffic_bonus_bytes, `+effectiveLimit+` AS lim
 		     FROM subscriptions s JOIN plans p ON p.id = s.plan_id
 		     WHERE NOT s.canceled AND s.starts_at <= $1 AND s.expires_at > $1
 		     ORDER BY s.user_id, s.starts_at DESC, s.id DESC
-		 ), used AS (
-		     SELECT x.period_id, x.pool_id, x.position, x.used_bytes, x.bonus_bytes, x.limit_bytes, pp.node_id, pp.group_id, pp.name
+		 ), used AS MATERIALIZED (
+		     SELECT x.period_id, x.pool_id, x.position, x.used_bytes, x.bonus_bytes, x.limit_bytes, pp.node_id, pp.group_id, pp.name,
+		            x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes AS spent
 		     FROM cur
 		     JOIN period_pools x ON x.period_id = cur.id
+		     JOIN rel ON rel.plan_id = cur.plan_id AND rel.pool = COALESCE(x.pool_id, 0)
 		     LEFT JOIN plan_pools pp ON pp.id = x.pool_id
-		     WHERE EXISTS (SELECT 1 FROM plan_inbounds pi WHERE pi.plan_id = cur.plan_id AND pi.pool_id IS NOT DISTINCT FROM x.pool_id)
 		 ), pools AS (
 		     SELECT period_id,
 		            COALESCE(json_agg(json_build_object(
@@ -62,7 +64,8 @@ func (s *Store) NotifyCandidates(ctx context.Context, now time.Time) ([]NotifyCa
 		                'used', used_bytes, 'bonus', bonus_bytes, 'limit', limit_bytes) ORDER BY position, pool_id)
 		              FILTER (WHERE pool_id IS NOT NULL), '[]') AS list,
 		            bool_or(pool_id IS NULL) AS main_used,
-		            bool_or(pool_id IS NOT NULL AND limit_bytes > 0 AND used_bytes::numeric * 100 >= limit_bytes::numeric * 80) AS hot
+		            bool_or(pool_id IS NOT NULL AND limit_bytes > 0 AND used_bytes::numeric * 100 >= limit_bytes::numeric * 80) AS hot,
+		            bool_and(spent) AS spent
 		     FROM used GROUP BY period_id
 		 ), tail AS (
 		     SELECT DISTINCT ON (s.user_id) s.user_id, s.expires_at, p.trial
@@ -76,7 +79,10 @@ func (s *Store) NotifyCandidates(ctx context.Context, now time.Time) ([]NotifyCa
 		     ORDER BY s.user_id, s.expires_at DESC, s.id DESC
 		 )
 		 SELECT u.id, u.telegram_id, cur.id, cur.starts_at, cur.expires_at, COALESCE(cur.traffic_used_bytes, 0), COALESCE(cur.traffic_bonus_bytes, 0), cur.lim,
-		        COALESCE(NOT pools.main_used, FALSE), COALESCE(pools.list, '[]'), cur.id IS NOT NULL AND period_exhausted(cur.id),
+		        COALESCE(NOT pools.main_used, FALSE), COALESCE(pools.list, '[]'),
+		        CASE WHEN cur.id IS NULL THEN FALSE
+		             WHEN pools.period_id IS NOT NULL THEN pools.spent
+		             ELSE cur.lim IS NOT NULL AND cur.traffic_used_bytes >= cur.lim END,
 		        tail.expires_at, COALESCE(tail.trial, FALSE), ended.expires_at, COALESCE(ended.trial, FALSE)
 		 FROM users u
 		 LEFT JOIN cur ON cur.user_id = u.id

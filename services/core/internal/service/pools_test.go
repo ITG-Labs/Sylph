@@ -164,3 +164,35 @@ func TestGroupMembersAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSubscriptionTotalsSkipAnIdleMainPool(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	f.node(t, "alpha", &f.group.ID, true, "main")
+	limit := int64(100)
+	pools := []model.PlanPool{{GroupID: &f.group.ID, TrafficLimitBytes: &limit}}
+	if _, err := f.svc.UpdatePlan(context.Background(), f.plan.ID, PlanPatch{Pools: &pools}); err != nil {
+		t.Fatal(err)
+	}
+	v := f.view(t, "")
+	if v.TrafficLimitBytes == nil || *v.TrafficLimitBytes != 100 {
+		t.Fatalf("a client must see the limit of the only pool that counts, got %v", v.TrafficLimitBytes)
+	}
+}
+
+func TestSyncRemembersWhetherTheAgentKnowsInbounds(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n := poolNode(t, svc, "n1")
+	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.GetNode(ctx, n.ID); got.AgentPerInbound {
+		t.Fatal("an old agent was taken for a per-inbound one")
+	}
+	if _, err := svc.SyncNodeUsers(ctx, n.CertCN, -1, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.GetNode(ctx, n.ID); !got.AgentPerInbound {
+		t.Fatal("a per-inbound agent was not remembered")
+	}
+}

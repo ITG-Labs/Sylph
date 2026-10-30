@@ -362,6 +362,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		}
 		n.Address = *patch.Address
 	}
+	n.GroupIDs = nil
 	if patch.GroupIDs != nil {
 		n.GroupIDs = nonNilIDs(*patch.GroupIDs)
 	}

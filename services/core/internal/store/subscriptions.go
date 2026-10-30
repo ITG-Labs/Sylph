@@ -20,26 +20,39 @@ func (s *Store) CreateSubscription(ctx context.Context, sub *model.Subscription)
 
 const effectiveLimit = `CASE WHEN p.traffic_limit_bytes IS NOT NULL THEN LEAST(p.traffic_limit_bytes::numeric + s.traffic_bonus_bytes, 9223372036854775807)::bigint END`
 
+const poolRelevance = `rel AS MATERIALIZED (SELECT DISTINCT plan_id, pool FROM plan_inbounds)`
+
+func poolCounts(plan, pool string) string {
+	return `(EXISTS (SELECT 1 FROM rel WHERE rel.plan_id = ` + plan + ` AND rel.pool = COALESCE(` + pool + `, 0))
+		OR (` + pool + ` IS NULL AND NOT EXISTS (SELECT 1 FROM rel WHERE rel.plan_id = ` + plan + `)))`
+}
+
+func mainIdle(plan string) string {
+	return `NOT ` + poolCounts(plan, "NULL::BIGINT")
+}
+
 func periodPools(period string) string {
 	return `COALESCE((SELECT json_agg(json_build_object(
 		'pool_id', x.pool_id,
 		'name', COALESCE(NULLIF(pp.name, ''), (SELECT name FROM nodes WHERE id = pp.node_id), (SELECT name FROM location_groups WHERE id = pp.group_id)),
 		'used_bytes', x.used_bytes, 'bonus_bytes', x.bonus_bytes, 'traffic_limit_bytes', x.limit_bytes,
 		'exhausted', x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes) ORDER BY x.position, x.pool_id)
-		FROM period_pools x JOIN plan_pools pp ON pp.id = x.pool_id WHERE x.period_id = ` + period + `.id), '[]')`
+		FROM period_pools x JOIN plan_pools pp ON pp.id = x.pool_id
+		WHERE x.period_id = ` + period + `.id AND ` + poolCounts(period+".plan_id", "x.pool_id") + `), '[]')`
 }
 
 func (s *Store) GetActiveSubscription(ctx context.Context, userID int64) (*model.Subscription, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, `+effectiveLimit+`, s.created_at,
+		`WITH `+poolRelevance+`
+		 SELECT s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, `+effectiveLimit+`, s.created_at,
 		        (SELECT max(q.expires_at) FROM subscriptions q WHERE q.user_id = s.user_id AND NOT q.canceled AND q.expires_at > now()),
-		        period_exhausted(s.id), `+periodPools("s")+`
+		        period_exhausted(s.id), `+mainIdle("s.plan_id")+`, `+periodPools("s")+`
 		 FROM subscriptions s JOIN plans p ON p.id = s.plan_id
 		 WHERE s.user_id = $1 AND NOT s.canceled AND s.starts_at <= now() AND s.expires_at > now()
 		 ORDER BY s.starts_at DESC, s.id DESC LIMIT 1`, userID)
 	sub := &model.Subscription{}
 	err := row.Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Canceled, &sub.TrafficUsedBytes,
-		&sub.TrafficBonusBytes, &sub.TrafficLimitBytes, &sub.CreatedAt, &sub.PaidUntil, &sub.TrafficExhausted, &sub.Pools)
+		&sub.TrafficBonusBytes, &sub.TrafficLimitBytes, &sub.CreatedAt, &sub.PaidUntil, &sub.TrafficExhausted, &sub.MainIdle, &sub.Pools)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

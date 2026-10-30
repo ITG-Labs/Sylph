@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -52,7 +53,7 @@ func (s *Store) CreatePlanWith(ctx context.Context, p *model.Plan, onSale bool) 
 	if err != nil {
 		return mapWriteErr(err)
 	}
-	if err := writePools(ctx, tx, p, 0); err != nil {
+	if err := writePools(ctx, tx, p, nil); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -64,7 +65,7 @@ func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	before, err := poolOverlaps(ctx, tx, p.ID)
+	before, err := overlappingInbounds(ctx, tx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -84,8 +85,8 @@ func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 	return tx.Commit(ctx)
 }
 
-func writePools(ctx context.Context, tx pgx.Tx, p *model.Plan, overlapsBefore int) error {
-	rows, err := tx.Query(ctx, `SELECT id FROM plan_pools WHERE plan_id = $1 FOR UPDATE`, p.ID)
+func writePools(ctx context.Context, tx pgx.Tx, p *model.Plan, overlapsBefore []int64) error {
+	rows, err := tx.Query(ctx, `SELECT id FROM plan_pools WHERE plan_id = $1 FOR NO KEY UPDATE`, p.ID)
 	if err != nil {
 		return err
 	}
@@ -124,31 +125,35 @@ func writePools(ctx context.Context, tx pgx.Tx, p *model.Plan, overlapsBefore in
 			return mapWriteErr(err)
 		}
 	}
-	overlaps, err := poolOverlaps(ctx, tx, p.ID)
+	overlaps, err := overlappingInbounds(ctx, tx, p.ID)
 	if err != nil {
 		return err
 	}
-	if overlaps > overlapsBefore {
-		return ErrPoolOverlap
+	for _, id := range overlaps {
+		if !slices.Contains(overlapsBefore, id) {
+			return ErrPoolOverlap
+		}
 	}
 	return nil
 }
 
 const poolCovers = `(pp.node_id = pi.node_id OR EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.group_id = pp.group_id AND m.inbound_id = pi.inbound_id))`
 
-func poolOverlaps(ctx context.Context, q querier, planID int64) (int, error) {
-	var n int
-	err := q.QueryRow(ctx,
-		`SELECT count(*) FROM (
-		     SELECT pi.inbound_id FROM plan_inbounds pi
-		     JOIN plan_pools pp ON pp.plan_id = pi.plan_id AND `+poolCovers+`
-		     WHERE pi.plan_id = $1
-		     GROUP BY pi.inbound_id HAVING count(*) > 1) x`, planID).Scan(&n)
-	return n, err
+func overlappingInbounds(ctx context.Context, q querier, planID int64) ([]int64, error) {
+	rows, err := q.Query(ctx,
+		`SELECT pi.inbound_id FROM plan_inbounds pi
+		 JOIN plan_pools pp ON pp.plan_id = pi.plan_id AND `+poolCovers+`
+		 WHERE pi.plan_id = $1
+		 GROUP BY pi.inbound_id HAVING count(*) > 1`, planID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
 func (s *Store) PlanPoolOverlaps(ctx context.Context, planID int64) (int, error) {
-	return poolOverlaps(ctx, s.pool, planID)
+	ids, err := overlappingInbounds(ctx, s.pool, planID)
+	return len(ids), err
 }
 
 func (s *Store) GetPlan(ctx context.Context, id int64) (*model.Plan, error) {

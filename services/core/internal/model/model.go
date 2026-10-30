@@ -14,29 +14,30 @@ type LocationGroup struct {
 }
 
 type Node struct {
-	ID             int64           `json:"id"`
-	CertCN         string          `json:"cert_cn"`
-	Name           string          `json:"name"`
-	GroupIDs       []int64         `json:"group_ids"`
-	Address        string          `json:"address"`
-	UsersVersion   int64           `json:"users_version"`
-	Enabled        bool            `json:"enabled"`
-	ConfigError    *string         `json:"config_error"`
-	LastHeartbeat  *time.Time      `json:"last_heartbeat"`
-	AgentVersion   *string         `json:"agent_version"`
-	XrayVersion    *string         `json:"xray_version"`
-	ActiveUsers    *int            `json:"active_users"`
-	AgentUptimeSec *int64          `json:"agent_uptime_sec"`
-	XrayUptimeSec  *int64          `json:"xray_uptime_sec"`
-	LastSyncAt     *time.Time      `json:"last_sync_at"`
-	Status         string          `json:"status,omitempty"`
-	Inbounds       int             `json:"inbounds"`
-	OnlineUsers    int             `json:"online_users"`
-	ProfileID      *int64          `json:"profile_id"`
-	GeoStatus      json.RawMessage `json:"geo_status"`
-	RoutingError   *string         `json:"routing_error"`
-	CertNotAfter   *time.Time      `json:"cert_not_after"`
-	CreatedAt      time.Time       `json:"created_at"`
+	ID              int64           `json:"id"`
+	CertCN          string          `json:"cert_cn"`
+	Name            string          `json:"name"`
+	GroupIDs        []int64         `json:"group_ids"`
+	Address         string          `json:"address"`
+	UsersVersion    int64           `json:"users_version"`
+	Enabled         bool            `json:"enabled"`
+	ConfigError     *string         `json:"config_error"`
+	LastHeartbeat   *time.Time      `json:"last_heartbeat"`
+	AgentVersion    *string         `json:"agent_version"`
+	XrayVersion     *string         `json:"xray_version"`
+	ActiveUsers     *int            `json:"active_users"`
+	AgentUptimeSec  *int64          `json:"agent_uptime_sec"`
+	XrayUptimeSec   *int64          `json:"xray_uptime_sec"`
+	LastSyncAt      *time.Time      `json:"last_sync_at"`
+	AgentPerInbound bool            `json:"agent_per_inbound"`
+	Status          string          `json:"status,omitempty"`
+	Inbounds        int             `json:"inbounds"`
+	OnlineUsers     int             `json:"online_users"`
+	ProfileID       *int64          `json:"profile_id"`
+	GeoStatus       json.RawMessage `json:"geo_status"`
+	RoutingError    *string         `json:"routing_error"`
+	CertNotAfter    *time.Time      `json:"cert_not_after"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 type NodeHeartbeat struct {
@@ -206,6 +207,7 @@ type Subscription struct {
 	TrafficBonusBytes int64       `json:"traffic_bonus_bytes"`
 	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
 	TrafficExhausted  bool        `json:"traffic_exhausted"`
+	MainIdle          bool        `json:"main_idle"`
 	Pools             []PoolUsage `json:"pools"`
 	PaidUntil         *time.Time  `json:"paid_until,omitempty"`
 	CreatedAt         time.Time   `json:"created_at"`

@@ -14,6 +14,8 @@ CREATE INDEX idx_group_inbounds_inbound ON group_inbounds (inbound_id);
 
 INSERT INTO group_nodes (group_id, node_id) SELECT group_id, id FROM nodes WHERE group_id IS NOT NULL;
 
+ALTER TABLE nodes ADD COLUMN agent_per_inbound BOOLEAN NOT NULL DEFAULT FALSE;
+
 DROP TRIGGER trg_nodes_self_bump ON nodes;
 ALTER TABLE nodes DROP COLUMN group_id;
 CREATE TRIGGER trg_nodes_self_bump
@@ -97,17 +99,24 @@ CREATE VIEW inbound_memberships AS
     SELECT gn.group_id, i.id FROM group_nodes gn JOIN node_inbounds i ON i.node_id = gn.node_id;
 
 CREATE VIEW plan_inbounds AS
-    SELECT p.id AS plan_id, i.id AS inbound_id, i.node_id,
-           (SELECT pp.id FROM plan_pools pp
-            WHERE pp.plan_id = p.id
-              AND (pp.node_id = i.node_id
-                   OR EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.group_id = pp.group_id AND m.inbound_id = i.id))
-            ORDER BY pp.position, pp.id
-            LIMIT 1) AS pool_id
-    FROM plans p
-    JOIN node_inbounds i
-      ON NOT EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.inbound_id = i.id)
-      OR EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.inbound_id = i.id AND m.group_id = p.location_group_id);
+    WITH m AS MATERIALIZED (SELECT group_id, inbound_id FROM inbound_memberships),
+    visible AS (
+        SELECT p.id AS plan_id, i.id AS inbound_id, i.node_id
+        FROM plans p CROSS JOIN node_inbounds i
+        WHERE NOT EXISTS (SELECT 1 FROM m WHERE m.inbound_id = i.id)
+        UNION
+        SELECT p.id, i.id, i.node_id
+        FROM plans p JOIN m ON m.group_id = p.location_group_id JOIN node_inbounds i ON i.id = m.inbound_id),
+    covered AS (
+        SELECT DISTINCT ON (c.plan_id, c.inbound_id) c.plan_id, c.inbound_id, c.pool_id
+        FROM (SELECT pp.plan_id, i.id AS inbound_id, pp.id AS pool_id, pp.position
+              FROM plan_pools pp JOIN node_inbounds i ON i.node_id = pp.node_id
+              UNION ALL
+              SELECT pp.plan_id, m.inbound_id, pp.id, pp.position
+              FROM plan_pools pp JOIN m ON m.group_id = pp.group_id) c
+        ORDER BY c.plan_id, c.inbound_id, c.position, c.pool_id)
+    SELECT v.plan_id, v.inbound_id, v.node_id, c.pool_id, COALESCE(c.pool_id, 0) AS pool
+    FROM visible v LEFT JOIN covered c ON c.plan_id = v.plan_id AND c.inbound_id = v.inbound_id;
 
 CREATE VIEW period_pools AS
     SELECT s.id AS period_id, NULL::BIGINT AS pool_id, -1 AS position, s.traffic_used_bytes AS used_bytes, s.traffic_bonus_bytes AS bonus_bytes,
@@ -125,15 +134,13 @@ CREATE VIEW period_pools AS
     LEFT JOIN period_pool_usage u ON u.period_id = s.id AND u.pool_id = pp.id;
 
 CREATE FUNCTION period_exhausted(period BIGINT) RETURNS BOOLEAN AS $$
-    WITH pools AS (
-        SELECT x.pool_id,
-               x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes AS spent,
-               EXISTS (SELECT 1 FROM plan_inbounds pi
-                       WHERE pi.plan_id = s.plan_id AND pi.pool_id IS NOT DISTINCT FROM x.pool_id) AS relevant
-        FROM period_pools x JOIN subscriptions s ON s.id = x.period_id
-        WHERE x.period_id = period)
-    SELECT CASE WHEN EXISTS (SELECT 1 FROM pools WHERE relevant)
-                THEN NOT EXISTS (SELECT 1 FROM pools WHERE relevant AND NOT spent)
-                ELSE COALESCE((SELECT spent FROM pools WHERE pool_id IS NULL), FALSE)
+    WITH rel AS (
+        SELECT DISTINCT pi.pool FROM plan_inbounds pi JOIN subscriptions s ON s.plan_id = pi.plan_id WHERE s.id = period),
+    pools AS (
+        SELECT COALESCE(x.pool_id, 0) AS pool, x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes AS spent
+        FROM period_pools x WHERE x.period_id = period)
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM pools JOIN rel USING (pool))
+                THEN NOT EXISTS (SELECT 1 FROM pools JOIN rel USING (pool) WHERE NOT spent)
+                ELSE COALESCE((SELECT spent FROM pools WHERE pool = 0), FALSE)
            END
 $$ LANGUAGE sql STABLE;

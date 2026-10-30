@@ -504,3 +504,59 @@ func TestDriftedOverlapDoesNotBlockOtherPlanEdits(t *testing.T) {
 		t.Fatalf("a save that adds an overlap: %v", err)
 	}
 }
+
+func TestSubscriptionShowsOnlyPoolsThatCoverSomething(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	g, other := mkGroup(t, s, "g"), mkGroup(t, s, "other")
+	n, hidden := mkNode(t, s, "n1"), mkNode(t, s, "n2")
+	mkInbound(t, s, n.ID, "x")
+	mkInbound(t, s, hidden.ID, "x")
+	setMembers(t, s, g.ID, []int64{n.ID}, nil)
+	setMembers(t, s, other.ID, []int64{hidden.ID}, nil)
+	limit := int64(100)
+	p := &model.Plan{Name: "own-group-pool", PriceRub: 1, PeriodDays: 30, LocationGroupID: &g.ID,
+		Pools: []model.PlanPool{{GroupID: &g.ID, TrafficLimitBytes: &limit}, {NodeID: &hidden.ID, TrafficLimitBytes: &limit}}}
+	if err := s.CreatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := userWithKey(t, s)
+	pay(t, s, u.ID, p.ID, time.Now().UTC())
+	sub, err := s.GetActiveSubscription(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sub.MainIdle || len(sub.Pools) != 1 || sub.Pools[0].PoolID != p.Pools[0].ID {
+		t.Fatalf("main idle = %v, pools = %+v", sub.MainIdle, sub.Pools)
+	}
+	card, err := s.UserCard(ctx, u.ID)
+	if err != nil || len(card.Periods) != 1 || !card.Periods[0].MainIdle || len(card.Periods[0].Pools) != 1 {
+		t.Fatalf("card periods = %+v, %v", card.Periods, err)
+	}
+	rows, err := s.ListUsers(ctx, UserFilter{Number: &u.ID, Limit: 10})
+	if err != nil || len(rows) != 1 || rows[0].TrafficLimitBytes == nil || *rows[0].TrafficLimitBytes != 100 {
+		t.Fatalf("listed totals must count only the pool that covers something: %+v, %v", rows, err)
+	}
+}
+
+func TestASaveCannotSwapADriftedOverlapForANewOne(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	g, h := mkGroup(t, s, "g"), mkGroup(t, s, "h")
+	n1, n2 := mkNode(t, s, "n1"), mkNode(t, s, "n2")
+	mkInbound(t, s, n1.ID, "a")
+	mkInbound(t, s, n2.ID, "a")
+	setMembers(t, s, g.ID, []int64{n1.ID, n2.ID}, nil)
+	p := mkPlan(t, s)
+	p.LocationGroupID = &g.ID
+	p.Pools = []model.PlanPool{{NodeID: &n1.ID}, {GroupID: &h.ID}}
+	if err := s.UpdatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	setMembers(t, s, h.ID, []int64{n1.ID}, nil)
+	p, _ = s.GetPlan(ctx, p.ID)
+	p.Pools = []model.PlanPool{{NodeID: &n2.ID}, {GroupID: &g.ID}}
+	if err := s.UpdatePlan(ctx, p); !errors.Is(err, ErrPoolOverlap) {
+		t.Fatalf("one overlap traded for another: %v", err)
+	}
+}

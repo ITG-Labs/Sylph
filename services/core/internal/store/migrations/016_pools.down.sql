@@ -11,6 +11,7 @@ WHERE u.period_id = s.id AND u.used > 0;
 DROP TABLE period_pool_usage;
 DROP TABLE plan_pools;
 
+ALTER TABLE nodes DROP COLUMN agent_per_inbound;
 ALTER TABLE nodes ADD COLUMN group_id BIGINT REFERENCES location_groups(id);
 UPDATE nodes n SET group_id = COALESCE(
     (SELECT min(gn.group_id) FROM group_nodes gn WHERE gn.node_id = n.id),

@@ -56,7 +56,7 @@ func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.TouchNodeSync(ctx, node.ID); err != nil {
+	if err := s.store.TouchNodeSync(ctx, node.ID, perInbound); err != nil {
 		s.log.LogAttrs(ctx, slog.LevelError, "node_sync_mark_failed",
 			slog.String("node", nodeCN),
 			slog.String("error", err.Error()))
