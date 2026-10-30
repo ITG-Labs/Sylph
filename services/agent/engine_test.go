@@ -243,7 +243,7 @@ func TestXrayRestartReappliesUsers(t *testing.T) {
 func TestLoadStateRestoresUsersAndInboundsWithoutTouchingXray(t *testing.T) {
 	fx := newFakeXray()
 	cachePath := filepath.Join(t.TempDir(), "c.json")
-	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
+	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, XHTTP: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
 		t.Fatal(err)
 	}
 	e := deadEngine(t, fx, cachePath)
@@ -462,5 +462,32 @@ func TestReconcileLogsDiffWithoutKeys(t *testing.T) {
 	}
 	if !strings.Contains(logs, keyRef(failing)) {
 		t.Fatalf("failure lacks key ref: %s", logs)
+	}
+}
+
+func TestCacheFromBeforeXHTTPForcesFullSync(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "c.json")
+	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
+		t.Fatal(err)
+	}
+	e := deadEngine(t, newFakeXray(), cachePath)
+	if err := e.LoadState(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if e.version != -1 || !reflect.DeepEqual(e.Inbounds(), mainIn) {
+		t.Fatalf("version = %d, inbounds = %+v: an upgraded agent must ask for everything once", e.version, e.Inbounds())
+	}
+	fc := &fakeCore{syncVersion: 9, syncUsers: users("cached-user"), syncInbounds: mainIn}
+	saver := testEngine(t, newFakeXray(), fc)
+	saver.cfg.CachePath = cachePath
+	if _, err := saver.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadCache(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.XHTTP {
+		t.Fatal("a full sync did not mark the cache as xhttp-aware")
 	}
 }

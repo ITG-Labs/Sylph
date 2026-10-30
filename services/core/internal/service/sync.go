@@ -36,6 +36,13 @@ type SyncInbound struct {
 	Security  string           `json:"security"`
 	Flow      string           `json:"flow"`
 	Reality   *inbound.Reality `json:"reality,omitempty"`
+	XHTTP     *inbound.XHTTP   `json:"xhttp,omitempty"`
+	TLS       *inbound.TLS     `json:"tls,omitempty"`
+}
+
+type AgentCaps struct {
+	PerInbound bool
+	XHTTP      bool
 }
 
 type SyncResponse struct {
@@ -47,16 +54,16 @@ type SyncResponse struct {
 	Geo         *SyncGeo           `json:"geo,omitempty"`
 }
 
-func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64, perInbound bool) (*SyncResponse, error) {
+func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion int64, caps AgentCaps) (*SyncResponse, error) {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.syncResponse(ctx, node, knownVersion, perInbound)
+	resp, err := s.syncResponse(ctx, node, knownVersion, caps)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.TouchNodeSync(ctx, node.ID, perInbound); err != nil {
+	if err := s.store.TouchNodeSync(ctx, node.ID, caps.PerInbound, caps.XHTTP); err != nil {
 		s.log.LogAttrs(ctx, slog.LevelError, "node_sync_mark_failed",
 			slog.String("node", nodeCN),
 			slog.String("error", err.Error()))
@@ -64,10 +71,11 @@ func (s *Service) SyncNodeUsers(ctx context.Context, nodeCN string, knownVersion
 	return resp, nil
 }
 
-func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersion int64, perInbound bool) (*SyncResponse, error) {
-	if node.UsersVersion == knownVersion {
+func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersion int64, caps AgentCaps) (*SyncResponse, error) {
+	if node.UsersVersion == knownVersion && node.AgentXHTTP == caps.XHTTP {
 		return &SyncResponse{Version: node.UsersVersion}, nil
 	}
+	perInbound := caps.PerInbound
 	list := s.store.ListNodeKeysLegacy
 	if perInbound {
 		list = s.store.ListNodeKeys
@@ -94,9 +102,13 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 		if err != nil {
 			return nil, err
 		}
+		if spec.Transport != inbound.TransportTCP && !caps.XHTTP {
+			continue
+		}
 		inbounds = append(inbounds, SyncInbound{
 			Tag: spec.Tag, Port: spec.Port, Protocol: spec.Protocol, Transport: spec.Transport,
 			Security: spec.Security, Flow: inbound.Flow(spec.Transport, spec.Security), Reality: spec.Reality,
+			XHTTP: spec.XHTTP, TLS: spec.TLS,
 		})
 	}
 	serviceKeys, err := s.store.ServiceKeys(ctx, node.ID)

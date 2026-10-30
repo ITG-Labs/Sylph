@@ -31,7 +31,8 @@ func content(view *View, format Format) ([]Connection, string) {
 	}
 	conns := make([]Connection, 0, len(view.Connections))
 	for _, c := range view.Connections {
-		if c.Transport == "tcp" && c.Security == "reality" {
+		switch c.Transport + "/" + c.Security {
+		case "tcp/reality", "xhttp/reality", "xhttp/tls":
 			conns = append(conns, c)
 		}
 	}

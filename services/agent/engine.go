@@ -148,7 +148,7 @@ func (e *Engine) LoadState(path string) error {
 	e.setDesired(c.Users)
 	e.inbounds = c.Inbounds
 	e.version = c.Version
-	if c.Inbounds == nil || !c.PerInbound {
+	if c.Inbounds == nil || !c.PerInbound || !c.XHTTP {
 		e.version = -1
 	}
 	e.logger.Info("cache_loaded", "version", c.Version, "users", len(c.Users), "inbounds", len(c.Inbounds), "inbounds_known", c.Inbounds != nil)
@@ -167,7 +167,7 @@ func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	e.setDesired(resp.Users)
 	e.inbounds = resp.Inbounds
 	e.version = resp.Version
-	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, PerInbound: true, Users: resp.Users, Inbounds: resp.Inbounds,
+	if err := SaveCache(e.cfg.CachePath, &Cache{Version: resp.Version, PerInbound: true, XHTTP: true, Users: resp.Users, Inbounds: resp.Inbounds,
 		Routing: resp.Routing, ServiceKeys: resp.ServiceKeys, Geo: resp.Geo}); err != nil {
 		e.logger.Error("cache_save_failed", "error", err.Error())
 	}

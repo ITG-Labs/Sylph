@@ -2,6 +2,7 @@ package subs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -19,17 +20,22 @@ const (
 )
 
 type Connection struct {
-	Name        string `json:"name"`
-	Address     string `json:"address"`
-	Port        int    `json:"port"`
-	UUID        string `json:"uuid"`
-	Flow        string `json:"flow"`
-	Transport   string `json:"transport"`
-	Security    string `json:"security"`
-	SNI         string `json:"sni"`
-	PublicKey   string `json:"public_key"`
-	ShortID     string `json:"short_id"`
-	Fingerprint string `json:"fingerprint"`
+	Name        string          `json:"name"`
+	Address     string          `json:"address"`
+	Port        int             `json:"port"`
+	UUID        string          `json:"uuid"`
+	Flow        string          `json:"flow"`
+	Transport   string          `json:"transport"`
+	Security    string          `json:"security"`
+	SNI         string          `json:"sni"`
+	PublicKey   string          `json:"public_key"`
+	ShortID     string          `json:"short_id"`
+	Fingerprint string          `json:"fingerprint"`
+	Path        string          `json:"path,omitempty"`
+	Host        string          `json:"host,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	Extra       json.RawMessage `json:"extra,omitempty"`
+	ALPN        []string        `json:"alpn,omitempty"`
 }
 
 type View struct {
@@ -66,7 +72,7 @@ func NewCoreClient(api *apiclient.Client) *CoreClient {
 
 func (c *CoreClient) Subscription(ctx context.Context, req Request) (*View, error) {
 	var view View
-	err := c.api.Do(ctx, http.MethodPost, "/v1/subscription", req, &view)
+	err := c.api.DoWith(ctx, http.MethodPost, "/v1/subscription", http.Header{"X-Sylph-Caps": {"xhttp"}}, req, &view)
 	var apiErr *apiclient.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 		return nil, ErrNotFound

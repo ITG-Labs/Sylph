@@ -11,12 +11,12 @@ import (
 )
 
 const nodeColumns = `id, cert_cn, name, ARRAY(SELECT gn.group_id FROM group_nodes gn WHERE gn.node_id = nodes.id ORDER BY gn.group_id), address, users_version, enabled, config_error, last_heartbeat, agent_version, xray_version,
-	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, agent_per_inbound, profile_id, geo_status, routing_error, cert_not_after, created_at`
+	active_users, agent_uptime_sec, xray_uptime_sec, last_sync_at, agent_per_inbound, agent_xhttp, profile_id, geo_status, routing_error, cert_not_after, tls_status, created_at`
 
 func (s *Store) scanNode(row pgxRow) (*model.Node, error) {
 	n := &model.Node{}
 	err := row.Scan(&n.ID, &n.CertCN, &n.Name, &n.GroupIDs, &n.Address, &n.UsersVersion, &n.Enabled, &n.ConfigError, &n.LastHeartbeat, &n.AgentVersion, &n.XrayVersion,
-		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.AgentPerInbound, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CertNotAfter, &n.CreatedAt)
+		&n.ActiveUsers, &n.AgentUptimeSec, &n.XrayUptimeSec, &n.LastSyncAt, &n.AgentPerInbound, &n.AgentXHTTP, &n.ProfileID, &n.GeoStatus, &n.RoutingError, &n.CertNotAfter, &n.TLSStatus, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -114,14 +114,14 @@ func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.N
 	_, err := s.pool.Exec(ctx,
 		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
 		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9,
-		 cert_not_after = COALESCE($10, cert_not_after)
+		 cert_not_after = COALESCE($10, cert_not_after), tls_status = $11
 		 WHERE id = $1`,
-		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter)
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter, nullJSON(hb.TLSStatus))
 	return err
 }
 
-func (s *Store) TouchNodeSync(ctx context.Context, nodeID int64, perInbound bool) error {
-	_, err := s.pool.Exec(ctx, `UPDATE nodes SET last_sync_at = now(), agent_per_inbound = $2 WHERE id = $1`, nodeID, perInbound)
+func (s *Store) TouchNodeSync(ctx context.Context, nodeID int64, perInbound, xhttp bool) error {
+	_, err := s.pool.Exec(ctx, `UPDATE nodes SET last_sync_at = now(), agent_per_inbound = $2, agent_xhttp = $3 WHERE id = $1`, nodeID, perInbound, xhttp)
 	return err
 }
 

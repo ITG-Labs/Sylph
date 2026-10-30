@@ -21,6 +21,8 @@ const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
 
+const maxTLSDomains = 64
+
 const (
 	maxHeartbeatBytes  = 4 << 20
 	maxOnlineReports   = 20000
@@ -80,11 +82,12 @@ func (s *Server) handleSyncUsers(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		KnownVersion int64 `json:"known_version"`
 		PerInbound   bool  `json:"per_inbound"`
+		XHTTP        bool  `json:"xhttp"`
 	}
 	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
 	}
-	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion, body.PerInbound)
+	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion, service.AgentCaps{PerInbound: body.PerInbound, XHTTP: body.XHTTP})
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
@@ -159,7 +162,11 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ConfigError    *string         `json:"config_error"`
 		GeoStatus      json.RawMessage `json:"geo_status"`
 		RoutingError   *string         `json:"routing_error"`
-		Addresses      *[]struct {
+		TLSStatus      map[string]struct {
+			NotAfter *time.Time `json:"not_after,omitempty"`
+			Error    string     `json:"error,omitempty"`
+		} `json:"tls_status"`
+		Addresses *[]struct {
 			IP    string `json:"ip"`
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
@@ -190,6 +197,21 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 		ConfigError:    truncateRunes(body.ConfigError, maxConfigErrorRunes),
 		GeoStatus:      geoStatusOf(body.GeoStatus),
 		RoutingError:   truncateRunes(body.RoutingError, maxConfigErrorRunes),
+	}
+	if body.TLSStatus != nil {
+		if len(body.TLSStatus) > maxTLSDomains {
+			writeError(w, http.StatusBadRequest, "bad_request", "too many tls_status domains")
+			return
+		}
+		for domain, st := range body.TLSStatus {
+			if len(domain) > 253 {
+				writeError(w, http.StatusBadRequest, "bad_request", "tls_status domain too long")
+				return
+			}
+			st.Error = *truncateRunes(&st.Error, maxConfigErrorRunes)
+			body.TLSStatus[domain] = st
+		}
+		hb.TLSStatus, _ = json.Marshal(body.TLSStatus)
 	}
 	if body.Addresses != nil {
 		list := *body.Addresses

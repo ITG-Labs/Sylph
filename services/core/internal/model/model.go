@@ -30,6 +30,7 @@ type Node struct {
 	XrayUptimeSec   *int64          `json:"xray_uptime_sec"`
 	LastSyncAt      *time.Time      `json:"last_sync_at"`
 	AgentPerInbound bool            `json:"agent_per_inbound"`
+	AgentXHTTP      bool            `json:"agent_xhttp"`
 	Status          string          `json:"status,omitempty"`
 	Inbounds        int             `json:"inbounds"`
 	OnlineUsers     int             `json:"online_users"`
@@ -37,6 +38,7 @@ type Node struct {
 	GeoStatus       json.RawMessage `json:"geo_status"`
 	RoutingError    *string         `json:"routing_error"`
 	CertNotAfter    *time.Time      `json:"cert_not_after"`
+	TLSStatus       json.RawMessage `json:"tls_status"`
 	CreatedAt       time.Time       `json:"created_at"`
 }
 
@@ -50,6 +52,7 @@ type NodeHeartbeat struct {
 	GeoStatus      json.RawMessage
 	RoutingError   *string
 	CertNotAfter   *time.Time
+	TLSStatus      json.RawMessage
 	Addresses      *[]AddressReport
 	Online         *[]OnlineReport
 }

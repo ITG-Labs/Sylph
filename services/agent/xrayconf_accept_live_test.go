@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,5 +91,28 @@ func TestLiveXrayAcceptsRoutedConfig(t *testing.T) {
 	}
 	if out, err := xrayTest(t, img, "", plain); err != nil {
 		t.Fatalf("xray rejected the plain config: %v\n%s", err, out)
+	}
+}
+
+func TestLiveXrayAcceptsXHTTPInbounds(t *testing.T) {
+	img := xrayImage(t)
+	full := cdnInbound("full", "full.example.ru", "/full")
+	full.XHTTP.Mode = "packet-up"
+	full.XHTTP.Extra = json.RawMessage(`{"headers":{"X-App":"1"},"xPaddingBytes":"100-1000","xPaddingObfsMode":true,"xPaddingKey":"_ym_d","xPaddingHeader":"X-Pad","xPaddingPlacement":"header","xPaddingMethod":"tokenish","uplinkHTTPMethod":"PUT","sessionIDPlacement":"cookie","sessionIDKey":"sid","sessionIDTable":"Base62","sessionIDLength":"16-24","seqPlacement":"header","seqKey":"X-Seq","uplinkDataPlacement":"cookie","uplinkDataKey":"d","uplinkChunkSize":"1024-4096","noGRPCHeader":true,"noSSEHeader":true,"scMaxEachPostBytes":"500000-1000000","scMinPostsIntervalMs":"10-50","scMaxBufferedPosts":30,"scStreamUpServerSecs":"20-80","serverMaxHeaderBytes":16384,"xmux":{"maxConnections":"2-4","cMaxReuseTimes":"64-128","hMaxRequestTimes":"600-900","hMaxReusableSecs":"1800-3000","hKeepAlivePeriod":30}}`)
+	cfg, err := BuildXray(append(xhttpSet(), full), "127.0.0.1:10085")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := xrayTest(t, img, "", cfg); err != nil || !strings.Contains(out, "Configuration OK") {
+		t.Fatalf("xray rejected the xhttp config: %v\n%s\n%s", err, out, cfg)
+	}
+	bad := cdnInbound("bad", "bad.example.ru", "/bad")
+	bad.XHTTP.Extra = json.RawMessage(`{"uplinkDataPlacement":"cookie"}`)
+	cfg, err = BuildXray([]Inbound{bad}, "127.0.0.1:10085")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := xrayTest(t, img, "", cfg); err == nil {
+		t.Fatalf("xray accepted cookie uplink outside packet-up, the check is blind:\n%s", out)
 	}
 }

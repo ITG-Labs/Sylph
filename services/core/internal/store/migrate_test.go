@@ -1209,3 +1209,61 @@ func TestMigration016DownAndUpAgain(t *testing.T) {
 		t.Fatalf("up 016 again: %v", err)
 	}
 }
+
+func TestMigration017DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(17); err != nil {
+		t.Fatalf("up to 017: %v", err)
+	}
+	for _, q := range []string{
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+		`UPDATE nodes SET agent_xhttp = true, tls_status = '{"a.example.com":{"error":"x"}}'`,
+		`INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security, settings) SELECT id, 'tcp', 443, 'vless', 'tcp', 'reality', '{"dest":"a.com:443"}' FROM nodes`,
+		`INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security, settings) SELECT id, 'rx', 443, 'vless', 'xhttp', 'reality', '{"dest":"b.com:443","xhttp":{"path":"/a"}}' FROM nodes`,
+		`INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security, settings) SELECT id, 'cdn', 443, 'vless', 'xhttp', 'tls', '{"xhttp":{"path":"/b"},"tls":{"domain":"c.com"}}' FROM nodes`,
+		`INSERT INTO location_groups (name) VALUES ('g')`,
+		`INSERT INTO group_inbounds (group_id, inbound_id) SELECT g.id, i.id FROM location_groups g, node_inbounds i`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 017: %v", err)
+	}
+	var tags []string
+	rows, err := pool.Query(ctx, `SELECT i.tag FROM node_inbounds i ORDER BY i.tag`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			t.Fatal(err)
+		}
+		tags = append(tags, tag)
+	}
+	if len(tags) != 1 || tags[0] != "tcp" {
+		t.Fatalf("inbounds after down 017 = %v", tags)
+	}
+	var members int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM group_inbounds`).Scan(&members); err != nil || members != 1 {
+		t.Fatalf("group members after down = %d, %v", members, err)
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 017 again: %v", err)
+	}
+	var xhttp bool
+	if err := pool.QueryRow(ctx, `SELECT agent_xhttp FROM nodes`).Scan(&xhttp); err != nil || xhttp {
+		t.Fatalf("agent_xhttp after up again = %v, %v", xhttp, err)
+	}
+}

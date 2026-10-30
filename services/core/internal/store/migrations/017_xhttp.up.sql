@@ -1,0 +1,2 @@
+ALTER TABLE nodes ADD COLUMN agent_xhttp BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE nodes ADD COLUMN tls_status JSONB;

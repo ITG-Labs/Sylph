@@ -219,12 +219,13 @@ func (s *Store) InboundRefs(ctx context.Context) ([]InboundRef, error) {
 type Endpoint struct {
 	NodeName    string
 	NodeAddress string
+	NodeXHTTP   bool
 	Inbound     model.NodeInbound
 }
 
 func (s *Store) ListPeriodEndpoints(ctx context.Context, periodID int64) ([]Endpoint, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT n.name, n.address, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
+		`SELECT n.name, n.address, n.last_sync_at IS NULL OR n.agent_xhttp, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
 		 FROM subscriptions sub
 		 JOIN plan_inbounds pi ON pi.plan_id = sub.plan_id
 		 JOIN period_pools x ON x.period_id = sub.id AND x.pool_id IS NOT DISTINCT FROM pi.pool_id
@@ -242,7 +243,7 @@ func (s *Store) ListPeriodEndpoints(ctx context.Context, periodID int64) ([]Endp
 	for rows.Next() {
 		var e Endpoint
 		in := &e.Inbound
-		if err := rows.Scan(&e.NodeName, &e.NodeAddress, &in.ID, &in.NodeID, &in.Tag, &in.Port, &in.Protocol, &in.Transport,
+		if err := rows.Scan(&e.NodeName, &e.NodeAddress, &e.NodeXHTTP, &in.ID, &in.NodeID, &in.Tag, &in.Port, &in.Protocol, &in.Transport,
 			&in.Security, &in.Label, &in.Settings, &in.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -261,6 +262,22 @@ func (s *Store) NodeAddresses(ctx context.Context) ([]string, error) {
 
 func (s *Store) RealityDests(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT coalesce(settings->>'dest', '') FROM node_inbounds`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func (s *Store) TLSDomains(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT settings->'tls'->>'domain' FROM node_inbounds WHERE settings->'tls'->>'domain' IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func (s *Store) Decoys(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT settings->'tls'->>'decoy' FROM node_inbounds WHERE coalesce(settings->'tls'->>'decoy', '') <> ''`)
 	if err != nil {
 		return nil, err
 	}

@@ -126,6 +126,77 @@ test("a node card shows its traffic", async () => {
   }
 })
 
+test("an xhttp inbound over tls is built from the form like a cdn one", async () => {
+  const nodes = await shared.evaluate(async () => (await (await fetch("/api/core/v1/admin/nodes")).json()) as { id: number; last_sync_at: string | null; agent_xhttp: boolean }[])
+  const node = nodes.find((n) => !n.last_sync_at || n.agent_xhttp)
+  test.skip(!node, "no node on this stand knows xhttp")
+  const tag = `e2e-cdn-${Date.now() % 100000}`
+  const domain = `${tag}.example.ru`
+  const pick = async (trigger: string, option: string) => {
+    await shared.locator(trigger).click()
+    await shared.getByRole("option", { name: option, exact: true }).click()
+  }
+  await shared.goto(`/nodes/${node!.id}`)
+  await shared.getByRole("button", { name: "Вход", exact: true }).click()
+  await shared.getByRole("combobox", { name: "Вид входа" }).click()
+  await shared.getByRole("option", { name: "XHTTP · TLS" }).click()
+  await shared.locator("#tag").fill(tag)
+  await shared.locator("#domain").fill(domain)
+  await shared.locator("#path").fill("/api/v2/catalog/sync.json")
+  await pick("#client-mode", "packet-up")
+  for (const g of ["Паддинг", "Сессия и порядок пакетов", "Отправка от клиента", "Заголовки"]) await shared.locator("summary", { hasText: g }).click()
+  await shared.locator("#extra-xPaddingObfsMode").click()
+  await pick("#extra-xPaddingMethod", "tokenish")
+  await pick("#extra-xPaddingPlacement", "cookie")
+  await shared.locator("#extra-xPaddingKey").fill("_ym_d")
+  await pick("#extra-sessionIDPlacement", "query")
+  await shared.locator("#extra-sessionIDKey").fill("sid")
+  await pick("#extra-seqPlacement", "query")
+  await shared.locator("#extra-seqKey").fill("part")
+  await pick("#extra-uplinkDataPlacement", "body")
+  await shared.locator("#extra-noSSEHeader").click()
+  await shared.locator("#address").fill("185.31.114.248")
+  await shared.locator("#client-sni").fill("9i2kmuhlma.cdn.twcstorage.ru")
+  await shared.locator("#client-host").fill("9i2kmuhlma.cdn.twcstorage.ru")
+  await shared.getByRole("button", { name: "h2", exact: true }).click()
+  await shared.getByRole("button", { name: "Создать вход" }).click()
+  await expect(shared.getByText("Вход создан")).toBeVisible()
+  const card = shared.locator(".well", { hasText: domain }).first()
+  await expect(card).toContainText("XHTTP · TLS")
+  await expect(card).toContainText("185.31.114.248:443 · SNI 9i2kmuhlma.cdn.twcstorage.ru")
+  const saved = await shared.evaluate(async ([id, t]) => {
+    const list = (await (await fetch(`/api/core/v1/admin/nodes/${id}/inbounds`)).json()) as { tag: string; transport: string; security: string; xhttp: unknown; tls: unknown }[]
+    return list.find((i) => i.tag === t)
+  }, [node!.id, tag] as const)
+  expect(saved).toMatchObject({
+    transport: "xhttp",
+    security: "tls",
+    xhttp: {
+      path: "/api/v2/catalog/sync.json",
+      mode: "auto",
+      client_mode: "packet-up",
+      extra: {
+        noSSEHeader: true,
+        xPaddingObfsMode: true,
+        xPaddingMethod: "tokenish",
+        xPaddingPlacement: "cookie",
+        xPaddingKey: "_ym_d",
+        seqPlacement: "query",
+        seqKey: "part",
+        uplinkDataPlacement: "body",
+        sessionIDPlacement: "query",
+        sessionIDKey: "sid",
+      },
+    },
+    tls: { domain, decoy: "", address: "185.31.114.248", port: 443, sni: "9i2kmuhlma.cdn.twcstorage.ru", host: "9i2kmuhlma.cdn.twcstorage.ru", alpn: ["h2"], fingerprint: "chrome" },
+  })
+  expect(Object.keys((saved as { xhttp: { extra: object } }).xhttp.extra)).toHaveLength(10)
+  await card.getByRole("button", { name: "Удалить вход" }).click()
+  await shared.getByRole("button", { name: "Удалить", exact: true }).click()
+  await expect(shared.getByText("Вход удалён")).toBeVisible()
+  await expect(shared.locator(".well", { hasText: domain })).toHaveCount(0)
+})
+
 test("a routing profile is built, saved, assigned to a node and removed", async () => {
   const name = `e2e-${Date.now() % 1_000_000}`
   await shared.goto("/routing")
@@ -201,7 +272,7 @@ test("subscription settings are saved and restored", async () => {
     await shared.goto("/settings")
     await shared.locator("#subs-title").fill(title)
     await shared.locator("#subs-support").fill(support)
-    const button = shared.getByRole("button", { name: "Сохранить" })
+    const button = shared.locator("#subs-title").locator("xpath=ancestor::*[.//button[normalize-space()='Сохранить']][1]").getByRole("button", { name: "Сохранить" })
     if (await button.isDisabled()) return
     await button.click()
     await shared.getByRole("dialog").getByRole("button", { name: "Сохранить" }).click()

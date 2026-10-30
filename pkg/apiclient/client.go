@@ -42,6 +42,10 @@ func New(service string, baseURL string, tlsConfig *tls.Config, logger *slog.Log
 }
 
 func (c *Client) Do(ctx context.Context, method string, path string, in any, out any) error {
+	return c.DoWith(ctx, method, path, nil, in, out)
+}
+
+func (c *Client) DoWith(ctx context.Context, method string, path string, header http.Header, in any, out any) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -53,6 +57,9 @@ func (c *Client) Do(ctx context.Context, method string, path string, in any, out
 	req, err := http.NewRequestWithContext(ctx, method, c.base.JoinPath(path).String(), body)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
+	}
+	for k, v := range header {
+		req.Header[k] = v
 	}
 	req.Header.Set("Content-Type", "application/json")
 	reqID := logging.RequestIDFromContext(ctx)

@@ -76,6 +76,9 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 	if online, ok := l.online(ctx); ok {
 		hb.Online = &online
 	}
+	if domains := tlsDomains(l.applied); len(domains) > 0 {
+		hb.TLSStatus = probeCerts(ctx, domains)
+	}
 	if uptime, err := l.xray.Uptime(ctx); err != nil {
 		l.logger.Error("heartbeat_xray_probe_failed", "probe", "uptime", "error", err.Error())
 	} else {

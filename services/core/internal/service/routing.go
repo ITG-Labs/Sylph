@@ -340,7 +340,7 @@ func (s *Service) cascadeTarget(ctx context.Context, from, to int64) (*noderoute
 		if err != nil {
 			return nil, "", err
 		}
-		if spec.Security != inbound.SecurityReality || spec.Reality == nil || len(spec.Reality.ServerNames) == 0 {
+		if spec.Transport != inbound.TransportTCP || spec.Security != inbound.SecurityReality || spec.Reality == nil || len(spec.Reality.ServerNames) == 0 {
 			continue
 		}
 		pub, err := inbound.PublicKey(spec.Reality.PrivateKey)

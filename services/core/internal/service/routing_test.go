@@ -182,7 +182,7 @@ func setupCascade(t *testing.T) *routingFixture {
 func TestCascadeIsResolvedInSync(t *testing.T) {
 	f := setupCascade(t)
 	ctx := context.Background()
-	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, true)
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, AgentCaps{PerInbound: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestCascadeIsResolvedInSync(t *testing.T) {
 	if err := noderoute.ValidateResolved(resp.Routing); err != nil {
 		t.Fatalf("resolved routing is invalid: %v", err)
 	}
-	exitResp, err := f.svc.SyncNodeUsers(ctx, f.y.CertCN, 0, true)
+	exitResp, err := f.svc.SyncNodeUsers(ctx, f.y.CertCN, 0, AgentCaps{PerInbound: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestCascadeToUnavailableNodeBecomesBlock(t *testing.T) {
 	if after.UsersVersion <= before.UsersVersion {
 		t.Fatal("disabling the exit did not bump the cascading node")
 	}
-	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, true)
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, AgentCaps{PerInbound: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestSyncCarriesPlansAndGeo(t *testing.T) {
 	if _, err := svc.RequestGeoRefresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0, true)
+	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0, AgentCaps{PerInbound: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +463,7 @@ func TestDisabledEntryNodeLosesItsServiceKey(t *testing.T) {
 	if after.UsersVersion == before.UsersVersion {
 		t.Fatal("the re-enabled entry node was not told about its new service key")
 	}
-	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, before.UsersVersion, true)
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, before.UsersVersion, AgentCaps{PerInbound: true})
 	if err != nil || resp.Routing == nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestSyncFailsInsteadOfDroppingTheProfile(t *testing.T) {
 	if _, err := poolOf(f.svc).Exec(ctx, `UPDATE routing_profiles SET doc = '{"outbounds": 1}'`); err != nil {
 		t.Fatal(err)
 	}
-	if resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, true); err == nil {
+	if resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, 0, AgentCaps{PerInbound: true}); err == nil {
 		t.Fatalf("sync answered without the node's profile: routing %v", resp.Routing)
 	}
 }
@@ -546,7 +546,7 @@ func TestRawSecretsAreHiddenAndKeptOnlyUnchanged(t *testing.T) {
 	peers[0].(map[string]any)["endpoint"] = "evil.example.net:2408"
 	_, err = svc.UpdateProfile(ctx, v.ID, "p", docOf(t, masked), v.Revision)
 	mustField(t, err, "doc.outbounds[2].raw")
-	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0, true)
+	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0, AgentCaps{PerInbound: true})
 	if err != nil {
 		t.Fatal(err)
 	}

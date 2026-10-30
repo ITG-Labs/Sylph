@@ -47,6 +47,8 @@ type Inbound struct {
 	Security  string   `json:"security"`
 	Flow      string   `json:"flow"`
 	Reality   *Reality `json:"reality,omitempty"`
+	XHTTP     *XHTTP   `json:"xhttp,omitempty"`
+	TLS       *TLS     `json:"tls,omitempty"`
 }
 
 type SyncResp struct {
@@ -66,16 +68,17 @@ type Delta struct {
 }
 
 type Heartbeat struct {
-	AgentVersion   string               `json:"agent_version"`
-	XrayVersion    string               `json:"xray_version"`
-	AgentUptimeSec int64                `json:"agent_uptime_sec"`
-	XrayUptimeSec  *int64               `json:"xray_uptime_sec"`
-	ActiveUsers    *int                 `json:"active_users"`
-	ConfigError    *string              `json:"config_error"`
-	GeoStatus      map[string]GeoStatus `json:"geo_status,omitempty"`
-	RoutingError   *string              `json:"routing_error,omitempty"`
-	Addresses      []AddressStatus      `json:"addresses"`
-	Online         *[]OnlineKey         `json:"online,omitempty"`
+	AgentVersion   string                `json:"agent_version"`
+	XrayVersion    string                `json:"xray_version"`
+	AgentUptimeSec int64                 `json:"agent_uptime_sec"`
+	XrayUptimeSec  *int64                `json:"xray_uptime_sec"`
+	ActiveUsers    *int                  `json:"active_users"`
+	ConfigError    *string               `json:"config_error"`
+	GeoStatus      map[string]GeoStatus  `json:"geo_status,omitempty"`
+	RoutingError   *string               `json:"routing_error,omitempty"`
+	Addresses      []AddressStatus       `json:"addresses"`
+	Online         *[]OnlineKey          `json:"online,omitempty"`
+	TLSStatus      map[string]CertStatus `json:"tls_status,omitempty"`
 }
 
 type OnlineKey struct {
@@ -131,7 +134,7 @@ func newCoreClientForTest(cfg *Config, logger *slog.Logger) *CoreClient {
 
 func (c *CoreClient) SyncUsers(ctx context.Context, knownVersion int64) (*SyncResp, error) {
 	var resp SyncResp
-	body := map[string]any{"known_version": knownVersion, "per_inbound": true}
+	body := map[string]any{"known_version": knownVersion, "per_inbound": true, "xhttp": true}
 	if err := c.api.Do(ctx, http.MethodPost, "/v1/sync/users", body, &resp); err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 type Cache struct {
 	Version     int64              `json:"version"`
 	PerInbound  bool               `json:"per_inbound"`
+	XHTTP       bool               `json:"xhttp"`
 	Users       []SyncUser         `json:"users"`
 	Inbounds    []Inbound          `json:"inbounds"`
 	Routing     *noderoute.Profile `json:"routing,omitempty"`

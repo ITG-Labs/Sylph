@@ -45,6 +45,8 @@ type Spec struct {
 	Security  string
 	Label     string
 	Reality   *Reality
+	XHTTP     *XHTTP
+	TLS       *TLS
 }
 
 type FieldError struct {
@@ -86,11 +88,14 @@ func Normalize(s *Spec) error {
 	if s.Protocol != ProtocolVLESS {
 		return fieldErr("protocol", "only %s is supported", ProtocolVLESS)
 	}
-	if s.Transport != TransportTCP {
-		return fieldErr("transport", "only %s is supported", TransportTCP)
+	if s.Transport != TransportTCP && s.Transport != TransportXHTTP {
+		return fieldErr("transport", "must be %s or %s", TransportTCP, TransportXHTTP)
 	}
-	if s.Security != SecurityReality {
-		return fieldErr("security", "only %s is supported", SecurityReality)
+	if s.Security != SecurityReality && s.Security != SecurityTLS {
+		return fieldErr("security", "must be %s or %s", SecurityReality, SecurityTLS)
+	}
+	if s.Security == SecurityTLS && s.Transport != TransportXHTTP {
+		return fieldErr("security", "%s works only with transport %s", SecurityTLS, TransportXHTTP)
 	}
 	if utf8.RuneCountInString(s.Label) > 32 {
 		return fieldErr("label", "must be at most 32 characters")
@@ -102,6 +107,21 @@ func Normalize(s *Spec) error {
 		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			return fieldErr("label", "must not contain control characters")
 		}
+	}
+	if err := normalizeTransport(s); err != nil {
+		return err
+	}
+	if s.Security == SecurityTLS {
+		if s.Reality != nil {
+			return fieldErr("reality", "is only for security %s", SecurityReality)
+		}
+		if s.TLS == nil {
+			return fieldErr("tls", "is required for security %s", SecurityTLS)
+		}
+		return normalizeTLS(s.TLS)
+	}
+	if s.TLS != nil {
+		return fieldErr("tls", "is only for security %s", SecurityTLS)
 	}
 	if s.Reality == nil {
 		return fieldErr("reality", "is required for security reality")
@@ -124,7 +144,7 @@ func normalizeReality(r *Reality) error {
 		return fieldErr("reality.dest", "host must be a hostname or an IP in its usual notation")
 	}
 	host = CanonicalHost(host)
-	if netaddr.Internal(host) {
+	if netaddr.Internal(host) || unroutableHost(host) {
 		return fieldErr("reality.dest", "must not point to localhost, a private, link-local or special address")
 	}
 	r.Dest = net.JoinHostPort(host, port)

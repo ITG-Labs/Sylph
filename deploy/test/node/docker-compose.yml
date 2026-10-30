@@ -1,5 +1,21 @@
 name: sylph-test-node
 services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:2.10.1
+    command: ["-config", "/etc/pebble/pebble-config.json"]
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+    volumes:
+      - ./pebble/pebble-config.json:/etc/pebble/pebble-config.json:ro
+  roots:
+    image: curlimages/curl:8.17.0
+    user: root
+    command: ["sh", "-c", "until curl -sfk https://pebble:15000/roots/0 -o /roots/root.pem; do sleep 1; done"]
+    volumes:
+      - roots:/roots
+    depends_on:
+      pebble:
+        condition: service_started
   caddy:
     build: ../../caddy
     image: sylph-caddy:test
@@ -7,6 +23,10 @@ services:
       - "dest.test:127.0.0.1"
     volumes:
       - caddy-admin:/run/caddy-admin
+      - ./pebble/minica.pem:/etc/pebble/minica.pem:ro
+    networks:
+      default:
+        aliases: [cdn.test, rx.test]
   bootstrap:
     build:
       context: .
@@ -33,13 +53,19 @@ services:
     command: ["run", "-c", "/etc/sylph/client.json"]
     volumes:
       - ./client.json:/etc/sylph/client.json:ro
+      - roots:/roots:ro
+    depends_on:
+      roots:
+        condition: service_completed_successfully
   agent:
     image: sylph-test-node-agent
     network_mode: service:caddy
     pid: service:caddy
-    entrypoint: ["/sylph/agent.test", "-test.run", "^TestNodeLive$$", "-test.v", "-test.count=1"]
+    entrypoint: ["/sylph/agent.test", "-test.run", "^TestNodeLive", "-test.v", "-test.count=1"]
     environment:
       SYLPH_TEST_NODE: "1"
+      SYLPH_ACME_CA: https://pebble:14000/dir
+      SYLPH_ACME_CA_ROOT: /etc/pebble/minica.pem
     volumes:
       - xray-config:/etc/xray
       - caddy-admin:/run/caddy-admin
@@ -52,3 +78,4 @@ services:
 volumes:
   xray-config:
   caddy-admin:
+  roots:

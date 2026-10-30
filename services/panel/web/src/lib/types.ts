@@ -268,6 +268,8 @@ export interface Node {
   xray_uptime_sec: number | null
   last_sync_at: string | null
   agent_per_inbound: boolean
+  agent_xhttp: boolean
+  tls_status: Record<string, CertStatus> | null
   status: NodeStatus
   inbounds: number
   online_users: number
@@ -287,14 +289,41 @@ export interface Inbound {
   security: string
   flow: string
   label: string
-  reality: {
+  reality?: {
     dest: string
     server_names: string[]
     short_ids: string[]
     fingerprint: string
     public_key: string
   }
+  xhttp?: InboundXHTTP
+  tls?: InboundTLS
   created_at: string
+}
+
+export type XHTTPExtra = Record<string, unknown>
+
+export interface InboundXHTTP {
+  path: string
+  mode: string
+  client_mode: string
+  extra: XHTTPExtra
+}
+
+export interface InboundTLS {
+  domain: string
+  decoy: string
+  address: string
+  port: number
+  sni: string
+  host: string
+  alpn: string[] | null
+  fingerprint: string
+}
+
+export interface CertStatus {
+  not_after?: string
+  error?: string
 }
 
 export interface Group {

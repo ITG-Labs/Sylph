@@ -560,3 +560,28 @@ func TestASaveCannotSwapADriftedOverlapForANewOne(t *testing.T) {
 		t.Fatalf("one overlap traded for another: %v", err)
 	}
 }
+
+func TestLegacyNodeKeysIgnoreXHTTPInbounds(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	g := mkGroup(t, s, "g")
+	n := mkNode(t, s, "n1")
+	mkInbound(t, s, n.ID, "a")
+	cdn := mkInbound(t, s, n.ID, "cdn")
+	if _, err := s.pool.Exec(ctx, `UPDATE node_inbounds SET transport = 'xhttp', security = 'tls' WHERE id = $1`, cdn.ID); err != nil {
+		t.Fatal(err)
+	}
+	other := mkGroup(t, s, "other")
+	setMembers(t, s, other.ID, nil, []int64{cdn.ID})
+	p := mkPlan(t, s)
+	p.LocationGroupID = &g.ID
+	if err := s.UpdatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	u, k := userWithKey(t, s)
+	pay(t, s, u.ID, p.ID, time.Now().UTC())
+	keys, err := s.ListNodeKeysLegacy(ctx, n.ID)
+	if err != nil || len(keys) != 1 || keys[0].UUID != k {
+		t.Fatalf("a key that sees every inbound an old agent gets was dropped: %+v, %v", keys, err)
+	}
+}

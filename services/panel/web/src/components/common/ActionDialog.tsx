@@ -18,6 +18,7 @@ export interface ActionDialogProps {
   destructive?: boolean
   reason?: { label: string; required?: boolean; placeholder?: string }
   canConfirm?: boolean
+  wide?: boolean
   children?: ReactNode
   success?: string
   onConfirm: (reason: string) => Promise<unknown>
@@ -34,6 +35,7 @@ export function ActionDialog({
   destructive,
   reason,
   canConfirm = true,
+  wide,
   children,
   success,
   onConfirm,
@@ -76,7 +78,7 @@ export function ActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
-      <DialogContent>
+      <DialogContent className={wide ? "sm:max-w-2xl" : undefined}>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>

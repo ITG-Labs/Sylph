@@ -26,6 +26,7 @@ type fakeCore struct {
 	failAfterCommit bool
 	syncExtra       map[string]any
 	perInbound      bool
+	xhttp           bool
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -36,9 +37,10 @@ func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			KnownVersion int64 `json:"known_version"`
 			PerInbound   bool  `json:"per_inbound"`
+			XHTTP        bool  `json:"xhttp"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		f.perInbound = body.PerInbound
+		f.perInbound, f.xhttp = body.PerInbound, body.XHTTP
 		if body.KnownVersion == f.syncVersion {
 			json.NewEncoder(w).Encode(map[string]any{"version": f.syncVersion})
 			return
