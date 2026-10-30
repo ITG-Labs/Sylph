@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -31,6 +32,10 @@ type Notice struct {
 	PeriodEnds        *time.Time `json:"period_ends"`
 	TrafficUsedBytes  *int64     `json:"traffic_used_bytes"`
 	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
+	PoolID            *int64     `json:"pool_id,omitempty"`
+	PoolName          string     `json:"pool_name,omitempty"`
+	MultiPool         bool       `json:"multi_pool"`
+	TrafficExhausted  bool       `json:"traffic_exhausted"`
 }
 
 type Notices interface {
@@ -152,13 +157,20 @@ func (a *App) noticeView(n Notice) (string, *models.InlineKeyboardMarkup) {
 
 func (a *App) trafficNotice(n Notice) string {
 	var b strings.Builder
+	of, subject := "трафика", "Трафик"
+	switch {
+	case n.MultiPool && n.PoolName != "":
+		of, subject = "трафика «"+html.EscapeString(n.PoolName)+"»", "Трафик «"+html.EscapeString(n.PoolName)+"»"
+	case n.MultiPool:
+		of, subject = "основного трафика", "Основной трафик"
+	}
 	switch n.Kind {
 	case "traffic_80":
-		b.WriteString(a.header(icTraffic, "Израсходовано 80% трафика"))
+		b.WriteString(a.header(icTraffic, "Израсходовано 80% "+of))
 	case "traffic_95":
-		b.WriteString(a.header(icWarn, "Трафик почти закончился"))
+		b.WriteString(a.header(icWarn, subject+" почти закончился"))
 	default:
-		b.WriteString(a.header(icWarn, "Трафик закончился"))
+		b.WriteString(a.header(icWarn, subject+" закончился"))
 	}
 	if n.TrafficUsedBytes != nil && n.TrafficLimitBytes != nil {
 		used, limit := *n.TrafficUsedBytes, *n.TrafficLimitBytes
@@ -169,6 +181,10 @@ func (a *App) trafficNotice(n Notice) string {
 	}
 	if n.Kind != "traffic_out" {
 		fmt.Fprintf(&b, "%s <b>Текущий период до</b>\n%s", a.ic(icClock), a.when(*n.PeriodEnds))
+		return b.String()
+	}
+	if n.MultiPool && !n.TrafficExhausted {
+		fmt.Fprintf(&b, "Остальные серверы работают. Этот трафик обновится с новым периодом — %s.", a.when(*n.PeriodEnds))
 		return b.String()
 	}
 	if n.PaidUntil != nil && n.PaidUntil.After(*n.PeriodEnds) {

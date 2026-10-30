@@ -486,6 +486,7 @@ func TestDatesFollowTheUsersClock(t *testing.T) {
 func TestStatusWhenTrafficIsExhausted(t *testing.T) {
 	st := activeStatus()
 	st.Subscription.TrafficUsedBytes = 100 << 30
+	st.Subscription.TrafficExhausted = true
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
@@ -616,6 +617,7 @@ func TestBuyWarnsWhatHappensToTheCurrentPeriod(t *testing.T) {
 	app.Handle(context.Background(), tg, callback("buy:2"))
 	mustContain(t, tg.last(t).text, "в очередь")
 	core.status.Subscription.TrafficUsedBytes = 100 << 30
+	core.status.Subscription.TrafficExhausted = true
 	for _, plan := range []string{"buy:3", "buy:2"} {
 		app.Handle(context.Background(), tg, callback(plan))
 		m := tg.last(t).text
