@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
-import { fmtBytes, fmtDate, fmtDateTime, fmtRub } from "@/lib/format"
+import { fmtBytes, fmtDate, fmtDateTime, fmtRub, plural } from "@/lib/format"
 import { useGroups, useInvalidate, usePlans } from "@/lib/queries"
 import type { Access, Invite } from "@/lib/types"
 
@@ -53,7 +53,7 @@ export function PlanPage() {
     setTg("")
     setDialog(d)
   }
-  const group = plan.location_group_id === null ? "только общие ноды" : `${groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`} + общие`
+  const group = `${groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`} + всё без группы`
   const maxUsesN = maxUses === "" ? null : Number(maxUses)
   const expiresISO = expires ? new Date(expires).toISOString() : null
 
@@ -81,10 +81,25 @@ export function PlanPage() {
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Fact label="Цена" value={fmtRub(plan.price_rub)} />
         <Fact label="Период" value={`${plan.period_days} дн`} />
-        <Fact label="Трафик" value={fmtBytes(plan.traffic_limit_bytes)} />
+        <Fact label={plan.pools.length > 0 ? "Основной трафик" : "Трафик"} value={fmtBytes(plan.traffic_limit_bytes)} />
         <Fact label="Устройств" value={`${plan.device_limit ?? "∞"}${plan.hwid_required ? " · HWID" : ""}`} />
-        <Fact label="Ноды" value={group} />
+        <Fact label="Видит" value={group} />
       </div>
+      {plan.pools.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2">
+          {(plan.pool_overlaps ?? 0) > 0 && (
+            <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
+              Пулы тарифа пересекаются: после изменения групп {plan.pool_overlaps} {plural(plan.pool_overlaps ?? 0, "вход попадает", "входа попадают", "входов попадают")} в два пула. Трафик
+              такого входа идёт в первый по списку пул — поправь пулы или состав групп.
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {plan.pools.map((pool) => (
+              <Fact key={pool.id} label={`Пул · ${pool.node_id !== null ? "нода" : "группа"}`} value={`${pool.label} — ${fmtBytes(pool.traffic_limit_bytes)}`} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {isPrivate ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

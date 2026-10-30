@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { core } from "@/lib/api"
-import { describeNodeMove, isHarsh, nodeMoveImpact, type ImpactLine } from "@/lib/groups"
-import { useNodes, usePlans } from "@/lib/queries"
+import { CheckList } from "@/components/common/CheckList"
+import { accessChanges, describeChanges, isHarsh, withNodeGroups, type ImpactLine } from "@/lib/groups"
+import { useWorld } from "@/lib/world"
 import type { Group, Inbound, Node } from "@/lib/types"
 
 export const fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "random"]
@@ -23,23 +24,12 @@ function Field({ id, label, hint, children }: { id?: string; label: string; hint
   )
 }
 
-function GroupSelect({ groups, value, onChange }: { groups: Group[]; value: string; onChange: (v: string) => void }) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="none">Без группы — видна всем тарифам</SelectItem>
-        {groups.map((g) => (
-          <SelectItem key={g.id} value={String(g.id)}>
-            {g.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
+function GroupChecks({ groups, value, onChange }: { groups: Group[]; value: number[]; onChange: (v: number[]) => void }) {
+  if (groups.length === 0) return <p className="text-xs text-muted-foreground">Групп пока нет — нода будет видна всем тарифам.</p>
+  return <CheckList label="Группы" items={groups.map((g) => ({ id: g.id, title: g.name }))} value={value} onChange={onChange} />
 }
+
+const sameIDs = (a: number[], b: number[]) => a.length === b.length && a.every((id) => b.includes(id))
 
 export function NodeFormDialog({
   open,
@@ -57,7 +47,7 @@ export function NodeFormDialog({
   const [cn, setCn] = useState("")
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
-  const [group, setGroup] = useState("none")
+  const [groupIDs, setGroupIDs] = useState<number[]>([])
   const [enabled, setEnabled] = useState(true)
 
   useEffect(() => {
@@ -65,26 +55,15 @@ export function NodeFormDialog({
     setCn(node?.cert_cn ?? "")
     setName(node?.name ?? "")
     setAddress(node?.address ?? "")
-    setGroup(node?.group_id ? String(node.group_id) : "none")
+    setGroupIDs(node?.group_ids ?? [])
     setEnabled(node?.enabled ?? true)
   }, [open, node])
 
-  const groupID = group === "none" ? null : Number(group)
   const ok = name.trim() !== "" && address.trim() !== "" && (node || cn.trim() !== "")
-  const plans = usePlans()
-  const nodes = useNodes()
+  const { world } = useWorld()
   const moveLines: ImpactLine[] =
-    node && groupID !== node.group_id && plans.data && nodes.data
-      ? describeNodeMove(
-          { ...node, enabled },
-          groupID,
-          nodeMoveImpact(
-            { ...node, enabled },
-            groupID,
-            plans.data.map((p) => ({ ...p, active_users: p.active_users ?? 0 })),
-            nodes.data,
-          ),
-        )
+    node && !sameIDs(groupIDs, node.group_ids) && world
+      ? describeChanges(world, accessChanges(world, withNodeGroups(world, node.id, groupIDs)))
       : []
   const disabling = !!node && node.enabled && !enabled
 
@@ -108,8 +87,8 @@ export function NodeFormDialog({
       success={node ? "Нода сохранена" : "Нода заведена"}
       onConfirm={async () => {
         const n = node
-          ? await core.patch<Node>(`/v1/admin/nodes/${node.id}`, { name: name.trim(), address: address.trim(), group_id: groupID, enabled })
-          : await core.post<Node>("/v1/admin/nodes", { cert_cn: cn.trim(), name: name.trim(), address: address.trim(), group_id: groupID, enabled })
+          ? await core.patch<Node>(`/v1/admin/nodes/${node.id}`, { name: name.trim(), address: address.trim(), group_ids: groupIDs, enabled })
+          : await core.post<Node>("/v1/admin/nodes", { cert_cn: cn.trim(), name: name.trim(), address: address.trim(), group_ids: groupIDs, enabled })
         onDone(n)
       }}
     >
@@ -124,8 +103,8 @@ export function NodeFormDialog({
       <Field id="address" label="Адрес" hint="домен или IP, на который ходят клиенты">
         <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="de1.example.com" />
       </Field>
-      <Field label="Группа локаций">
-        <GroupSelect groups={groups} value={group} onChange={setGroup} />
+      <Field label="Группы" hint="нода целиком; без групп её видят все тарифы. Отдельные входы раскладываются по группам на экране группы">
+        <GroupChecks groups={groups} value={groupIDs} onChange={setGroupIDs} />
       </Field>
       <div className="well flex items-center justify-between gap-3 rounded-xl p-3">
         <div>

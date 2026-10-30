@@ -45,7 +45,15 @@ export function NodePage() {
   if (!n) return <Empty>Нода не найдена</Empty>
   const close = (v: boolean) => !v && setDialog(null)
   const refresh = () => invalidate(["nodes"], ["inbounds", id], ["overview"])
-  const group = n.group_id === null ? "без группы — видна всем тарифам" : (groups.data?.find((g) => g.id === n.group_id)?.name ?? `группа ${n.group_id}`)
+  const nameOf = (gid: number) => groups.data?.find((g) => g.id === gid)?.name ?? `группа ${gid}`
+  const byInbound = (groups.data ?? []).filter((g) => !n.group_ids.includes(g.id) && g.inbound_ids.some((iid) => inbounds.data?.some((i) => i.id === iid)))
+  const group =
+    n.group_ids.length === 0 && byInbound.length === 0
+      ? "без группы — видна всем тарифам"
+      : [
+          ...n.group_ids.map(nameOf),
+          ...byInbound.map((g) => `${g.name} (входы ${(inbounds.data ?? []).filter((i) => g.inbound_ids.includes(i.id)).map((i) => i.label || i.tag).join(", ")})`),
+        ].join(", ")
 
   return (
     <>
@@ -87,7 +95,7 @@ export function NodePage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section title="Состояние" className="xl:col-span-1">
-          <KV label="Группа">{group}</KV>
+          <KV label="Группы">{group}</KV>
           <KV label="С доступом">{n.active_users ?? "—"}</KV>
           <KV label="Онлайн">{n.online_users}</KV>
           <KV label="Агент">{n.agent_version ?? "—"}</KV>

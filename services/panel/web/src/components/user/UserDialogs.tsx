@@ -58,6 +58,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
   const close = (v: boolean) => !v && onClose()
   const [days, setDays] = useState("")
   const [gb, setGb] = useState("")
+  const [pool, setPool] = useState("main")
   const [planId, setPlanId] = useState("")
   const [amount, setAmount] = useState("")
   const [addressId, setAddressId] = useState("")
@@ -67,6 +68,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
   useEffect(() => {
     setDays("")
     setGb("")
+    setPool("main")
     setPlanId("")
     setAmount("")
     setAddressId("")
@@ -96,7 +98,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         consequences={
           <>
             <p>Конец текущего периода сдвинется на N дней, очередь — следом.</p>
-            {current && current.traffic_limit_bytes !== null && current.traffic_used_bytes >= current.traffic_limit_bytes && (
+            {current?.traffic_exhausted && (
               <p className="text-warning">Трафик периода уже исчерпан — продление не вернёт доступ, сначала докинь трафик.</p>
             )}
           </>
@@ -117,13 +119,34 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         open={open("traffic")}
         onOpenChange={close}
         title="Докинуть трафик"
-        description={current ? `Период: ${current.plan_name}, потрачено ${fmtBytes(current.traffic_used_bytes)} из ${fmtBytes(current.traffic_limit_bytes)}` : undefined}
-        consequences={<p>Бонус добавится к лимиту текущего периода, тариф не меняется. Исчерпанный юзер вернётся на ноды на ближайшем синке.</p>}
+        description={current ? `Период: ${current.plan_name}, ${poolUsage(current, pool)}` : undefined}
+        consequences={<p>Бонус добавится к лимиту выбранного пула в текущем периоде, тариф не меняется. Если пул был исчерпан, его входы вернутся на ближайшем синке.</p>}
         confirmLabel={bytes ? `Добавить ${fmtBytes(bytes)}` : "Добавить"}
-        canConfirm={bytes !== null}
+        canConfirm={bytes !== null && !!current && poolLimited(current, pool)}
         success="Трафик добавлен"
-        onConfirm={() => run(core.post(`/v1/admin/users/${uid}/traffic`, { bytes }))}
+        onConfirm={() => run(core.post(`/v1/admin/users/${uid}/traffic`, pool === "main" ? { bytes } : { bytes, pool_id: Number(pool) }))}
       >
+        {current && current.pools.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <Label>Пул</Label>
+            <Select value={pool} onValueChange={setPool}>
+              <SelectTrigger aria-label="Пул">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="main" disabled={current.traffic_limit_bytes === null}>
+                  Основной{current.traffic_limit_bytes === null ? " — безлимит" : ""}
+                </SelectItem>
+                {current.pools.map((x) => (
+                  <SelectItem key={x.pool_id} value={String(x.pool_id)} disabled={x.traffic_limit_bytes === null}>
+                    {x.name}
+                    {x.traffic_limit_bytes === null ? " — безлимит" : x.exhausted ? " — исчерпан" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="gb">Сколько, ГБ</Label>
           <Input id="gb" inputMode="decimal" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="10" autoFocus />
@@ -341,4 +364,15 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       />
     </>
   )
+}
+
+function poolLimited(p: Period, pool: string): boolean {
+  if (pool === "main") return p.traffic_limit_bytes !== null
+  return p.pools.some((x) => String(x.pool_id) === pool && x.traffic_limit_bytes !== null)
+}
+
+function poolUsage(p: Period, pool: string): string {
+  const x = p.pools.find((y) => String(y.pool_id) === pool)
+  const [used, limit, name] = x ? [x.used_bytes, x.traffic_limit_bytes, x.name] : [p.traffic_used_bytes, p.traffic_limit_bytes, p.pools.length > 0 ? "основной" : ""]
+  return `${name ? `пул «${name}»: ` : ""}потрачено ${fmtBytes(used)} из ${fmtBytes(limit)}`
 }

@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Layers, Plus } from "lucide-react"
 import { Link } from "react-router"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -10,8 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
 import { fmtDate } from "@/lib/format"
-import { useGroups, useInvalidate, usePlans } from "@/lib/queries"
-import type { Node } from "@/lib/types"
+import { groupsOf } from "@/lib/groups"
+import { useInvalidate } from "@/lib/queries"
+import { useWorld } from "@/lib/world"
 
 function Card({ id, children }: { id: number | null; children: React.ReactNode }) {
   const cls = "glass-thin flex flex-col gap-3 rounded-2xl p-5"
@@ -24,22 +24,32 @@ function Card({ id, children }: { id: number | null; children: React.ReactNode }
 }
 
 export function GroupsPage() {
-  const groups = useGroups()
-  const plans = usePlans()
-  const nodes = useQuery({ queryKey: ["nodes"], queryFn: () => core.get<Node[]>("/v1/admin/nodes") })
+  const { world, groups, error, retry } = useWorld()
   const invalidate = useInvalidate()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
+  const nodeName = (id: number) => world?.nodes.find((n) => n.id === id)?.name ?? `нода ${id}`
+  const inboundName = (id: number) => {
+    const i = world?.inbounds.find((x) => x.id === id)
+    return i ? `${nodeName(i.node_id)} · ${i.label || i.tag}` : `вход ${id}`
+  }
+  const common = world ? world.nodes.filter((n) => world.inbounds.some((i) => i.node_id === n.id && groupsOf(world, i).length === 0)) : []
   const rows = [
-    { id: null as number | null, name: "Общие ноды", created_at: null as string | null },
-    ...(groups.data ?? []).map((g) => ({ id: g.id as number | null, name: g.name, created_at: g.created_at as string | null })),
+    { id: null as number | null, name: "Общие ноды", created_at: null as string | null, members: common.map((n) => n.name), plans: [] as string[] },
+    ...(groups ?? []).map((g) => ({
+      id: g.id as number | null,
+      name: g.name,
+      created_at: g.created_at as string | null,
+      members: [...g.node_ids.map(nodeName), ...g.inbound_ids.map(inboundName)],
+      plans: (world?.plans ?? []).filter((p) => p.location_group_id === g.id).map((p) => p.name),
+    })),
   ]
 
   return (
     <>
       <PageHeader
         title="Группы локаций"
-        description="тариф видит ноды своей группы и общие ноды без группы"
+        description="тариф видит состав своей группы и всё, что не входит ни в одну группу"
         actions={
           <Button
             onClick={() => {
@@ -52,15 +62,13 @@ export function GroupsPage() {
           </Button>
         }
       />
-      {groups.isPending ? (
+      {error ? (
+        <LoadError error={error} onRetry={retry} />
+      ) : !world ? (
         <LoadingBlock rows={2} />
-      ) : groups.isError ? (
-        <LoadError error={groups.error} onRetry={() => groups.refetch()} />
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((g) => {
-            const gn = nodes.data?.filter((n) => n.group_id === g.id) ?? []
-            const gp = plans.data?.filter((p) => p.location_group_id === g.id) ?? []
             return (
               <Card key={g.id ?? "common"} id={g.id}>
                 <div className="flex items-center gap-2.5">
@@ -72,12 +80,12 @@ export function GroupsPage() {
                   {g.id !== null && <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">ноды</div>
-                  {gn.length === 0 ? <span className="text-muted-foreground">нет</span> : gn.map((n) => n.name).join(", ")}
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "ноды, где есть входы без группы" : "состав"}</div>
+                  {g.members.length === 0 ? <span className="text-muted-foreground">нет</span> : g.members.join(", ")}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы" : "тарифы"}</div>
-                  {gp.length === 0 ? <span className="text-muted-foreground">нет</span> : gp.map((p) => p.name).join(", ")}
+                  <div className="text-xs text-muted-foreground">тарифы</div>
+                  {g.id === null ? <span className="text-muted-foreground">видны всем</span> : g.plans.length === 0 ? <span className="text-muted-foreground">нет</span> : g.plans.join(", ")}
                 </div>
               </Card>
             )
@@ -88,7 +96,7 @@ export function GroupsPage() {
         open={open}
         onOpenChange={setOpen}
         title="Новая группа"
-        description="Ноды и тарифы добавляются с экрана группы; удалить можно только пустую группу"
+        description="Ноды, входы и тарифы добавляются с экрана группы; удалить можно только неиспользуемую группу"
         confirmLabel="Создать"
         canConfirm={name.trim() !== ""}
         success="Группа создана"
