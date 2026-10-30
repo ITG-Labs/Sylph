@@ -2,6 +2,7 @@ package subs
 
 import (
 	"bytes"
+	"encoding/json"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,7 +29,87 @@ type clashProxy struct {
 	Flow              string        `yaml:"flow,omitempty"`
 	ServerName        string        `yaml:"servername,omitempty"`
 	ClientFingerprint string        `yaml:"client-fingerprint,omitempty"`
+	ALPN              []string      `yaml:"alpn,omitempty"`
 	RealityOpts       *clashReality `yaml:"reality-opts,omitempty"`
+	XHTTPOpts         *clashXHTTP   `yaml:"xhttp-opts,omitempty"`
+}
+
+type clashXHTTP struct {
+	Path                 string            `yaml:"path"`
+	Host                 string            `yaml:"host,omitempty"`
+	Mode                 string            `yaml:"mode"`
+	Headers              map[string]string `yaml:"headers,omitempty"`
+	NoGRPCHeader         bool              `yaml:"no-grpc-header,omitempty"`
+	XPaddingBytes        string            `yaml:"x-padding-bytes,omitempty"`
+	XPaddingObfsMode     bool              `yaml:"x-padding-obfs-mode,omitempty"`
+	XPaddingKey          string            `yaml:"x-padding-key,omitempty"`
+	XPaddingHeader       string            `yaml:"x-padding-header,omitempty"`
+	XPaddingPlacement    string            `yaml:"x-padding-placement,omitempty"`
+	XPaddingMethod       string            `yaml:"x-padding-method,omitempty"`
+	UplinkHTTPMethod     string            `yaml:"uplink-http-method,omitempty"`
+	SessionPlacement     string            `yaml:"session-placement,omitempty"`
+	SessionKey           string            `yaml:"session-key,omitempty"`
+	SessionTable         string            `yaml:"session-table,omitempty"`
+	SessionLength        string            `yaml:"session-length,omitempty"`
+	SeqPlacement         string            `yaml:"seq-placement,omitempty"`
+	SeqKey               string            `yaml:"seq-key,omitempty"`
+	UplinkDataPlacement  string            `yaml:"uplink-data-placement,omitempty"`
+	UplinkDataKey        string            `yaml:"uplink-data-key,omitempty"`
+	UplinkChunkSize      string            `yaml:"uplink-chunk-size,omitempty"`
+	ScMaxEachPostBytes   string            `yaml:"sc-max-each-post-bytes,omitempty"`
+	ScMinPostsIntervalMs string            `yaml:"sc-min-posts-interval-ms,omitempty"`
+	ReuseSettings        *clashXmux        `yaml:"reuse-settings,omitempty"`
+}
+
+type clashXmux struct {
+	MaxConcurrency   string `yaml:"max-concurrency,omitempty" json:"maxConcurrency"`
+	MaxConnections   string `yaml:"max-connections,omitempty" json:"maxConnections"`
+	CMaxReuseTimes   string `yaml:"c-max-reuse-times,omitempty" json:"cMaxReuseTimes"`
+	HMaxRequestTimes string `yaml:"h-max-request-times,omitempty" json:"hMaxRequestTimes"`
+	HMaxReusableSecs string `yaml:"h-max-reusable-secs,omitempty" json:"hMaxReusableSecs"`
+	HKeepAlivePeriod int64  `yaml:"h-keep-alive-period,omitempty" json:"hKeepAlivePeriod"`
+}
+
+type xrayExtra struct {
+	Headers              map[string]string `json:"headers"`
+	XPaddingBytes        string            `json:"xPaddingBytes"`
+	XPaddingObfsMode     bool              `json:"xPaddingObfsMode"`
+	XPaddingKey          string            `json:"xPaddingKey"`
+	XPaddingHeader       string            `json:"xPaddingHeader"`
+	XPaddingPlacement    string            `json:"xPaddingPlacement"`
+	XPaddingMethod       string            `json:"xPaddingMethod"`
+	UplinkHTTPMethod     string            `json:"uplinkHTTPMethod"`
+	SessionIDPlacement   string            `json:"sessionIDPlacement"`
+	SessionIDKey         string            `json:"sessionIDKey"`
+	SessionIDTable       string            `json:"sessionIDTable"`
+	SessionIDLength      string            `json:"sessionIDLength"`
+	SeqPlacement         string            `json:"seqPlacement"`
+	SeqKey               string            `json:"seqKey"`
+	UplinkDataPlacement  string            `json:"uplinkDataPlacement"`
+	UplinkDataKey        string            `json:"uplinkDataKey"`
+	UplinkChunkSize      string            `json:"uplinkChunkSize"`
+	NoGRPCHeader         bool              `json:"noGRPCHeader"`
+	ScMaxEachPostBytes   string            `json:"scMaxEachPostBytes"`
+	ScMinPostsIntervalMs string            `json:"scMinPostsIntervalMs"`
+	Xmux                 *clashXmux        `json:"xmux"`
+}
+
+func clashXHTTPOf(c Connection) (*clashXHTTP, error) {
+	var e xrayExtra
+	if len(c.Extra) > 0 {
+		if err := json.Unmarshal(c.Extra, &e); err != nil {
+			return nil, err
+		}
+	}
+	return &clashXHTTP{
+		Path: c.Path, Host: c.Host, Mode: c.Mode, Headers: e.Headers, NoGRPCHeader: e.NoGRPCHeader,
+		XPaddingBytes: e.XPaddingBytes, XPaddingObfsMode: e.XPaddingObfsMode, XPaddingKey: e.XPaddingKey, XPaddingHeader: e.XPaddingHeader,
+		XPaddingPlacement: e.XPaddingPlacement, XPaddingMethod: e.XPaddingMethod, UplinkHTTPMethod: e.UplinkHTTPMethod,
+		SessionPlacement: e.SessionIDPlacement, SessionKey: e.SessionIDKey, SessionTable: e.SessionIDTable, SessionLength: e.SessionIDLength,
+		SeqPlacement: e.SeqPlacement, SeqKey: e.SeqKey, UplinkDataPlacement: e.UplinkDataPlacement, UplinkDataKey: e.UplinkDataKey,
+		UplinkChunkSize: e.UplinkChunkSize, ScMaxEachPostBytes: e.ScMaxEachPostBytes, ScMinPostsIntervalMs: e.ScMinPostsIntervalMs,
+		ReuseSettings: e.Xmux,
+	}, nil
 }
 
 type clashReality struct {
@@ -67,6 +148,19 @@ func RenderClash(conns []Connection) ([]byte, error) {
 			p.ServerName = c.SNI
 			p.ClientFingerprint = c.Fingerprint
 			p.RealityOpts = &clashReality{PublicKey: c.PublicKey, ShortID: c.ShortID, SupportX25519MLKEM768: true}
+		}
+		if c.Security == "tls" {
+			p.TLS = true
+			p.ServerName = c.SNI
+			p.ClientFingerprint = c.Fingerprint
+			p.ALPN = c.ALPN
+		}
+		if c.Transport == "xhttp" {
+			opts, err := clashXHTTPOf(c)
+			if err != nil {
+				return nil, err
+			}
+			p.XHTTPOpts = opts
 		}
 		proxies[i] = p
 	}

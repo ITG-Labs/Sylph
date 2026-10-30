@@ -31,6 +31,23 @@ func vlessLink(c Connection) string {
 		q.Set("sid", c.ShortID)
 		q.Set("support-x25519mlkem768", "true")
 	}
+	if c.Security == "tls" {
+		q.Set("sni", c.SNI)
+		q.Set("fp", c.Fingerprint)
+		if len(c.ALPN) > 0 {
+			q.Set("alpn", strings.Join(c.ALPN, ","))
+		}
+	}
+	if c.Transport == "xhttp" {
+		q.Set("path", c.Path)
+		q.Set("mode", c.Mode)
+		if c.Host != "" {
+			q.Set("host", c.Host)
+		}
+		if len(c.Extra) > 0 {
+			q.Set("extra", string(c.Extra))
+		}
+	}
 	u := url.URL{
 		Scheme:      "vless",
 		User:        url.User(c.UUID),

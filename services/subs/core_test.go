@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
@@ -42,11 +43,13 @@ func TestCoreClientPostsTheRequestAndDecodesTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != req || gotID != "rid-1" {
+	sent := req
+	sent.XHTTP = true
+	if got != sent || gotID != "rid-1" {
 		t.Fatalf("core got %+v id %q", got, gotID)
 	}
 	want := Connection{Name: "Смоук", Address: "node.example.com", Port: 443, UUID: "u", Flow: "xtls-rprx-vision", Transport: "tcp", Security: "reality", SNI: "www.apple.com", PublicKey: "pk", ShortID: "sid", Fingerprint: "chrome"}
-	if view.Status != StatusOK || view.TrafficUsedBytes != 7 || view.TrafficLimitBytes != nil || view.ExpiresAt == nil || len(view.Connections) != 1 || view.Connections[0] != want {
+	if view.Status != StatusOK || view.TrafficUsedBytes != 7 || view.TrafficLimitBytes != nil || view.ExpiresAt == nil || len(view.Connections) != 1 || !reflect.DeepEqual(view.Connections[0], want) {
 		t.Fatalf("view = %+v", view)
 	}
 }
