@@ -82,7 +82,16 @@ func (e *Engine) setRouting(routing *noderoute.Profile, serviceKeys []string, ge
 
 func (e *Engine) Desired(status []AddressStatus) NodeDesired {
 	return NodeDesired{Inbounds: e.inbounds, Routing: e.routing, ServiceKeys: e.serviceKeys, Geo: e.geo,
-		Egress: buildEgress(status, e.users, e.emailsOf)}
+		Egress: buildEgress(status, e.users, e.nodeEmails)}
+}
+
+func (e *Engine) nodeEmails(u SyncUser) []string {
+	out := make([]string, 0, len(e.inbounds))
+	for _, in := range e.inbounds {
+		out = append(out, userEmail(u.UUID, in.Tag))
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (e *Engine) emailsOf(u SyncUser) []string {
@@ -225,13 +234,14 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 			firstErr = e.recordFailure(firstErr, "remove", in.Tag, uuid, err)
 			continue
 		}
+		delete(actual, email)
 		e.logger.Info("xray_user_removed", "inbound", in.Tag, "key_ref", keyRef(uuid))
 	}
 	if !add {
 		return firstErr
 	}
 	for email, uuid := range want {
-		if actual[email] || e.blocked[uuid] {
+		if actual[email] || e.blocked[uuid] || (email != uuid && actual[uuid]) {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

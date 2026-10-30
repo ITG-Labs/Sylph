@@ -131,8 +131,8 @@ func TestPlanUsersAndEgressUseEmails(t *testing.T) {
 		t.Fatalf("plan users = %v", got)
 	}
 	d := e.Desired([]AddressStatus{{IP: "203.0.113.7", OK: true, Source: "203.0.113.7"}})
-	if len(d.Egress) != 1 || !reflect.DeepEqual(d.Egress[0].Users, map[int64][]string{3: {"a@main"}}) {
-		t.Fatalf("egress = %+v", d.Egress)
+	if len(d.Egress) != 1 || !reflect.DeepEqual(d.Egress[0].Users, map[int64][]string{3: {"a@cdn", "a@main"}}) {
+		t.Fatalf("egress must not follow the key's open inbounds, or every pool change restarts xray: %+v", d.Egress)
 	}
 	blocked := egressBlocked([]noderoute.Egress{{Name: "x", Users: map[int64][]string{3: {"a@main"}}}}, nil)
 	e.Block(blocked)
@@ -172,5 +172,28 @@ func TestLoadStateFromBeforePerInboundForcesFullSync(t *testing.T) {
 	}
 	if again.version != 5 {
 		t.Fatalf("a per-inbound cache keeps its version, got %d", again.version)
+	}
+}
+
+func TestNoPerInboundEmailWhileTheLegacyOneStays(t *testing.T) {
+	fx := newFakeXray()
+	fx.set(func(f *fakeXray) {
+		f.users["main/a"] = true
+		f.failRemove = map[string]bool{"a": true}
+	})
+	e := testEngine(t, fx, &fakeCore{})
+	e.setDesired(users("a"))
+	if err := e.Reconcile(context.Background(), mainIn); err == nil {
+		t.Fatal("a failed removal must be reported")
+	}
+	if fx.hasUser("main", "a") {
+		t.Fatal("xray keeps users by UUID: adding a@main next to a would be wiped by the later removal of a")
+	}
+	fx.set(func(f *fakeXray) { f.failRemove = nil })
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("main", "a") || fx.hasEmail("main", "a") {
+		t.Fatal("the next pass must finish the move")
 	}
 }
