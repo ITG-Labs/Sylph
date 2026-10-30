@@ -10,8 +10,24 @@ import { CheckList } from "@/components/common/CheckList"
 import { accessChanges, describeChanges, isHarsh, newOldAgentLines, withNodeGroups, type ImpactLine } from "@/lib/groups"
 import { useWorld } from "@/lib/world"
 import type { Group, Inbound, Node } from "@/lib/types"
-import { agentKnowsXHTTP, extraProblems, extraToForm, formToExtra, portProblem, kindHints, kindLabels, kindOf, minXrayForXHTTP, olderThan, type ExtraForm, type InboundKind } from "@/lib/inbounds"
-import { ALPNPicker, ExtraFields, Field, ModeSelect } from "./XHTTPFields"
+import {
+  agentKnowsXHTTP,
+  extraProblems,
+  extraToForm,
+  formToExtra,
+  kindFrom,
+  kindHints,
+  kindOf,
+  minXrayForXHTTP,
+  olderThan,
+  portProblem,
+  securities,
+  securityFits,
+  transports,
+  type ExtraForm,
+  type InboundKind,
+} from "@/lib/inbounds"
+import { ALPNPicker, ExtraFields, Field, ModeSelect, Segmented } from "./XHTTPFields"
 
 export const fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "random"]
 
@@ -253,20 +269,19 @@ export function InboundFormDialog({
       }}
     >
       {!inbound && (
-        <Field label="Вид входа">
-          <Select value={kind} onValueChange={(v) => pickKind(v as InboundKind)}>
-            <SelectTrigger aria-label="Вид входа">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(kindLabels) as InboundKind[]).map((k) => (
-                <SelectItem key={k} value={k}>
-                  {kindLabels[k]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Транспорт" hint="как идут данные: TCP напрямую или XHTTP поверх HTTP">
+            <Segmented label="Транспорт" value={transportOf(kind)} options={transports} onChange={(t) => pickKind(kindFrom(t, securityOf(kind)))} />
+          </Field>
+          <Field label="Шифрование" hint={transportOf(kind) === "tcp" ? "для TCP — только REALITY" : "REALITY — без домена, TLS — свой домен и можно CDN"}>
+            <Segmented
+              label="Шифрование"
+              value={securityOf(kind)}
+              options={securities.map((o) => ({ ...o, disabled: !securityFits(transportOf(kind), o.value) }))}
+              onChange={(sec) => pickKind(kindFrom(transportOf(kind), sec))}
+            />
+          </Field>
+        </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="tag" label="Тег" hint="a-z, 0-9, дефис; уникален на ноде">
@@ -354,6 +369,9 @@ export function InboundFormDialog({
     </ActionDialog>
   )
 }
+
+const transportOf = (k: InboundKind) => (k === "reality-tcp" ? "tcp" : "xhttp")
+const securityOf = (k: InboundKind) => (k === "tls-xhttp" ? "tls" : "reality")
 
 const defaultTags: Record<InboundKind, string> = { "reality-tcp": "reality-tcp", "reality-xhttp": "reality-xhttp", "tls-xhttp": "cdn" }
 

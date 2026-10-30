@@ -3,7 +3,7 @@ import type { Inbound, InboundTLS, Node, XHTTPExtra } from "./types"
 export type InboundKind = "reality-tcp" | "reality-xhttp" | "tls-xhttp"
 
 export const kindLabels: Record<InboundKind, string> = {
-  "reality-tcp": "REALITY · TCP",
+  "reality-tcp": "TCP · REALITY",
   "reality-xhttp": "XHTTP · REALITY",
   "tls-xhttp": "XHTTP · TLS",
 }
@@ -17,6 +17,24 @@ export const kindHints: Record<InboundKind, string> = {
 export const xhttpModes = ["auto", "packet-up", "stream-up", "stream-one"]
 export const alpnOptions = ["h2", "http/1.1", "h3"]
 export const minXrayForXHTTP = "26.10.21"
+
+export const transports = [
+  { value: "tcp", label: "TCP" },
+  { value: "xhttp", label: "XHTTP" },
+]
+
+export const securities = [
+  { value: "reality", label: "REALITY" },
+  { value: "tls", label: "TLS" },
+]
+
+export function securityFits(transport: string, security: string): boolean {
+  return security === "reality" || transport === "xhttp"
+}
+
+export function kindFrom(transport: string, security: string): InboundKind {
+  return kindOf({ transport, security: securityFits(transport, security) ? security : "reality" })
+}
 
 export function kindOf(ib: Pick<Inbound, "transport" | "security">): InboundKind {
   if (ib.transport === "xhttp") return ib.security === "tls" ? "tls-xhttp" : "reality-xhttp"

@@ -49,7 +49,7 @@ const fieldLabels: Record<string, string> = {
   "reality.short_ids": "shortId",
   "reality.fingerprint": "Отпечаток",
   "reality.private_key": "Приватный ключ",
-  transport: "Вид входа",
+  transport: "Транспорт",
   xhttp: "XHTTP",
   "xhttp.path": "Путь",
   "xhttp.mode": "mode сервера",

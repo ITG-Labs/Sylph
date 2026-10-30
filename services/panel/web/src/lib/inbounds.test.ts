@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { agentKnowsXHTTP, certLine, clientEndpoint, extraProblems, extraToForm, formToExtra, kindOf, olderThan, portProblem } from "./inbounds"
+import { agentKnowsXHTTP, certLine, clientEndpoint, extraProblems, extraToForm, formToExtra, kindFrom, kindLabels, kindOf, olderThan, portProblem, securityFits } from "./inbounds"
 import type { InboundTLS } from "./types"
 
 const ownerExtra = {
@@ -18,6 +18,15 @@ const ownerExtra = {
 const tls = (t: Partial<InboundTLS>): InboundTLS => ({ domain: "o.example.ru", decoy: "", address: "", port: 443, sni: "", host: "", alpn: null, fingerprint: "chrome", ...t })
 
 describe("inbound kinds", () => {
+  it("are picked as transport first, then security", () => {
+    expect(kindFrom("tcp", "reality")).toBe("reality-tcp")
+    expect(kindFrom("xhttp", "reality")).toBe("reality-xhttp")
+    expect(kindFrom("xhttp", "tls")).toBe("tls-xhttp")
+    expect(kindFrom("tcp", "tls")).toBe("reality-tcp")
+    expect(securityFits("tcp", "tls")).toBe(false)
+    expect(securityFits("xhttp", "tls")).toBe(true)
+    expect(Object.values(kindLabels)).toEqual(["TCP · REALITY", "XHTTP · REALITY", "XHTTP · TLS"])
+  })
   it("follow transport and security", () => {
     expect(kindOf({ transport: "tcp", security: "reality" })).toBe("reality-tcp")
     expect(kindOf({ transport: "xhttp", security: "reality" })).toBe("reality-xhttp")
