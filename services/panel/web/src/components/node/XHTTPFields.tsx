@@ -143,3 +143,39 @@ export function ALPNPicker({ value, onChange }: { value: string[]; onChange: (v:
     </div>
   )
 }
+
+export function Segmented({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: { value: string; label: string; disabled?: boolean }[]
+  onChange: (v: string) => void
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="well flex w-full gap-1 rounded-full p-1">
+      {options.map((o) => {
+        const on = o.value === value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={o.disabled}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "flex-1 rounded-full px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+              on ? "bg-primary/25 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
