@@ -91,6 +91,7 @@ type Period struct {
 	TrafficUsedBytes  int64       `json:"traffic_used_bytes"`
 	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
 	TrafficExhausted  bool        `json:"traffic_exhausted"`
+	MainIdle          bool        `json:"main_idle"`
 	Pools             []PoolUsage `json:"pools"`
 	PaidUntil         *time.Time  `json:"paid_until"`
 }

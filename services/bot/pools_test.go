@@ -52,3 +52,17 @@ func TestPoolNoticesNameThePool(t *testing.T) {
 		TrafficUsedBytes: ip(100 * gb), TrafficLimitBytes: ip(100 * gb), PeriodEnds: &ends, PaidUntil: &ends})
 	mustContain(t, text, "Трафик «Германия» закончился", "VPN не работает")
 }
+
+func TestStatusHidesAMainPoolThatCoversNothing(t *testing.T) {
+	st := activeStatus()
+	st.Plan.TrafficLimitBytes = nil
+	st.Subscription.MainIdle = true
+	st.Subscription.Pools = []PoolUsage{{PoolID: 4, Name: "Премиум", UsedBytes: 10 << 30, TrafficLimitBytes: i64(100 << 30)}}
+	app, tg := newTestApp(t, &fakeCore{status: st})
+	app.Handle(context.Background(), tg, callback("menu:sub"))
+	m := tg.last(t).text
+	mustContain(t, m, "Премиум", "10 ГБ из 100 ГБ")
+	if strings.Contains(m, "Основной") || strings.Contains(m, "без лимита") {
+		t.Fatalf("an idle main pool leaked into the status:\n%s", m)
+	}
+}

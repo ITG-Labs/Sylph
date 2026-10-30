@@ -344,10 +344,12 @@ func (a *App) statusText(st *Status) string {
 	}
 	fmt.Fprintf(&b, "%s Тариф «%s»\n\n", a.ic(icPlan), html.EscapeString(plan.Name))
 	fmt.Fprintf(&b, "%s <b>Трафик</b>\n", a.ic(icTraffic))
-	if len(sub.Pools) > 0 {
-		b.WriteString("Основной\n")
+	if !sub.MainIdle || len(sub.Pools) == 0 {
+		if len(sub.Pools) > 0 {
+			b.WriteString("Основной\n")
+		}
+		writeUsage(&b, sub.TrafficUsedBytes, trafficLimit(st))
 	}
-	writeUsage(&b, sub.TrafficUsedBytes, trafficLimit(st))
 	for _, p := range sub.Pools {
 		b.WriteString(html.EscapeString(p.Name))
 		if p.Exhausted {
