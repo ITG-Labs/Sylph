@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { agentKnowsXHTTP, certLine, clientEndpoint, extraToForm, formToExtra, kindOf, olderThan } from "./inbounds"
+import { agentKnowsXHTTP, certLine, clientEndpoint, extraProblems, extraToForm, formToExtra, kindOf, olderThan, portProblem } from "./inbounds"
 import type { InboundTLS } from "./types"
 
 const ownerExtra = {
@@ -53,6 +53,24 @@ describe("xhttp extra form", () => {
   })
 })
 
+describe("form checks", () => {
+  it("name fields whose numbers xray would not take", () => {
+    const form = extraToForm({})
+    expect(extraProblems(form)).toEqual([])
+    form.scMaxBufferedPosts = "30.5"
+    form.xPaddingBytes = "100-"
+    form["xmux.hKeepAlivePeriod"] = "-1"
+    form["xmux.maxConnections"] = "2-4"
+    expect(extraProblems(form)).toEqual(["Размер", "POST в буфере сервера"])
+  })
+  it("refuse a port that is not 1-65535", () => {
+    expect(portProblem("443")).toBe(false)
+    expect(portProblem("")).toBe(true)
+    expect(portProblem("abc")).toBe(true)
+    expect(portProblem("70000")).toBe(true)
+  })
+})
+
 describe("client endpoint", () => {
   it("defaults to the node's domain", () => {
     expect(clientEndpoint(tls({}))).toEqual({ address: "o.example.ru", port: 443, sni: "o.example.ru", host: "o.example.ru" })
@@ -80,8 +98,17 @@ describe("node readiness", () => {
     expect(olderThan(null, "26.10.21")).toBe(false)
   })
   it("tells whether the certificate is there", () => {
-    expect(certLine({ tls_status: null }, "a.ru")).toEqual({ ok: false, text: "агент ещё не проверял" })
-    expect(certLine({ tls_status: { "a.ru": { not_after: "2027-01-28T10:00:00Z" } } }, "a.ru")).toEqual({ ok: true, text: "выпущен, до 28.01.2027" })
-    expect(certLine({ tls_status: { "a.ru": { error: "no certificate" } } }, "a.ru")).toEqual({ ok: false, text: "нет серта: no certificate" })
+    const now = new Date("2026-10-31T10:00:00Z")
+    expect(certLine({ tls_status: null }, "a.ru", now)).toEqual({ ok: false, text: "агент ещё не проверял" })
+    expect(certLine({ tls_status: { "a.ru": { not_after: "2027-01-28T10:00:00Z" } } }, "a.ru", now)).toEqual({ ok: true, text: "выпущен, до 28.01.2027" })
+    expect(certLine({ tls_status: { "a.ru": { error: "no certificate" } } }, "a.ru", now)).toEqual({ ok: false, text: "нет серта: no certificate" })
+  })
+  it("warns about a certificate that runs out or already did", () => {
+    const now = new Date("2026-10-31T10:00:00Z")
+    expect(certLine({ tls_status: { "a.ru": { not_after: "2026-11-10T10:00:00Z" } } }, "a.ru", now)).toEqual({ ok: false, text: "истекает 10.11.2026 — продление не прошло?" })
+    expect(certLine({ tls_status: { "a.ru": { not_after: "2026-10-01T10:00:00Z", error: "certificate expired at 2026-10-01T10:00:00Z" } } }, "a.ru", now)).toEqual({
+      ok: false,
+      text: "нет серта: certificate expired at 2026-10-01T10:00:00Z",
+    })
   })
 })

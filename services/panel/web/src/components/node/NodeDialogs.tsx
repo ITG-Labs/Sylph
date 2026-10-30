@@ -10,7 +10,7 @@ import { CheckList } from "@/components/common/CheckList"
 import { accessChanges, describeChanges, isHarsh, newOldAgentLines, withNodeGroups, type ImpactLine } from "@/lib/groups"
 import { useWorld } from "@/lib/world"
 import type { Group, Inbound, Node } from "@/lib/types"
-import { agentKnowsXHTTP, extraToForm, formToExtra, kindHints, kindLabels, kindOf, minXrayForXHTTP, olderThan, type ExtraForm, type InboundKind } from "@/lib/inbounds"
+import { agentKnowsXHTTP, extraProblems, extraToForm, formToExtra, portProblem, kindHints, kindLabels, kindOf, minXrayForXHTTP, olderThan, type ExtraForm, type InboundKind } from "@/lib/inbounds"
 import { ALPNPicker, ExtraFields, Field, ModeSelect } from "./XHTTPFields"
 
 export const fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "random"]
@@ -182,16 +182,24 @@ export function InboundFormDialog({
   const tls = kind === "tls-xhttp"
   const agentBehind = xhttp && !!node && !agentKnowsXHTTP(node)
   const xrayBehind = xhttp && !!node && olderThan(node.xray_version, minXrayForXHTTP)
+  const problems = [...(xhttp ? extraProblems(extra) : []), ...(tls && portProblem(port) ? ["Порт"] : [])]
   const ok =
     tag.trim() !== "" &&
     (!reality || (dest.trim() !== "" && lines(sni).length > 0)) &&
     (!xhttp || path.trim().startsWith("/")) &&
     (!tls || domain.trim() !== "") &&
-    !agentBehind
+    problems.length === 0 &&
+    !(agentBehind && !inbound)
 
   const consequences = (
     <>
-      {agentBehind && <p className="font-medium">Агент этой ноды ещё не знает XHTTP — сначала обнови агента (sylph update на ноде).</p>}
+      {agentBehind && (
+        <p className="font-medium">
+          {inbound
+            ? "Агент этой ноды ещё не знает XHTTP — вход сохранится, но заработает после обновления агента (sylph update на ноде)."
+            : "Агент этой ноды ещё не знает XHTTP — сначала обнови агента (sylph update на ноде)."}
+        </p>
+      )}
       {xrayBehind && (
         <p>
           xray на ноде {node?.xray_version} старее {minXrayForXHTTP} — новые поля XHTTP он может молча пропустить, и клиенты не подключатся. Подними XRAY_VERSION в .env ноды.
@@ -232,7 +240,7 @@ export function InboundFormDialog({
             domain: domain.trim(),
             decoy: decoy.trim(),
             address: address.trim(),
-            port: Number(port) || 0,
+            port: Number(port),
             sni: clientSNI.trim(),
             host: host.trim(),
             alpn,
@@ -333,7 +341,7 @@ export function InboundFormDialog({
             <Field id="client-host" label="Host" hint="пусто — как SNI">
               <Input id="client-host" value={host} onChange={(e) => setHost(e.target.value)} className="font-mono" />
             </Field>
-            <Field label="ALPN" hint="ничего не выбрано — как решит клиент">
+            <Field label="ALPN" hint="ничего не выбрано — как решит клиент; h3 — только через CDN">
               <ALPNPicker value={alpn} onChange={setAlpn} />
             </Field>
             <Field label="Отпечаток браузера">
@@ -342,6 +350,7 @@ export function InboundFormDialog({
           </div>
         </div>
       )}
+      {problems.length > 0 && <p className="text-xs text-destructive">Проверь поля: {problems.join(", ")} — нужны целые числа, диапазон пишется как 100-1000</p>}
     </ActionDialog>
   )
 }

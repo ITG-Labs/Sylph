@@ -177,6 +177,23 @@ export function formToExtra(form: ExtraForm): XHTTPExtra {
   return out as XHTTPExtra
 }
 
+export function extraProblems(form: ExtraForm): string[] {
+  const bad: string[] = []
+  for (const f of allFields) {
+    const v = String(form[f.key] ?? "").trim()
+    if (v === "") continue
+    if (f.kind === "range" && !/^\d+(-\d+)?$/.test(v)) bad.push(f.label)
+    if (f.kind === "number" && !/^-?\d+$/.test(v)) bad.push(f.label)
+  }
+  return bad
+}
+
+export function portProblem(port: string): boolean {
+  if (!/^\d+$/.test(port.trim())) return true
+  const n = Number(port)
+  return n < 1 || n > 65535
+}
+
 function parseHeaders(text: string): Record<string, string> | undefined {
   const out: Record<string, string> = {}
   for (const line of text.split("\n")) {
@@ -188,9 +205,14 @@ function parseHeaders(text: string): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-export function certLine(n: Pick<Node, "tls_status">, domain: string): { ok: boolean; text: string } {
+const renewWarnMs = 14 * 24 * 3600 * 1000
+
+export function certLine(n: Pick<Node, "tls_status">, domain: string, now = new Date()): { ok: boolean; text: string } {
   const st = n.tls_status?.[domain]
   if (!st) return { ok: false, text: "агент ещё не проверял" }
-  if (st.not_after) return { ok: true, text: `выпущен, до ${new Date(st.not_after).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })}` }
-  return { ok: false, text: `нет серта: ${st.error ?? "неизвестно"}` }
+  if (st.error || !st.not_after) return { ok: false, text: `нет серта: ${st.error ?? "неизвестно"}` }
+  const until = new Date(st.not_after)
+  const day = until.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })
+  if (until.getTime() - now.getTime() < renewWarnMs) return { ok: false, text: `истекает ${day} — продление не прошло?` }
+  return { ok: true, text: `выпущен, до ${day}` }
 }
