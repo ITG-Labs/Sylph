@@ -59,5 +59,8 @@ func probeCert(ctx context.Context, domain string, port int) CertStatus {
 		return CertStatus{Error: truncate(err.Error(), 300)}
 	}
 	notAfter := certs[0].NotAfter.UTC()
+	if time.Now().After(notAfter) {
+		return CertStatus{NotAfter: &notAfter, Error: "certificate expired at " + notAfter.Format(time.RFC3339)}
+	}
 	return CertStatus{NotAfter: &notAfter}
 }

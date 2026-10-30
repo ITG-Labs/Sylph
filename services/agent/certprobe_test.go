@@ -23,7 +23,7 @@ func certFor(t *testing.T, name string, notAfter time.Time) tls.Certificate {
 		t.Fatal(err)
 	}
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, DNSNames: []string{name},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: notAfter}
+		NotBefore: notAfter.Add(-90 * 24 * time.Hour), NotAfter: notAfter}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,12 @@ func TestProbeCertsReportsWhatClientsSee(t *testing.T) {
 		"cdn.example.ru": certFor(t, "cdn.example.ru", expiry),
 		"*":              certFor(t, "other.example.ru", expiry),
 	})
-	got := probeCerts(context.Background(), map[string]int{"cdn.example.ru": port, "wrong.example.ru": port, "down.example.ru": 1})
+	old := time.Date(2026, 1, 28, 10, 0, 0, 0, time.UTC)
+	stale := serveCerts(t, map[string]tls.Certificate{"old.example.ru": certFor(t, "old.example.ru", old)})
+	got := probeCerts(context.Background(), map[string]int{"cdn.example.ru": port, "wrong.example.ru": port, "down.example.ru": 1, "old.example.ru": stale})
+	if st := got["old.example.ru"]; st.NotAfter == nil || !st.NotAfter.Equal(old) || !strings.Contains(st.Error, "expired") {
+		t.Fatalf("expired = %+v", st)
+	}
 	if st := got["cdn.example.ru"]; st.NotAfter == nil || !st.NotAfter.Equal(expiry) || st.Error != "" {
 		t.Fatalf("issued = %+v", st)
 	}
@@ -77,7 +82,7 @@ func TestProbeCertsReportsWhatClientsSee(t *testing.T) {
 	if st := got["down.example.ru"]; st.NotAfter != nil || st.Error == "" {
 		t.Fatalf("unreachable = %+v", st)
 	}
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("statuses = %+v", got)
 	}
 }

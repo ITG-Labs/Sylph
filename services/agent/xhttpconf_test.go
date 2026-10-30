@@ -142,7 +142,7 @@ func TestBuildCaddyFrontsTLSDomains(t *testing.T) {
 	if dig(inner[0], "match") != nil || strip["handler"] != "headers" || dig(strip, "response", "deferred") != true {
 		t.Fatalf("header strip = %v", inner[0])
 	}
-	for _, h := range []string{"X-Padding", "Via", "Access-Control-Allow-Credentials", "Access-Control-Allow-Origin", "X-Accel-Buffering"} {
+	for _, h := range []string{"X-Padding", "Via", "Access-Control-Allow-Credentials", "Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "X-Accel-Buffering"} {
 		if !strings.Contains(toJSON(dig(strip, "response", "delete")), `"`+h+`"`) {
 			t.Fatalf("%s not stripped: %v", h, strip)
 		}
@@ -251,6 +251,8 @@ func TestBuildRejectsXHTTPItCannotServe(t *testing.T) {
 		"flow on xhttp":           rx(func(in *Inbound) { in.Flow = "xtls-rprx-vision" }),
 		"relative path":           cdn(func(in *Inbound) { in.XHTTP.Path = "api" }),
 		"path with query":         cdn(func(in *Inbound) { in.XHTTP.Path = "/a?x" }),
+		"path with wildcard":      cdn(func(in *Inbound) { in.XHTTP.Path = "/a*" }),
+		"path with escape":        cdn(func(in *Inbound) { in.XHTTP.Path = "/a%41" }),
 		"bad mode":                cdn(func(in *Inbound) { in.XHTTP.Mode = "grpc" }),
 		"download settings":       cdn(func(in *Inbound) { in.XHTTP.Extra = json.RawMessage(`{"downloadSettings":{"network":"raw"}}`) }),
 		"unknown extra":           cdn(func(in *Inbound) { in.XHTTP.Extra = json.RawMessage(`{"sockopt":{}}`) }),

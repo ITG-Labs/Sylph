@@ -20,8 +20,8 @@ const (
 
 var (
 	xhttpModes      = []string{"auto", "packet-up", "stream-up", "stream-one"}
-	xhttpPath       = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$`)
-	xrayHeaders     = []string{"X-Padding", "Via", "Access-Control-Allow-Credentials", "Access-Control-Allow-Origin", "X-Accel-Buffering"}
+	xhttpPath       = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()+,;=:@/-]*$`)
+	xrayHeaders     = []string{"X-Padding", "Via", "Access-Control-Allow-Credentials", "Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "X-Accel-Buffering"}
 	xhttpExtraNames = []string{
 		"headers", "xPaddingBytes", "xPaddingObfsMode", "xPaddingKey", "xPaddingHeader", "xPaddingPlacement", "xPaddingMethod",
 		"uplinkHTTPMethod", "sessionIDPlacement", "sessionIDKey", "sessionIDTable", "sessionIDLength", "seqPlacement", "seqKey",
