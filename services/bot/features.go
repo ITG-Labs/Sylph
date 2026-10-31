@@ -172,13 +172,36 @@ func (n NodeStats) bytes(rng string) int64 {
 	return n.Period
 }
 
+func statsRows(s *Stats) []NodeStats {
+	if len(s.Inbounds) == 0 {
+		return slices.Clone(s.Nodes)
+	}
+	perNode := map[int64]int{}
+	for _, in := range s.Inbounds {
+		perNode[in.NodeID]++
+	}
+	out := make([]NodeStats, 0, len(s.Inbounds))
+	for _, in := range s.Inbounds {
+		name := in.NodeName
+		if perNode[in.NodeID] > 1 && in.Tag != "" {
+			label := in.Label
+			if label == "" {
+				label = in.Tag
+			}
+			name += " · " + label
+		}
+		out = append(out, NodeStats{NodeID: in.NodeID, Name: name, Today: in.Today, Days7: in.Days7, Days30: in.Days30, Period: in.Period})
+	}
+	return out
+}
+
 func (a *App) statsView(s *Stats, raw string) (string, *models.InlineKeyboardMarkup) {
 	rng := statsRange(s, raw)
 	titles := map[string]string{rangeToday: "Сегодня", range7: "За 7 дней", range30: "За 30 дней", rangePeriod: "За текущий период"}
 	var b strings.Builder
 	b.WriteString(a.header(icChart, "Статистика"))
 	fmt.Fprintf(&b, "<b>%s</b>\n\n", titles[rng])
-	nodes := slices.Clone(s.Nodes)
+	nodes := statsRows(s)
 	slices.SortStableFunc(nodes, func(x, y NodeStats) int { return cmp.Compare(y.bytes(rng), x.bytes(rng)) })
 	var total int64
 	for _, n := range nodes {
