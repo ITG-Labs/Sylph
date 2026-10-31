@@ -8,9 +8,7 @@ DECLARE
     nm  TEXT := 'Скрытые входы';
     k   INT  := 1;
 BEGIN
-    IF EXISTS (SELECT 1 FROM node_inbounds i WHERE NOT EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.inbound_id = i.id))
-       OR EXISTS (SELECT 1 FROM nodes n WHERE NOT EXISTS (SELECT 1 FROM group_nodes gn WHERE gn.node_id = n.id)
-                                          AND NOT EXISTS (SELECT 1 FROM group_inbounds gi JOIN node_inbounds i ON i.id = gi.inbound_id WHERE i.node_id = n.id)) THEN
+    IF EXISTS (SELECT 1 FROM nodes n WHERE NOT EXISTS (SELECT 1 FROM group_nodes gn WHERE gn.node_id = n.id)) THEN
         WHILE EXISTS (SELECT 1 FROM location_groups WHERE name = nm) LOOP
             k := k + 1;
             nm := 'Скрытые входы ' || k;
@@ -18,11 +16,7 @@ BEGIN
         INSERT INTO location_groups (name) VALUES (nm) RETURNING id INTO gid;
         INSERT INTO group_nodes (group_id, node_id)
         SELECT gid, n.id FROM nodes n
-        WHERE NOT EXISTS (SELECT 1 FROM group_nodes gn WHERE gn.node_id = n.id)
-          AND NOT EXISTS (SELECT 1 FROM group_inbounds gi JOIN node_inbounds i ON i.id = gi.inbound_id WHERE i.node_id = n.id);
-        INSERT INTO group_inbounds (group_id, inbound_id)
-        SELECT gid, i.id FROM node_inbounds i
-        WHERE NOT EXISTS (SELECT 1 FROM inbound_memberships m WHERE m.inbound_id = i.id);
+        WHERE NOT EXISTS (SELECT 1 FROM group_nodes gn WHERE gn.node_id = n.id);
     END IF;
 END $$;
 

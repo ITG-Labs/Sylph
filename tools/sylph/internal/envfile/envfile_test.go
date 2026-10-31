@@ -53,7 +53,7 @@ SYLPH_VERSION=0.2.0
 SYLPH_BOT_TOKEN=123:abc
 SYLPH_BOT_TZ=Europe/Moscow
 
-# Свои переменные (их нет в примере роли)
+# Дополнительные переменные (отсутствуют в примере роли)
 MY_OWN=keep
 `
 	if string(out) != want {

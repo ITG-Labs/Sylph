@@ -97,9 +97,9 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         description={current ? `Сейчас: ${current.plan_name}, до ${fmtDate(current.expires_at)}` : undefined}
         consequences={
           <>
-            <p>Конец текущего периода сдвинется на N дней, очередь — следом.</p>
+            <p>Окончание текущего периода сдвинется на указанное число дней, периоды в очереди — вслед за ним.</p>
             {current?.traffic_exhausted && (
-              <p className="text-warning">Трафик периода уже исчерпан — продление не вернёт доступ, сначала докинь трафик.</p>
+              <p className="text-warning">Трафик периода исчерпан: продление не восстановит доступ. Сначала добавьте трафик.</p>
             )}
           </>
         }
@@ -118,9 +118,9 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       <ActionDialog
         open={open("traffic")}
         onOpenChange={close}
-        title="Докинуть трафик"
+        title="Добавить трафик"
         description={current ? `Период: ${current.plan_name}, ${poolUsage(current, pool)}` : undefined}
-        consequences={<p>Бонус добавится к лимиту выбранного пула в текущем периоде, тариф не меняется. Если пул был исчерпан, его входы вернутся на ближайшем синке.</p>}
+        consequences={<p>Бонус увеличит лимит выбранного пула в текущем периоде; тариф не изменится. Если пул был исчерпан, доступ к его входам восстановится при следующей синхронизации нод.</p>}
         confirmLabel={bytes ? `Добавить ${fmtBytes(bytes)}` : "Добавить"}
         canConfirm={bytes !== null && !!current && poolLimited(current, pool)}
         success="Трафик добавлен"
@@ -137,7 +137,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
                 {current.pools.map((x) => (
                   <SelectItem key={x.pool_id} value={String(x.pool_id)} disabled={x.traffic_limit_bytes === null}>
                     {x.name}
-                    {x.traffic_limit_bytes === null ? " — безлимит" : x.exhausted ? " — исчерпан" : ""}
+                    {x.traffic_limit_bytes === null ? " — без лимита" : x.exhausted ? " — исчерпан" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -145,7 +145,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
           </div>
         )}
         <div className="flex flex-col gap-2">
-          <Label htmlFor="gb">Сколько, ГБ</Label>
+          <Label htmlFor="gb">Объём, ГБ</Label>
           <Input id="gb" inputMode="decimal" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="10" autoFocus />
           <Chips values={["5", "10", "50", "100"].map((v) => ({ label: `${v} ГБ`, value: v }))} onPick={setGb} />
         </div>
@@ -156,7 +156,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         onOpenChange={close}
         title="Сменить тариф без оплаты"
         description={current ? `Сейчас: ${current.plan_name}` : undefined}
-        consequences={<p>Текущий период перейдёт на другой тариф: даты, счётчик и бонус останутся, очередь не тронется. Ноды и лимиты — уже нового тарифа.</p>}
+        consequences={<p>Текущий период перейдёт на другой тариф: даты сохранятся, очередь не изменится. Доступные ноды и лимиты определяются новым тарифом; расход пулов, которых нет в новом тарифе, не переносится.</p>}
         confirmLabel="Сменить тариф"
         canConfirm={!!pickedPlan}
         success="Тариф сменён"
@@ -166,7 +166,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
           <Label>Новый тариф</Label>
           <Select value={planId} onValueChange={setPlanId}>
             <SelectTrigger>
-              <SelectValue placeholder="выбери тариф" />
+              <SelectValue placeholder="Выберите тариф" />
             </SelectTrigger>
             <SelectContent>
               {plans
@@ -185,8 +185,8 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         open={open("manual")}
         onOpenChange={close}
         title="Выдать вручную"
-        description="Запись платежа «деньги пришли» мимо ЮKassa"
-        consequences={<p>Тот же тариф встанет в очередь за текущим, другой — включится сразу, остаток текущего сгорит. Как при обычной оплате.</p>}
+        description="Регистрация оплаты, полученной не через ЮKassa"
+        consequences={<p>Как при обычной оплате: тот же тариф встанет в очередь после текущего периода, другой тариф начнёт действовать сразу, а остаток текущего периода будет аннулирован.</p>}
         confirmLabel={pickedPlan ? `Выдать «${pickedPlan.name}»` : "Выдать"}
         canConfirm={!!pickedPlan && amountOK}
         success="Период выдан"
@@ -203,7 +203,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="выбери тариф" />
+              <SelectValue placeholder="Выберите тариф" />
             </SelectTrigger>
             <SelectContent>
               {plans.map((p) => (
@@ -217,7 +217,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         <div className="flex flex-col gap-2">
           <Label htmlFor="amount">Сумма, ₽</Label>
           <Input id="amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="0" />
-          <p className="text-xs text-muted-foreground">Попадёт в выручку «вручную». Подарок — 0 ₽. Номер платежа: {paymentId}</p>
+          <p className="text-xs text-muted-foreground">Сумма учитывается в выручке как ручная оплата; для подарка укажите 0 ₽. Номер платежа: {paymentId}</p>
         </div>
       </ActionDialog>
 
@@ -227,8 +227,8 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         title="Сменить ссылку подписки"
         consequences={
           <>
-            <p>Старая ссылка сразу перестанет работать, юзеру нужно будет добавить новую в клиент.</p>
-            <p>Старый ключ отзовётся — уже открытые соединения доживут до обрыва.</p>
+            <p>Текущая ссылка сразу перестанет работать, пользователю потребуется добавить новую ссылку в клиент.</p>
+            <p>Прежний ключ будет отозван; уже установленные соединения сохранятся до разрыва.</p>
           </>
         }
         destructive
@@ -240,28 +240,28 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       <ActionDialog
         open={open("ban")}
         onOpenChange={close}
-        title="Забанить юзера"
+        title="Заблокировать пользователя"
         consequences={
           <>
-            <p>Закроются текущий период и вся очередь, отзовутся доступы к приватным тарифам.</p>
-            <p>Ссылка подписки начнёт отвечать «не найдено», бот замолчит, ноды выкинут юзера на ближайшем синке.</p>
-            <p className="font-medium">Разбан периоды не вернёт — только ручная выдача.</p>
+            <p>Текущий период и все периоды в очереди будут закрыты, доступы к приватным тарифам — отозваны.</p>
+            <p>Ссылка подписки перестанет работать, бот перестанет отвечать пользователю, ноды отключат его при следующей синхронизации.</p>
+            <p className="font-medium">Разблокировка не восстанавливает периоды; их можно выдать только вручную.</p>
           </>
         }
         destructive
-        reason={{ label: "Причина", placeholder: "например: раздавал ссылку в чате" }}
-        confirmLabel="Забанить"
-        success="Юзер забанен"
+        reason={{ label: "Причина", placeholder: "например, нарушение условий использования" }}
+        confirmLabel="Заблокировать"
+        success="Пользователь заблокирован"
         onConfirm={(reason) => run(core.post(`/v1/admin/users/${uid}/ban`, reason ? { reason } : {}))}
       />
 
       <ActionDialog
         open={open("unban")}
         onOpenChange={close}
-        title="Разбанить юзера"
-        consequences={<p>Бот и ссылка снова заработают, но подписки не будет — купить заново или выдать вручную. Приватные доступы и пробный период не вернутся.</p>}
-        confirmLabel="Разбанить"
-        success="Юзер разбанен"
+        title="Разблокировать пользователя"
+        consequences={<p>Бот и ссылка подписки снова заработают, но подписки не будет: её нужно купить или выдать вручную. Доступы к приватным тарифам и пробный период не восстанавливаются.</p>}
+        confirmLabel="Разблокировать"
+        success="Пользователь разблокирован"
         onConfirm={() => run(core.post(`/v1/admin/users/${uid}/unban`))}
       />
 
@@ -272,9 +272,9 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         description={dialog?.kind === "close" ? `${dialog.period.plan_name}: ${fmtDate(dialog.period.starts_at)} — ${fmtDate(dialog.period.expires_at)}` : undefined}
         consequences={
           dialog?.kind === "close" && dialog.period.state === "current" ? (
-            <p>Период кончится прямо сейчас, следующий из очереди стартует сразу. Если очереди нет — юзер останется без подписки.</p>
+            <p>Период завершится сейчас, следующий период из очереди начнётся сразу. Если очереди нет, пользователь останется без подписки.</p>
           ) : (
-            <p>Период уберётся из очереди, следующие сдвинутся на его длину.</p>
+            <p>Период будет удалён из очереди, следующие периоды сдвинутся на его длительность.</p>
           )
         }
         destructive
@@ -287,7 +287,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         open={open("resetDevices")}
         onOpenChange={close}
         title="Отвязать все устройства"
-        consequences={<p>Юзер сможет подключить устройства заново — до лимита тарифа.</p>}
+        consequences={<p>Пользователь сможет снова подключить устройства в пределах лимита тарифа.</p>}
         destructive
         confirmLabel="Отвязать все"
         success="Устройства отвязаны"
@@ -300,8 +300,8 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         title="Закрепить выделенный IP"
         consequences={
           <>
-            <p>На ноде адреса юзер начнёт выходить в интернет с этого IP — если его тариф с пометкой «выделенный IP». На других нодах ничего не меняется.</p>
-            <p>Нода перезапустит xray — её открытые соединения оборвутся на пару секунд.</p>
+            <p>На ноде этого адреса трафик пользователя пойдёт в интернет с этого IP, если у его тарифа включён выделенный IP. На других нодах ничего не изменится.</p>
+            <p>Нода перезапустит xray: открытые соединения на ней прервутся на несколько секунд.</p>
           </>
         }
         confirmLabel={pickedAddress ? `Закрепить ${pickedAddress.ip}` : "Закрепить"}
@@ -313,7 +313,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
           <Label>Адрес</Label>
           <Select value={addressId} onValueChange={setAddressId}>
             <SelectTrigger>
-              <SelectValue placeholder={free.length === 0 ? "свободных адресов нет" : "выбери адрес"} />
+              <SelectValue placeholder={free.length === 0 ? "свободных адресов нет" : "Выберите адрес"} />
             </SelectTrigger>
             <SelectContent>
               {free.map((a) => (
@@ -324,11 +324,11 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
               ))}
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">Только свободные адреса на нодах, где у юзера ещё нет своего.</p>
+          <p className="text-xs text-muted-foreground">Показаны свободные адреса на нодах, где у пользователя ещё нет закреплённого адреса.</p>
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="anote">Заметка</Label>
-          <Input id="anote" value={note} onChange={(e) => setNote(e.target.value)} placeholder="например: арендован под клиента до марта" />
+          <Input id="anote" value={note} onChange={(e) => setNote(e.target.value)} placeholder="например, срок аренды адреса" />
         </div>
       </ActionDialog>
 
@@ -339,8 +339,8 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         description={dialog?.kind === "unassignAddress" ? `${dialog.address.ip} · ${dialog.address.node_name}` : undefined}
         consequences={
           <>
-            <p>Адрес станет свободным, юзер будет выходить через общий адрес ноды.</p>
-            <p>Нода перезапустит xray — все открытые соединения на ней оборвутся на пару секунд.</p>
+            <p>Адрес освободится, трафик пользователя пойдёт через общий адрес ноды.</p>
+            <p>Нода перезапустит xray: все открытые соединения на ней прервутся на несколько секунд.</p>
           </>
         }
         destructive
@@ -354,7 +354,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         onOpenChange={close}
         title="Отвязать устройство"
         description={dialog?.kind === "deleteDevice" ? dialog.name : undefined}
-        consequences={<p>Место освободится, устройство сможет привязаться снова при следующем обновлении подписки.</p>}
+        consequences={<p>Место освободится; устройство сможет снова привязаться при следующем обновлении подписки.</p>}
         confirmLabel="Отвязать"
         success="Устройство отвязано"
         onConfirm={() => run(dialog?.kind === "deleteDevice" ? core.del(`/v1/users/${uid}/devices/${dialog.deviceId}`) : Promise.resolve())}

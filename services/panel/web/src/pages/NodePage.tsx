@@ -88,10 +88,10 @@ export function NodePage() {
         <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="min-w-0">
-            <div className="font-medium">Агент старой версии — обнови ноду</div>
+            <div className="font-medium">На ноде агент старой версии</div>
             <div className="mt-1 text-muted-foreground">
-              Он не умеет раздавать ключи по отдельным входам. Юзеры, которым открыта только часть входов ноды или чьи входы разложены по разным пулам, не смогут к ней
-              подключиться, пока агент не обновят.
+              Агент не поддерживает раздачу ключей по отдельным входам. Пользователи, которым доступна только часть входов ноды или чьи входы относятся к разным пулам,
+              не смогут подключиться к ней до обновления агента.
             </div>
           </div>
         </div>
@@ -101,7 +101,7 @@ export function NodePage() {
         <div className="tint-rim mb-4 flex gap-3 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="min-w-0">
-            <div className="font-medium">Нода не смогла применить конфиг и работает на прошлом</div>
+            <div className="font-medium">Нода не смогла применить конфигурацию и работает на предыдущей</div>
             <div className="mt-1 font-mono text-xs break-words text-muted-foreground">{n.config_error}</div>
           </div>
         </div>
@@ -119,15 +119,15 @@ export function NodePage() {
           <KV label="Heartbeat">
             <span title={fmtDateTime(n.last_heartbeat)}>{fmtRelative(n.last_heartbeat)}</span>
           </KV>
-          <KV label="Синк">
+          <KV label="Синхронизация">
             <span title={fmtDateTime(n.last_sync_at)}>{fmtRelative(n.last_sync_at)}</span>
           </KV>
-          <KV label="Заведена">{fmtDate(n.created_at)}</KV>
+          <KV label="Добавлена">{fmtDate(n.created_at)}</KV>
         </Section>
 
         <Section
           title="Входы"
-          description="VLESS: REALITY и XHTTP; из них агент собирает конфиги xray и Caddy, а subs — ссылки"
+          description="VLESS с REALITY и XHTTP; по ним агент формирует конфигурацию xray и Caddy, а сервис subs — ссылки подписки"
           className="xl:col-span-2"
           action={
             <Button size="sm" onClick={() => setDialog({ kind: "newInbound" })}>
@@ -141,7 +141,7 @@ export function NodePage() {
           ) : inbounds.isError ? (
             <LoadError error={inbounds.error} />
           ) : inbounds.data.length === 0 ? (
-            <Empty>Входов нет — клиентам нечем подключиться</Empty>
+            <Empty>Входов нет, клиенты не смогут подключиться к ноде</Empty>
           ) : (
             <div className="flex flex-col gap-3">
               {inbounds.data.map((ib) => (
@@ -191,7 +191,7 @@ export function NodePage() {
         <NodeAddressesSection nodeId={n.id} />
       </div>
 
-      <NodeTrafficSection nodeId={n.id} inbounds={inbounds.data ?? []} />
+      <NodeTrafficSection key={n.id} nodeId={n.id} inbounds={inbounds.data ?? []} />
 
       <NodeFormDialog open={dialog?.kind === "edit"} onOpenChange={close} node={n} groups={groups.data ?? []} onDone={() => refresh()} />
       <ActionDialog
@@ -200,9 +200,9 @@ export function NodePage() {
         title={n.enabled ? `Выключить «${n.name}»` : `Включить «${n.name}»`}
         consequences={
           n.enabled ? (
-            <p>Нода пропадёт из подписок со следующим обновлением, её юзеры переключатся на другие ноды. Сама нода продолжит работать с теми, кто уже подключён.</p>
+            <p>Нода исчезнет из подписок при следующем обновлении, пользователи переключатся на другие ноды. Уже установленные подключения к ноде сохранятся.</p>
           ) : (
-            <p>Нода снова появится в подписках юзеров её группы.</p>
+            <p>Нода снова появится в подписках пользователей её групп.</p>
           )
         }
         destructive={n.enabled}
@@ -229,8 +229,8 @@ export function NodePage() {
         description={dialog?.kind === "rekey" ? `Вход ${dialog.inbound.tag}` : undefined}
         consequences={
           <>
-            <p>Ядро сгенерирует новую пару ключей, агент перезапустит xray — открытые соединения оборвутся.</p>
-            <p className="font-medium">Пока клиент не обновит подписку, он не подключится к этому входу.</p>
+            <p>Ядро сгенерирует новую пару ключей, агент перезапустит xray, открытые соединения прервутся.</p>
+            <p className="font-medium">Клиенты не смогут подключиться к этому входу, пока не обновят подписку.</p>
           </>
         }
         destructive
@@ -249,8 +249,8 @@ export function NodePage() {
         description={dialog?.kind === "delete" ? `${dialog.inbound.tag} · ${inboundWhere(dialog.inbound)}` : undefined}
         consequences={
           <>
-            <p>Вход пропадёт из конфига ноды и из подписок. Если он последний — к ноде станет нечем подключиться.</p>
-            <p>Агент перезапустит xray — все открытые соединения ноды оборвутся.</p>
+            <p>Вход будет удалён из конфигурации ноды и из подписок. Если это последний вход, подключиться к ноде будет невозможно.</p>
+            <p>Агент перезапустит xray, все открытые соединения ноды прервутся.</p>
           </>
         }
         destructive
@@ -278,14 +278,14 @@ function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
   return (
     <>
       {ib.xhttp && !agentKnowsXHTTP(node) && (
-        <p className="mb-2 text-xs text-warning">Агент ноды не знает XHTTP: вход не применён и скрыт из подписок, пока агента не обновят</p>
+        <p className="mb-2 text-xs text-warning">Агент ноды не поддерживает XHTTP: вход не применён и скрыт из подписок до обновления агента.</p>
       )}
       {ib.tls && ep && cert && (
         <>
           <KV label="Домен" mono>
             {ib.tls.domain}
           </KV>
-          <KV label="Серт">
+          <KV label="Сертификат">
             <span className={cert.ok ? "text-success" : "text-warning"}>{cert.text}</span>
           </KV>
           <KV label="Клиенты" mono>
@@ -293,7 +293,7 @@ function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
             {ep.host !== ep.sni && ` · Host ${ep.host}`}
           </KV>
           <KV label="Маскировка" mono>
-            {ib.tls.decoy || "заглушка"}
+            {ib.tls.decoy || "встроенная заглушка"}
           </KV>
         </>
       )}
@@ -305,7 +305,7 @@ function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
           <KV label="mode">
             сервер {ib.xhttp.mode}, клиент {ib.xhttp.client_mode}
           </KV>
-          <KV label="extra">{extra > 0 ? `задано полей: ${extra}` : "как в xray"}</KV>
+          <KV label="extra">{extra > 0 ? `задано полей: ${extra}` : "по умолчанию xray"}</KV>
         </>
       )}
       {ib.reality && (

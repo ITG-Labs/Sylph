@@ -25,24 +25,24 @@ var (
 
 func Domain(s string) error {
 	if s == "" {
-		return errors.New("нужен домен")
+		return errors.New("укажите домен")
 	}
 	if len(s) > 253 {
 		return errors.New("слишком длинный домен")
 	}
 	if strings.ToLower(s) != s {
-		return errors.New("домен — маленькими буквами")
+		return errors.New("домен указывается строчными буквами")
 	}
 	if net.ParseIP(s) != nil {
-		return errors.New("нужен домен, а не IP: на него Caddy выпустит серт Let's Encrypt")
+		return errors.New("укажите домен, а не IP-адрес: для него Caddy выпустит сертификат Let's Encrypt")
 	}
 	labels := strings.Split(s, ".")
 	if len(labels) < 2 {
-		return errors.New("домен с точкой, например panel.example.com")
+		return errors.New("домен должен содержать точку, например panel.example.com")
 	}
 	for _, l := range labels {
 		if !labelPattern.MatchString(l) {
-			return fmt.Errorf("неверная часть домена %q", l)
+			return fmt.Errorf("недопустимая часть домена %q", l)
 		}
 	}
 	return nil
@@ -53,11 +53,11 @@ func Hostname(s string) error {
 		return nil
 	}
 	if s == "" {
-		return errors.New("нужно имя")
+		return errors.New("укажите имя")
 	}
 	for _, l := range strings.Split(s, ".") {
 		if !labelPattern.MatchString(l) {
-			return fmt.Errorf("неверная часть имени %q", l)
+			return fmt.Errorf("недопустимая часть имени %q", l)
 		}
 	}
 	return nil
@@ -66,10 +66,10 @@ func Hostname(s string) error {
 func HTTPSURL(s string) error {
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return errors.New("нужна ссылка вида https://адрес")
+		return errors.New("укажите ссылку вида https://адрес")
 	}
 	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-		return errors.New("без ?параметров, #якорей и логина в ссылке")
+		return errors.New("ссылка не должна содержать ?параметры, #якоря и логин")
 	}
 	if err := Hostname(u.Hostname()); err != nil {
 		return err
@@ -82,11 +82,11 @@ func HTTPSURL(s string) error {
 
 func CoreURL(s string) error {
 	if err := HTTPSURL(s); err != nil {
-		return errors.New("адрес ядра: https://<IP или домен машины A>:443")
+		return errors.New("адрес ядра в формате https://<IP или домен сервера ядра>:443")
 	}
 	u, _ := url.Parse(s)
 	if u.Path != "" && u.Path != "/" {
-		return errors.New("адрес ядра без пути: https://<IP или домен>:443")
+		return errors.New("адрес ядра указывается без пути: https://<IP или домен>:443")
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func CoreURL(s string) error {
 func Port(s string) error {
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 || n > 65535 {
-		return errors.New("порт — число от 1 до 65535")
+		return errors.New("порт должен быть числом от 1 до 65535")
 	}
 	return nil
 }
@@ -102,24 +102,24 @@ func Port(s string) error {
 func Hours(s string) error {
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 || n > 168 {
-		return errors.New("часы — число от 1 до 168")
+		return errors.New("количество часов должно быть числом от 1 до 168")
 	}
 	return nil
 }
 
 func TimeZone(s string) error {
 	if s == "" || s == "Local" {
-		return errors.New("нужен пояс, например Europe/Moscow")
+		return errors.New("укажите часовой пояс, например Europe/Moscow")
 	}
 	if _, err := time.LoadLocation(s); err != nil {
-		return errors.New("нет такого пояса, пример: Europe/Moscow")
+		return errors.New("часовой пояс не найден, пример: Europe/Moscow")
 	}
 	return nil
 }
 
 func BotToken(s string) error {
 	if !tokenPattern.MatchString(s) {
-		return errors.New("токен от @BotFather выглядит как 123456789:AAE…")
+		return errors.New("токен @BotFather имеет вид 123456789:AAE…")
 	}
 	return nil
 }
@@ -132,26 +132,26 @@ func ChatIDs(s string) error {
 			continue
 		}
 		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
-			return fmt.Errorf("%q — не Telegram ID (нужны числа через запятую)", part)
+			return fmt.Errorf("%q не является Telegram ID (укажите числа через запятую)", part)
 		}
 		n++
 	}
 	if n == 0 {
-		return errors.New("нужен хотя бы один Telegram ID")
+		return errors.New("укажите хотя бы один Telegram ID")
 	}
 	return nil
 }
 
 func ShopID(s string) error {
 	if !shopIDPattern.MatchString(s) {
-		return errors.New("shop ID — только цифры")
+		return errors.New("shop ID должен состоять только из цифр")
 	}
 	return nil
 }
 
 func SecretKey(s string) error {
 	if !secretKeyPattern.MatchString(s) {
-		return errors.New("секретный ключ ЮKassa начинается с live_ или test_")
+		return errors.New("секретный ключ ЮKassa должен начинаться с live_ или test_")
 	}
 	return nil
 }
@@ -161,17 +161,17 @@ func BotUsername(s string) error {
 		return nil
 	}
 	if strings.HasPrefix(s, "@") {
-		return errors.New("имя бота без @")
+		return errors.New("имя бота указывается без @")
 	}
 	if !botUsernamePattern.MatchString(s) || !strings.HasSuffix(strings.ToLower(s), "bot") {
-		return errors.New("имя бота — латиница, цифры и _, кончается на bot")
+		return errors.New("имя бота может содержать латинские буквы, цифры и _ и должно заканчиваться на bot")
 	}
 	return nil
 }
 
 func XrayVersion(s string) error {
 	if !versionPattern.MatchString(s) {
-		return errors.New("версия xray вида 26.10.21")
+		return errors.New("укажите версию xray в формате 26.10.21")
 	}
 	return nil
 }
@@ -179,7 +179,7 @@ func XrayVersion(s string) error {
 func IPv4Subnet(s string) error {
 	p, err := netip.ParsePrefix(s)
 	if err != nil || !p.Addr().Is4() || p.Masked() != p {
-		return errors.New("подсеть IPv4 вида 172.30.10.0/24")
+		return errors.New("укажите подсеть IPv4 в формате 172.30.10.0/24")
 	}
 	return nil
 }
@@ -187,21 +187,21 @@ func IPv4Subnet(s string) error {
 func IPv4(s string) error {
 	a, err := netip.ParseAddr(s)
 	if err != nil || !a.Is4() {
-		return errors.New("адрес IPv4 вида 172.30.10.10")
+		return errors.New("укажите адрес IPv4 в формате 172.30.10.10")
 	}
 	return nil
 }
 
 func AdminName(s string) error {
 	if s == "" || strings.TrimSpace(s) != s {
-		return errors.New("имя без пробелов по краям")
+		return errors.New("имя не должно начинаться или заканчиваться пробелом")
 	}
 	if !utf8.ValidString(s) || utf8.RuneCountInString(s) > 64 {
-		return errors.New("имя — до 64 символов")
+		return errors.New("имя не должно превышать 64 символов")
 	}
 	for _, c := range s {
 		if unicode.IsControl(c) || c == '\u2028' || c == '\u2029' || c == ',' {
-			return errors.New("имя без запятых и управляющих символов")
+			return errors.New("имя не должно содержать запятых и управляющих символов")
 		}
 	}
 	return nil
@@ -219,7 +219,7 @@ func AdminNames(s string) ([]string, error) {
 			return nil, err
 		}
 		if seen[part] {
-			return nil, fmt.Errorf("имя %q повторяется", part)
+			return nil, fmt.Errorf("имя %q указано повторно", part)
 		}
 		seen[part] = true
 		names = append(names, part)

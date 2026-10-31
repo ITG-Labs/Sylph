@@ -19,9 +19,9 @@ const labels: Record<string, string> = { name: "Имя", kind: "Тип", url: "�
 
 function geoError(err: unknown): string {
   if (err instanceof ApiError && labels[err.field]) {
-    if (err.status === 409 && /already exists/.test(err.message)) return "Источник с таким именем уже есть"
-    if (/must be a public https URL/.test(err.message)) return `${labels[err.field]}: нужна публичная ссылка https`
-    if (/not a built-in prefix/.test(err.message)) return "Имя: a-z, 0-9 и дефис, до 32 знаков, не встроенный префикс"
+    if (err.status === 409 && /already exists/.test(err.message)) return "Источник с таким именем уже существует"
+    if (/must be a public https URL/.test(err.message)) return `${labels[err.field]}: укажите публичную ссылку https`
+    if (/not a built-in prefix/.test(err.message)) return "Имя: a-z, 0-9 и дефис, до 32 символов; встроенные префиксы недопустимы"
     return `${labels[err.field]}: ${translateRouting(err.message)}`
   }
   return describeError(err)
@@ -44,9 +44,9 @@ function SourceDialog({ open, onOpenChange, source, onDone }: { open: boolean; o
   }, [open, source])
 
   const n = name.trim()
-  const nameErr = n && (!sourcePattern.test(n) || reserved.includes(n)) ? "a-z, 0-9 и дефис, до 32 знаков; не geosite, geoip, ext и т. п." : null
-  const urlErr = url.trim() && !httpsOk(url.trim()) ? "нужна ссылка https://…" : null
-  const sumErr = sum.trim() && !httpsOk(sum.trim()) ? "нужна ссылка https://…" : null
+  const nameErr = n && (!sourcePattern.test(n) || reserved.includes(n)) ? "a-z, 0-9 и дефис, до 32 символов; имена geosite, geoip, ext и т. п. недопустимы" : null
+  const urlErr = url.trim() && !httpsOk(url.trim()) ? "укажите ссылку вида https://…" : null
+  const sumErr = sum.trim() && !httpsOk(sum.trim()) ? "укажите ссылку вида https://…" : null
   const ok = n !== "" && !nameErr && url.trim() !== "" && !urlErr && !sumErr
 
   return (
@@ -54,8 +54,8 @@ function SourceDialog({ open, onOpenChange, source, onDone }: { open: boolean; o
       open={open}
       onOpenChange={onOpenChange}
       title={source ? `Источник ${source.name}` : "Новый источник geo-базы"}
-      description="файл .dat в формате xray; ноды качают его сами, если на источник ссылается профиль ноды"
-      consequences={source ? <p>Ноды, чьи профили ссылаются на источник, скачают базу по новой ссылке; где файл изменится — xray перезапустится.</p> : undefined}
+      description="файл .dat в формате xray; нода загружает его автоматически, если источник используется в её профиле"
+      consequences={source ? <p>Ноды, в профилях которых используется источник, загрузят базу по новой ссылке; при изменении файла xray перезапустится.</p> : undefined}
       confirmLabel={source ? "Сохранить" : "Добавить"}
       canConfirm={ok}
       success={source ? "Источник сохранён" : "Источник добавлен"}
@@ -71,10 +71,10 @@ function SourceDialog({ open, onOpenChange, source, onDone }: { open: boolean; o
       }}
     >
       <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
-        <Field id="geo-name" label="Имя" error={nameErr} hint={n ? `в правилах — ${n}:тег` : "по нему правила ссылаются на базу: имя:тег"}>
+        <Field id="geo-name" label="Имя" error={nameErr} hint={n ? `в правилах: ${n}:тег` : "используется в правилах в формате имя:тег"}>
           <Input id="geo-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="ru-blocked" className="font-mono" />
         </Field>
-        <Field label="Что внутри">
+        <Field label="Содержимое">
           <Select value={kind} onValueChange={(v) => setKind(v as "domain" | "ip")}>
             <SelectTrigger>
               <SelectValue />
@@ -86,10 +86,10 @@ function SourceDialog({ open, onOpenChange, source, onDone }: { open: boolean; o
           </Select>
         </Field>
       </div>
-      <Field id="geo-url" label="Ссылка на файл" error={urlErr} hint="только https, до 200 МБ">
+      <Field id="geo-url" label="Ссылка на файл" error={urlErr} hint="только https, размер до 200 МБ">
         <Input id="geo-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/…/releases/latest/download/geosite.dat" inputMode="url" className="font-mono text-xs" />
       </Field>
-      <Field id="geo-sum" label="Ссылка на SHA-256" error={sumErr} hint="необязательно; файл формата sha256sum — нода сверит скачанное">
+      <Field id="geo-sum" label="Ссылка на SHA-256" error={sumErr} hint="необязательно; файл формата sha256sum для проверки загруженной базы">
         <Input id="geo-sum" value={sum} onChange={(e) => setSum(e.target.value)} placeholder="https://…/geosite.dat.sha256sum" inputMode="url" className="font-mono text-xs" />
       </Field>
     </ActionDialog>
@@ -109,7 +109,7 @@ export function GeoSourcesSection() {
   return (
     <Section
       title="Geo-базы"
-      description="свои списки доменов и IP для правил маршрутизации, сверх встроенных geosite: и geoip: из образа xray"
+      description="собственные списки доменов и IP-адресов для правил маршрутизации в дополнение к встроенным geosite: и geoip: из образа xray"
       className="max-w-3xl"
       action={
         <Button size="sm" onClick={() => setEdit("new")}>
@@ -120,7 +120,7 @@ export function GeoSourcesSection() {
     >
       <div className="flex flex-col gap-5">
         {!sources.data?.length ? (
-          <Empty>Своих источников нет — правила могут брать только встроенные geosite: и geoip:</Empty>
+          <Empty>Собственных источников нет; в правилах доступны только встроенные geosite: и geoip:</Empty>
         ) : (
           <div className="flex flex-col gap-2">
             {sources.data.map((s) => (
@@ -144,7 +144,7 @@ export function GeoSourcesSection() {
               </div>
             ))}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <span className="text-xs text-muted-foreground">ноды качают базы сами, только по кнопке и при смене ссылки</span>
+              <span className="text-xs text-muted-foreground">ноды загружают базы по кнопке обновления и при смене ссылки</span>
               <Button size="sm" variant="secondary" onClick={() => setRefresh(true)}>
                 <RefreshCw />
                 Обновить на всех нодах
@@ -172,7 +172,7 @@ export function GeoSourcesSection() {
         open={del !== null}
         onOpenChange={(v) => !v && setDel(null)}
         title={`Удалить источник ${del?.name ?? ""}`}
-        consequences={<p>Удалить можно, только если на источник не ссылается ни один профиль. Файл на нодах останется, но больше не обновится.</p>}
+        consequences={<p>Удалить можно только источник, который не используется ни в одном профиле. Файл на нодах сохранится, но обновляться больше не будет.</p>}
         destructive
         confirmLabel="Удалить"
         success="Источник удалён"
@@ -191,12 +191,12 @@ export function GeoSourcesSection() {
         title="Обновить geo-базы на всех нодах"
         consequences={
           <>
-            <p>Каждая нода скачает заново базы, на которые ссылается её профиль.</p>
-            <p>Где файл изменился — xray перезапустится, открытые соединения на этой ноде оборвутся. Где не изменился — ничего не произойдёт.</p>
+            <p>Каждая нода повторно загрузит базы, используемые в её профиле.</p>
+            <p>Если файл изменился, xray перезапустится и открытые соединения на ноде прервутся. Если файл не изменился, ничего не произойдёт.</p>
           </>
         }
         confirmLabel="Обновить"
-        success="Ноды скачают базы при следующем синке"
+        success="Ноды загрузят базы при следующей синхронизации"
         onConfirm={async () => {
           await core.post("/v1/admin/geo-sources/refresh")
           await invalidate(["nodes"], ["audit"])

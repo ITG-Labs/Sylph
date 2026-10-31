@@ -62,14 +62,21 @@ WHERE pp.name = '';
 INSERT INTO plan_pool_inbounds (plan_id, pool_id, inbound_id)
 SELECT plan_id, pool_id, inbound_id FROM pv2_cover WHERE pool_id IS NOT NULL;
 
+DELETE FROM plan_pools pp WHERE NOT EXISTS (SELECT 1 FROM pv2_cover c WHERE c.pool_id = pp.id);
+
+CREATE TEMP TABLE pv2_main_plans AS
+    SELECT p.id AS plan_id FROM plans p
+    WHERE p.traffic_limit_bytes IS NOT NULL
+      AND EXISTS (SELECT 1 FROM pv2_cover c WHERE c.plan_id = p.id AND c.pool_id IS NULL);
+
 UPDATE plan_pools SET position = position + 1
-WHERE plan_id IN (SELECT id FROM plans WHERE traffic_limit_bytes IS NOT NULL);
+WHERE plan_id IN (SELECT plan_id FROM pv2_main_plans);
 
 CREATE TEMP TABLE pv2_main (pool_id BIGINT, plan_id BIGINT);
 
 WITH ins AS (
     INSERT INTO plan_pools (plan_id, position, name, traffic_limit_bytes)
-    SELECT id, 0, 'Основной', traffic_limit_bytes FROM plans WHERE traffic_limit_bytes IS NOT NULL
+    SELECT p.id, 0, 'Основной', p.traffic_limit_bytes FROM plans p JOIN pv2_main_plans m ON m.plan_id = p.id
     RETURNING id, plan_id)
 INSERT INTO pv2_main SELECT id, plan_id FROM ins;
 
@@ -86,6 +93,14 @@ ALTER TABLE period_pool_usage ENABLE TRIGGER trg_period_pool_bonus_insert_bump;
 
 UPDATE subscriptions s SET traffic_used_bytes = 0
 FROM pv2_main m WHERE m.plan_id = s.plan_id AND s.traffic_used_bytes <> 0;
+
+INSERT INTO notifications_sent (user_id, kind, ref, period_id, paid_until, outcome, created_at)
+SELECT n.user_id, n.kind, n.ref || ':' || m.pool_id, n.period_id, n.paid_until, n.outcome, n.created_at
+FROM notifications_sent n
+JOIN subscriptions s ON s.id = n.period_id
+JOIN pv2_main m ON m.plan_id = s.plan_id
+WHERE n.kind IN ('traffic_80', 'traffic_95', 'traffic_out') AND n.ref ~ '^[0-9]+:[0-9]+$'
+ON CONFLICT (user_id, kind, ref) DO NOTHING;
 
 DROP FUNCTION period_exhausted(BIGINT);
 DROP VIEW period_pools;
@@ -145,6 +160,7 @@ CREATE FUNCTION period_exhausted(period BIGINT) RETURNS BOOLEAN AS $$
 $$ LANGUAGE sql STABLE;
 
 DROP TABLE pv2_main;
+DROP TABLE pv2_main_plans;
 DROP TABLE pv2_free_inbounds;
 DROP TABLE pv2_free_nodes;
 DROP TABLE pv2_cover;

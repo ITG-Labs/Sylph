@@ -63,7 +63,7 @@ export function UserOnlineSection({ userId, presence }: { userId: number; presen
           {history.isError ? (
             <LoadError error={history.error} onRetry={() => history.refetch()} />
           ) : (history.data?.items.length ?? 0) === 0 ? (
-            <Empty>{history.isPending ? "Загружаю…" : "Пока пусто — IP появятся после первого подключения"}</Empty>
+            <Empty>{history.isPending ? "Загрузка…" : "IP-адреса появятся после первого подключения"}</Empty>
           ) : (
             <>
               <div className="well overflow-x-auto rounded-xl">
@@ -103,7 +103,7 @@ export function UserOnlineSection({ userId, presence }: { userId: number; presen
               )}
             </>
           )}
-          <p className="mt-2 text-xs text-muted-foreground">IP хранятся 30 дней (по умолчанию, SYLPH_CRON_IP_RETENTION_DAYS у крона) и видны только в панели.</p>
+          <p className="mt-2 text-xs text-muted-foreground">IP-адреса хранятся 30 дней (срок задаётся переменной SYLPH_CRON_IP_RETENTION_DAYS сервиса cron) и видны только в панели.</p>
         </div>
       </div>
     </Section>

@@ -57,10 +57,10 @@ export function OverviewPage() {
   const o = q.data
   const a = o.attention
   const attention = [
-    { n: a.nodes_problem, to: "/nodes", icon: <Server />, label: plural(a.nodes_problem, "нода лежит или с проблемой", "ноды лежат или с проблемой", "нод лежат или с проблемой") },
+    { n: a.nodes_problem, to: "/nodes", icon: <Server />, label: plural(a.nodes_problem, "нода недоступна или работает с ошибками", "ноды недоступны или работают с ошибками", "нод недоступны или работают с ошибками") },
     { n: a.mismatch, to: "/payments?status=mismatch", icon: <AlertTriangle />, label: plural(a.mismatch, "платёж с расхождением суммы", "платежа с расхождением суммы", "платежей с расхождением суммы") },
-    { n: a.stuck_pending, to: "/payments?stuck=true", icon: <Clock />, label: plural(a.stuck_pending, "платёж висит дольше суток", "платежа висят дольше суток", "платежей висят дольше суток") },
-    { n: a.paid_while_banned, to: "/users?status=banned", icon: <Ban />, label: plural(a.paid_while_banned, "оплата от забаненного", "оплаты от забаненных", "оплат от забаненных") },
+    { n: a.stuck_pending, to: "/payments?stuck=true", icon: <Clock />, label: plural(a.stuck_pending, "платёж ожидает оплаты дольше суток", "платежа ожидают оплаты дольше суток", "платежей ожидают оплаты дольше суток") },
+    { n: a.paid_while_banned, to: "/users?status=banned", icon: <Ban />, label: plural(a.paid_while_banned, "оплата от заблокированного пользователя", "оплаты от заблокированных пользователей", "оплат от заблокированных пользователей") },
   ].filter((x) => x.n > 0)
   const rev30 = o.revenue.yookassa.days_30 + o.revenue.manual.days_30
   const revToday = o.revenue.yookassa.today + o.revenue.manual.today
@@ -96,13 +96,13 @@ export function OverviewPage() {
           <span className="flex size-8 items-center justify-center rounded-full bg-success/15 text-success">
             <CircleCheck className="size-4" />
           </span>
-          Всё спокойно — ничего не требует внимания
+          Нет событий, требующих внимания
         </div>
       )}
 
       <motion.div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-5" variants={stagger} initial="hidden" animate="show">
         <motion.div variants={rise}>
-          <StatTile tone="violet" label="Юзеры" icon={<Users />} value={o.users.total} hint={`+${o.users.new_today} сегодня · +${o.users.new_7d} за 7 дней`} />
+          <StatTile tone="violet" label="Пользователи" icon={<Users />} value={o.users.total} hint={`+${o.users.new_today} сегодня · +${o.users.new_7d} за 7 дней`} />
         </motion.div>
         <motion.div variants={rise}>
           <StatTile
@@ -110,7 +110,7 @@ export function OverviewPage() {
             label="Активные подписки"
             icon={<CircleCheck />}
             value={o.users.active_subscription}
-            hint={`из них пробных ${o.users.trial} · забанено ${o.users.banned}`}
+            hint={`из них пробных ${o.users.trial} · заблокировано ${o.users.banned}`}
           />
         </motion.div>
         <motion.div variants={rise}>
@@ -127,12 +127,12 @@ export function OverviewPage() {
                 <span className="text-lg text-muted-foreground"> / {o.nodes.total}</span>
               </span>
             }
-            hint={`с доступом на нодах ${o.nodes.active_users}`}
+            hint={`с доступом к нодам ${o.nodes.active_users}`}
           />
         </motion.div>
         <motion.div variants={rise} className="col-span-2 xl:col-span-1">
           <Link to="/users?online=1" className="block h-full">
-            <StatTile tone="green" label="Онлайн сейчас" icon={<Activity />} value={o.users.online} hint="с открытым соединением →" />
+            <StatTile tone="green" label="Онлайн сейчас" icon={<Activity />} value={o.users.online} hint="с активным соединением →" />
           </Link>
         </motion.div>
       </motion.div>
@@ -180,7 +180,7 @@ export function OverviewPage() {
         <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Выручка</CardTitle>
-            <CardDescription>по суткам Москвы</CardDescription>
+            <CardDescription>по суткам, московское время</CardDescription>
             <CardAction>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/payments">
@@ -223,7 +223,7 @@ export function OverviewPage() {
             <div>
               <div className="mb-2 text-xs text-muted-foreground">по тарифам за 30 дней</div>
               {o.revenue.by_plan_30d.length === 0 ? (
-                <div className="text-sm text-muted-foreground">оплат через ЮKassa не было</div>
+                <div className="text-sm text-muted-foreground">оплат через ЮKassa нет</div>
               ) : (
                 <ul className="flex flex-col gap-1.5 text-sm">
                   {o.revenue.by_plan_30d.map((p) => (

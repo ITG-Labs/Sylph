@@ -73,7 +73,7 @@ export function RuleDialog({
           to,
         }
   const conditions = mode === "plan" ? planIds.length > 0 : Object.keys(built).some((k) => k !== "name" && k !== "to")
-  const problem = !conditions ? (mode === "plan" ? "отметь хотя бы один тариф" : "нужно хотя бы одно условие") : !all.some((t) => t.value === to) ? "выбери, куда отправлять" : null
+  const problem = !conditions ? (mode === "plan" ? "отметьте хотя бы один тариф" : "нужно хотя бы одно условие") : !all.some((t) => t.value === to) ? "выберите направление" : null
   const domainSources = sources.filter((s) => s.kind === "domain")
   const ipSources = sources.filter((s) => s.kind === "ip")
 
@@ -82,7 +82,7 @@ export function RuleDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={rule ? "Правило" : "Новое правило"}
-      description={mode === "plan" ? "юзеры этих тарифов на ноде — правило держится в работающем xray, смена состава без перезапуска" : "все условия правила должны совпасть разом; внутри списка — любое значение"}
+      description={mode === "plan" ? "пользователи выбранных тарифов на ноде; правило применяется в работающем xray, изменение состава не требует перезапуска" : "все условия правила должны выполняться одновременно; внутри списка достаточно совпадения любого значения"}
       consequencesBelow
       consequences={problem ? <p>{problem}</p> : undefined}
       confirmLabel={rule ? "Готово" : "Добавить"}
@@ -95,8 +95,8 @@ export function RuleDialog({
           <TabsTrigger value="plan">По тарифу</TabsTrigger>
         </TabsList>
       </Tabs>
-      <Field id="rl-name" label="Название" hint="необязательно — чтобы помнить, зачем правило">
-        <Input id="rl-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} placeholder={mode === "plan" ? "Премиум через Нидерланды" : "Блок торрентов"} />
+      <Field id="rl-name" label="Название" hint="необязательно; помогает описать назначение правила">
+        <Input id="rl-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} placeholder={mode === "plan" ? "Тариф через выбранный выход" : "Блокировка торрентов"} />
       </Field>
 
       {mode === "match" ? (
@@ -106,7 +106,7 @@ export function RuleDialog({
             label="Домены"
             hint={
               <>
-                example.com — вместе с поддоменами; full:, keyword:, regexp:; geosite:тег из образа xray
+                example.com — вместе с поддоменами; префиксы full:, keyword:, regexp:; geosite:тег из образа xray
                 {domainSources.length > 0 && (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1">
                     свои базы:
@@ -127,7 +127,7 @@ export function RuleDialog({
             label="IP"
             hint={
               <>
-                адреса и подсети, geoip:тег из образа xray
+                адреса и подсети; geoip:тег из образа xray
                 {ipSources.length > 0 && (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1">
                     свои базы:
@@ -144,7 +144,7 @@ export function RuleDialog({
             <Textarea id="rl-ip" value={ip} onChange={(e) => setIp(e.target.value)} rows={2} className="font-mono text-xs" placeholder={"geoip:ru\n1.1.1.0/24"} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="rl-port" label="Порты назначения" hint="443 или 1000-2000, через запятую">
+            <Field id="rl-port" label="Порты назначения" hint="например, 443 или 1000-2000; несколько значений через запятую">
               <Input id="rl-port" value={port} onChange={(e) => setPort(e.target.value)} className="font-mono text-xs" />
             </Field>
             <Field label="Сеть">
@@ -162,7 +162,7 @@ export function RuleDialog({
               </Select>
             </Field>
           </div>
-          <Field label="Протокол" hint="xray узнаёт его по первым байтам соединения">
+          <Field label="Протокол" hint="xray определяет протокол по первым байтам соединения">
             <div className="flex flex-wrap gap-2">
               {sniffProtocols.map((p) => (
                 <CheckChip key={p.value} checked={protocol.includes(p.value)} onChange={(v) => setProtocol((x) => (v ? [...x, p.value] : x.filter((y) => y !== p.value)))}>
@@ -171,12 +171,12 @@ export function RuleDialog({
               ))}
             </div>
           </Field>
-          <Field id="rl-inbound" label="Вход ноды" hint="теги входов через запятую — правило только для пришедших на них">
+          <Field id="rl-inbound" label="Вход ноды" hint="теги входов через запятую; правило применяется только к соединениям через эти входы">
             <Input id="rl-inbound" value={inbound} onChange={(e) => setInbound(e.target.value)} className="font-mono text-xs" />
           </Field>
         </>
       ) : (
-        <Field label="Тарифы" hint="правила по тарифу всегда идут после остальных">
+        <Field label="Тарифы" hint="правила по тарифам всегда располагаются после остальных">
           <div className="flex flex-wrap gap-2">
             {plans.map((p) => (
               <CheckChip key={p.id} checked={planIds.includes(p.id)} onChange={(v) => setPlanIds((x) => (v ? [...x, p.id] : x.filter((y) => y !== p.id)))}>
@@ -187,10 +187,10 @@ export function RuleDialog({
         </Field>
       )}
 
-      <Field label="Куда отправлять">
+      <Field label="Направление">
         <Select value={to} onValueChange={setTo}>
           <SelectTrigger>
-            <SelectValue placeholder="выбери выход или балансировщик" />
+            <SelectValue placeholder="Выберите выход или балансировщик" />
           </SelectTrigger>
           <SelectContent>
             {all.map((t) => (

@@ -1,32 +1,32 @@
 import type { NodeAddress, UserAddress } from "./types"
 
 export const addressReason: Record<NonNullable<UserAddress["reason"]>, string> = {
-  banned: "юзер забанен",
+  banned: "пользователь заблокирован",
   no_period: "нет активной подписки",
-  node_not_in_plan: "нода адреса не входит в группу нод тарифа",
-  plan_without_dedicated_ip: "текущий тариф без пометки «выделенный IP»",
-  traffic_exhausted: "трафик периода исчерпан — юзера нет на нодах",
+  node_not_in_plan: "нода адреса не входит в группу тарифа",
+  plan_without_dedicated_ip: "у текущего тарифа не включён выделенный IP",
+  traffic_exhausted: "трафик периода исчерпан, пользователь отключён от нод",
   address_error: "у ноды ошибка с этим адресом",
-  address_missing: "нода больше не сообщает этот адрес",
+  address_missing: "нода больше не сообщает об этом адресе",
   address_stale: "нода давно не выходила на связь",
-  profile_no_direct: "профиль маршрутизации ноды не выпускает трафик этого тарифа напрямую — адрес не используется",
+  profile_no_direct: "профиль маршрутизации ноды не направляет трафик этого тарифа напрямую, адрес не используется",
 }
 
 export const addressStatus: Record<NodeAddress["status"], { label: string; variant: "success" | "warning" | "destructive" }> = {
   ok: { label: "работает", variant: "success" },
   error: { label: "ошибка", variant: "destructive" },
-  missing: { label: "пропал с ноды", variant: "warning" },
+  missing: { label: "отсутствует на ноде", variant: "warning" },
 }
 
 export function statusOf(a: NodeAddress) {
-  return a.stale ? { label: "нода молчит", variant: "warning" as const } : addressStatus[a.status]
+  return a.stale ? { label: "нода не на связи", variant: "warning" as const } : addressStatus[a.status]
 }
 
 export function holderLabel(a: NonNullable<NodeAddress["assignment"]>) {
   if (a.telegram_username) return `@${a.telegram_username}`
   if (a.telegram_name) return a.telegram_name
   if (a.telegram_id) return String(a.telegram_id)
-  return `юзер № ${a.user_id}`
+  return `пользователь № ${a.user_id}`
 }
 
 export function assignable(all: NodeAddress[], taken: UserAddress[] | undefined) {

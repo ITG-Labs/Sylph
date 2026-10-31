@@ -280,7 +280,7 @@ func parsePlan(out []byte, project string, services []Service) ([]Service, error
 		return nil, fmt.Errorf("docker compose up --dry-run: %w", err)
 	}
 	if records == 0 {
-		return nil, errors.New("docker compose не отдал план в JSON (нужен --progress json)")
+		return nil, errors.New("docker compose не вернул план в формате JSON (требуется --progress json)")
 	}
 	sort.Slice(plan, func(i, j int) bool { return plan[i].Name < plan[j].Name })
 	return plan, nil
@@ -483,7 +483,7 @@ func oneShot(c Container) (Status, string) {
 	if c.ExitCode != 0 {
 		return Failed, fmt.Sprintf("завершился с кодом %d", c.ExitCode)
 	}
-	return Ready, "отработал"
+	return Ready, "завершён"
 }
 
 func longRunning(c Container, now time.Time, stable time.Duration) (Status, string) {
@@ -503,7 +503,7 @@ func longRunning(c Container, now time.Time, stable time.Duration) (Status, stri
 		return Waiting, "запускается"
 	case "restarting", "exited", "dead":
 		if c.RestartCount >= 3 {
-			return Failed, fmt.Sprintf("падает и перезапускается (%d раз), код %d", c.RestartCount, c.ExitCode)
+			return Failed, fmt.Sprintf("завершается с ошибкой и перезапускается (%d раз), код %d", c.RestartCount, c.ExitCode)
 		}
 		if c.State == "restarting" {
 			return Waiting, "перезапускается"
@@ -513,7 +513,7 @@ func longRunning(c Container, now time.Time, stable time.Duration) (Status, stri
 	return Waiting, c.State
 }
 
-var ErrTimeout = errors.New("не дождались")
+var ErrTimeout = errors.New("превышено время ожидания")
 
 func Wait(ctx context.Context, dir string, timeout time.Duration, stable time.Duration, tick func(Verdict)) (Verdict, error) {
 	services, err := Services(ctx, dir)

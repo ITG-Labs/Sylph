@@ -14,7 +14,7 @@ import type { Node } from "@/lib/types"
 
 export function GeoStatusList({ status }: { status: Node["geo_status"] }) {
   const entries = Object.entries(status ?? {}).sort(([a], [b]) => a.localeCompare(b))
-  if (entries.length === 0) return <p className="text-xs text-muted-foreground">своих geo-баз нода не качала</p>
+  if (entries.length === 0) return <p className="text-xs text-muted-foreground">нода не загружала собственные geo-базы</p>
   return (
     <div className="flex flex-col gap-1.5">
       {entries.map(([name, st]) => (
@@ -25,7 +25,7 @@ export function GeoStatusList({ status }: { status: Node["geo_status"] }) {
               {fmtBytes(st.size ?? 0)} · <span className="font-mono">{st.sha256.slice(0, 12)}</span> · <span title={fmtDateTime(st.downloaded_at)}>{fmtRelative(st.downloaded_at)}</span>
             </span>
           ) : (
-            <Badge variant="warning">не скачана</Badge>
+            <Badge variant="warning">не загружена</Badge>
           )}
           {st.error && <span className="w-full font-mono text-xs break-words text-[oklch(0.82_0.12_22)]">{st.error}</span>}
         </div>
@@ -46,7 +46,7 @@ export function NodeRoutingSection({ node }: { node: Node }) {
   const nodeName = (id: number) => nodes.data?.find((x) => x.id === id)?.name ?? `нода ${id}`
 
   return (
-    <Section title="Маршрутизация" description="куда нода выпускает трафик юзеров">
+    <Section title="Маршрутизация" description="куда нода направляет трафик пользователей">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Select value={current} onValueChange={(v) => v !== current && setNext(v)}>
@@ -54,7 +54,7 @@ export function NodeRoutingSection({ node }: { node: Node }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">без профиля — всё напрямую</SelectItem>
+              <SelectItem value="none">без профиля — весь трафик напрямую</SelectItem>
               {(profiles.data ?? []).map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.name}
@@ -73,7 +73,7 @@ export function NodeRoutingSection({ node }: { node: Node }) {
           <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
             <div className="min-w-0">
-              <div className="font-medium">Правила по тарифу не встали в xray</div>
+              <div className="font-medium">Правила по тарифам не применены в xray</div>
               <div className="mt-1 font-mono text-xs break-words text-muted-foreground">{node.routing_error}</div>
             </div>
           </div>
@@ -90,9 +90,9 @@ export function NodeRoutingSection({ node }: { node: Node }) {
         title={target ? `Профиль «${target.name}» на «${node.name}»` : `Снять профиль с «${node.name}»`}
         consequences={
           <>
-            <p>Агент перезапустит xray на ноде — открытые соединения оборвутся.</p>
-            {target ? <p>Если профилю нужны свои geo-базы, нода сначала скачает их и только потом применит профиль.</p> : <p>Весь трафик ноды пойдёт напрямую.</p>}
-            {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} тоже перезапустят xray, если на них самих стоит профиль: у них меняется список служебных ключей.</p>}
+            <p>Агент перезапустит xray на ноде, открытые соединения прервутся.</p>
+            {target ? <p>Если профилю нужны geo-базы, нода сначала загрузит их, а затем применит профиль.</p> : <p>Весь трафик ноды пойдёт напрямую.</p>}
+            {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} также перезапустят xray, если на них назначен профиль: у них изменится список служебных ключей.</p>}
           </>
         }
         destructive

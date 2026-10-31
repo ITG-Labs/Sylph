@@ -43,11 +43,11 @@ export function NodesPage() {
     <>
       <PageHeader
         title="Ноды"
-        description="статус по heartbeat: лежит — тишина больше минуты, с проблемой — синк старше 3 минут или ошибка конфига"
+        description="статус по сигналам агента: «недоступна» — нет сигнала больше минуты, «есть проблемы» — синхронизация старше 3 минут или ошибка конфигурации"
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
-            Завести ноду
+            Добавить ноду
           </Button>
         }
       />
@@ -56,7 +56,7 @@ export function NodesPage() {
       ) : q.isError ? (
         <LoadError error={q.error} onRetry={() => q.refetch()} />
       ) : q.data.length === 0 ? (
-        <Empty>Нод пока нет — заведи первую</Empty>
+        <Empty>Нод пока нет</Empty>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {q.data.map((n) => (
@@ -87,7 +87,7 @@ export function NodesPage() {
                 <Metric label="аптайм xray" value={fmtUptime(n.xray_uptime_sec)} />
                 <Metric label={n.group_ids.length > 1 ? "группы" : "группа"} value={groupNames(n.group_ids)} />
                 <Metric label="heartbeat" value={fmtRelative(n.last_heartbeat)} />
-                <Metric label="синк" value={fmtRelative(n.last_sync_at)} />
+                <Metric label="синхронизация" value={fmtRelative(n.last_sync_at)} />
               </div>
               {n.config_error && (
                 <div className="tint-rim flex gap-2 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">

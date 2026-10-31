@@ -9,7 +9,7 @@ export function ErrorPage() {
     <div className="glass-thin flex flex-col items-center gap-4 rounded-2xl px-6 py-14 text-center shadow-[inset_0_0_0_1px_oklch(0.66_0.21_22/30%)]">
       <Bug className="size-8 text-destructive" />
       <div>
-        <div className="font-medium">Экран сломался</div>
+        <div className="font-medium">Не удалось отобразить страницу</div>
         <div className="mt-1 max-w-xl text-sm break-words text-muted-foreground">{text}</div>
       </div>
       <div className="flex gap-2">

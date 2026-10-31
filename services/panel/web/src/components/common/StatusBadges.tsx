@@ -6,7 +6,7 @@ export function UserStatusBadge({ status }: { status: "active" | "banned" }) {
   return status === "banned" ? (
     <Badge variant="destructive">
       <Ban />
-      забанен
+      заблокирован
     </Badge>
   ) : (
     <Badge variant="success">
@@ -17,7 +17,7 @@ export function UserStatusBadge({ status }: { status: "active" | "banned" }) {
 }
 
 const payment: Record<PaymentStatus, { label: string; variant: "success" | "warning" | "destructive" | "secondary" | "info" | "outline"; icon: typeof Clock }> = {
-  pending: { label: "ждёт оплаты", variant: "info", icon: Clock },
+  pending: { label: "ожидает оплаты", variant: "info", icon: Clock },
   succeeded: { label: "оплачен", variant: "success", icon: CircleCheck },
   canceled: { label: "отменён", variant: "secondary", icon: CircleDashed },
   mismatch: { label: "расхождение", variant: "warning", icon: AlertTriangle },

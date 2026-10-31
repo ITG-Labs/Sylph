@@ -201,6 +201,11 @@ func TestDailyStatsSplitByInbound(t *testing.T) {
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("inbounds = %+v, want %+v (an unknown tag folds into the untagged row)", got, want)
 	}
+	for _, in := range st.Inbounds {
+		if in.Visible != 2 {
+			t.Fatalf("the plan sees both inbounds of the node, row %+v", in)
+		}
+	}
 	if len(st.Nodes) != 1 || st.Nodes[0].Today != 163 || st.Nodes[0].Period != 163 {
 		t.Fatalf("node totals must stay the sum of inbounds: %+v", st.Nodes)
 	}

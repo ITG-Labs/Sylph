@@ -23,7 +23,7 @@ func TestRootShellHidesCertCommands(t *testing.T) {
 	}
 	m.input.SetValue("/bundle core")
 	press(m, "enter")
-	if m.busy || !strings.Contains(m.log[len(m.log)-1], "только на своём компьютере") {
+	if m.busy || !strings.Contains(m.log[len(m.log)-1], "только на компьютере с CA") {
 		t.Fatalf("root /bundle = %q busy=%v", m.log[len(m.log)-1], m.busy)
 	}
 }
@@ -109,7 +109,7 @@ func TestShellBuiltins(t *testing.T) {
 	}
 	m.input.SetValue("/nope")
 	press(m, "enter")
-	if !strings.Contains(m.log[len(m.log)-1], "нет такой команды") {
+	if !strings.Contains(m.log[len(m.log)-1], "неизвестная команда") {
 		t.Fatalf("unknown command: %q", m.log[len(m.log)-1])
 	}
 	m.input.SetValue("/clear")

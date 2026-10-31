@@ -46,8 +46,8 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Настройки" description="общие для всей системы" />
-      <Section title="Подписка" description="как подписку видят клиенты" className="max-w-3xl">
+      <PageHeader title="Настройки" description="общие параметры системы" />
+      <Section title="Подписка" description="отображение подписки в клиентских приложениях" className="max-w-3xl">
         <form
           className="flex flex-col gap-5"
           onSubmit={(e) => {
@@ -60,13 +60,13 @@ export function SettingsPage() {
               <div className="flex flex-col gap-2">
                 <Label htmlFor="subs-title">Название</Label>
                 <Input id="subs-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={64} aria-invalid={!titleOk} />
-                <p className="text-xs text-muted-foreground">в приложениях — имя профиля подписки, на страничке подписки — заголовок</p>
+                <p className="text-xs text-muted-foreground">имя профиля подписки в приложениях и заголовок страницы подписки</p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="subs-support">Ссылка поддержки</Label>
                 <Input id="subs-support" value={support} onChange={(e) => setSupport(e.target.value)} placeholder="https://t.me/…" inputMode="url" aria-invalid={!urlOk} />
                 <p className={urlOk ? "text-xs text-muted-foreground" : "text-xs text-[oklch(0.82_0.12_22)]"}>
-                  {urlOk ? "кнопка «Поддержка» в Happ / v2RayTun и на страничке подписки; пусто — кнопки нет" : "нужна ссылка вида https://… латиницей и без пробелов (кириллический домен — в punycode, xn--…)"}
+                  {urlOk ? "кнопка «Поддержка» в Happ, v2RayTun и на странице подписки; если не заполнено, кнопка не показывается" : "укажите ссылку вида https://… латиницей и без пробелов (кириллический домен — в punycode, xn--…)"}
                 </p>
               </div>
             </div>
@@ -127,8 +127,8 @@ export function SettingsPage() {
         title="Сохранить настройки подписки"
         consequences={
           <>
-            <p>Приложения покажут новое название и поддержку при следующем обновлении подписки — сами они обновляют её по умолчанию раз в 12 часов, или юзер жмёт «обновить».</p>
-            <p>Страничка подписки в браузере изменится сразу.</p>
+            <p>Приложения покажут новое название и ссылку поддержки при следующем обновлении подписки: по умолчанию раз в 12 часов или когда пользователь обновит её вручную.</p>
+            <p>Страница подписки в браузере изменится сразу.</p>
           </>
         }
         confirmLabel="Сохранить"

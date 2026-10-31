@@ -60,7 +60,7 @@ func TestDefaultsDropExampleValues(t *testing.T) {
 	for _, e := range errs {
 		joined += e.Error() + "\n"
 	}
-	if !strings.Contains(joined, "SYLPH_PANEL_DOMAIN: пусто") || !strings.Contains(joined, "SYLPH_CORE_URL: пусто") {
+	if !strings.Contains(joined, "SYLPH_PANEL_DOMAIN: не заполнено") || !strings.Contains(joined, "SYLPH_CORE_URL: не заполнено") {
 		t.Fatalf("errors = %s", joined)
 	}
 }

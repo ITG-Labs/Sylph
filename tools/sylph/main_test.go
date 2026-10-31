@@ -203,7 +203,7 @@ func TestPlanLoadRefusesOtherRoleDir(t *testing.T) {
 	bot, _ := role.Get("bot")
 	writeDeployFiles(dir, panel)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.1.0\n"), 0o600)
-	if err := (&plan{r: bot, dir: dir}).load("0.1.0"); err == nil || !strings.Contains(err.Error(), "стоит роль panel") {
+	if err := (&plan{r: bot, dir: dir}).load("0.1.0"); err == nil || !strings.Contains(err.Error(), "установлена роль panel") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -245,7 +245,7 @@ func TestCheckRoleDir(t *testing.T) {
 	busy := filepath.Join(base, "srv")
 	os.MkdirAll(busy, 0o755)
 	os.WriteFile(filepath.Join(busy, "other.txt"), []byte("x"), 0o644)
-	if err := checkRoleDir(busy); err == nil || !strings.Contains(err.Error(), "не пустая") {
+	if err := checkRoleDir(busy); err == nil || !strings.Contains(err.Error(), "не пуст") {
 		t.Fatalf("non-empty foreign dir: %v", err)
 	}
 	lab := filepath.Join(base, "sylph-panel")
@@ -351,7 +351,7 @@ func TestInstallOverOldNodeWarnsAboutCaddy(t *testing.T) {
 	if err := p.load("0.3.0"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(p.summary(), "пересоздадутся") {
+	if !strings.Contains(p.summary(), "будут пересозданы") {
 		t.Fatalf("no warning in summary:\n%s", p.summary())
 	}
 	if err := writeEnv(dir, r, p.env); err != nil {
@@ -361,7 +361,7 @@ func TestInstallOverOldNodeWarnsAboutCaddy(t *testing.T) {
 	if err := again.load("0.3.0"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(again.summary(), "пересоздадутся") {
+	if strings.Contains(again.summary(), "будут пересозданы") {
 		t.Fatal("warning about Caddy on a node already on this build")
 	}
 }

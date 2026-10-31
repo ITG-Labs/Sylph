@@ -9,9 +9,9 @@ export const kindLabels: Record<InboundKind, string> = {
 }
 
 export const kindHints: Record<InboundKind, string> = {
-  "reality-tcp": "VLESS + TCP + REALITY, flow xtls-rprx-vision. Клиент идёт прямо на ноду",
-  "reality-xhttp": "VLESS + XHTTP поверх REALITY. Клиент идёт прямо на ноду, без своего домена",
-  "tls-xhttp": "VLESS + XHTTP, TLS держит нода на своём домене. Можно поставить CDN перед нодой",
+  "reality-tcp": "VLESS + TCP + REALITY, flow xtls-rprx-vision. Клиент подключается к ноде напрямую.",
+  "reality-xhttp": "VLESS + XHTTP поверх REALITY. Клиент подключается к ноде напрямую, домен не требуется.",
+  "tls-xhttp": "VLESS + XHTTP с TLS на домене ноды. Перед нодой можно разместить CDN.",
 }
 
 export const xhttpModes = ["auto", "packet-up", "stream-up", "stream-one"]
@@ -90,23 +90,23 @@ const placements = ["path", "query", "cookie", "header"]
 export const extraGroups: ExtraGroup[] = [
   {
     title: "Паддинг",
-    hint: "мусор в запросах, чтобы размеры не выдавали прокси",
+    hint: "случайные данные в запросах, скрывающие размер передаваемых пакетов",
     fields: [
-      { key: "xPaddingObfsMode", kind: "bool", label: "Обфускация паддинга", hint: "xPaddingObfsMode: паддинг выглядит как обычные данные" },
+      { key: "xPaddingObfsMode", kind: "bool", label: "Обфускация паддинга", hint: "xPaddingObfsMode: паддинг передаётся как обычные данные" },
       { key: "xPaddingMethod", kind: "select", options: ["repeat-x", "tokenish"], placeholder: "repeat-x", label: "Метод" },
       { key: "xPaddingPlacement", kind: "select", options: ["queryInHeader", "cookie", "header", "query"], placeholder: "queryInHeader", label: "Где передавать" },
-      { key: "xPaddingKey", kind: "text", label: "Имя ключа", placeholder: "x_padding", hint: "например _ym_d, чтобы кука была как у Метрики" },
+      { key: "xPaddingKey", kind: "text", label: "Имя ключа", placeholder: "x_padding" },
       { key: "xPaddingHeader", kind: "text", label: "Заголовок", placeholder: "X-Padding" },
       { key: "xPaddingBytes", kind: "range", label: "Размер", placeholder: "100-1000" },
     ],
   },
   {
     title: "Сессия и порядок пакетов",
-    hint: "где клиент передаёт ID сессии и номер пакета",
+    hint: "как клиент передаёт идентификатор сессии и номер пакета",
     fields: [
       { key: "sessionIDPlacement", kind: "select", options: placements, placeholder: "path", label: "ID сессии" },
       { key: "sessionIDKey", kind: "text", label: "Имя ключа ID сессии", placeholder: "x_session" },
-      { key: "sessionIDTable", kind: "text", label: "Алфавит ID сессии", placeholder: "Base62", hint: "Base62, hex, number… или свои символы" },
+      { key: "sessionIDTable", kind: "text", label: "Алфавит ID сессии", placeholder: "Base62", hint: "Base62, hex, number или собственный набор символов" },
       { key: "sessionIDLength", kind: "range", label: "Длина ID сессии", placeholder: "16-24" },
       { key: "seqPlacement", kind: "select", options: placements, placeholder: "path", label: "Номер пакета" },
       { key: "seqKey", kind: "text", label: "Имя ключа номера", placeholder: "x_seq" },
@@ -115,18 +115,18 @@ export const extraGroups: ExtraGroup[] = [
   {
     title: "Отправка от клиента",
     fields: [
-      { key: "uplinkHTTPMethod", kind: "text", label: "HTTP-метод", placeholder: "POST", hint: "GET — только когда оба mode packet-up" },
-      { key: "uplinkDataPlacement", kind: "select", options: ["auto", "body", "cookie", "header"], placeholder: "auto", label: "Где данные", hint: "cookie и header — только когда оба mode packet-up" },
+      { key: "uplinkHTTPMethod", kind: "text", label: "HTTP-метод", placeholder: "POST", hint: "GET допустим, только если у сервера и клиента режим packet-up" },
+      { key: "uplinkDataPlacement", kind: "select", options: ["auto", "body", "cookie", "header"], placeholder: "auto", label: "Где данные", hint: "cookie и header допустимы, только если у сервера и клиента режим packet-up" },
       { key: "uplinkDataKey", kind: "text", label: "Имя ключа данных", placeholder: "X-Data" },
-      { key: "uplinkChunkSize", kind: "range", label: "Размер куска", placeholder: "1024-4096" },
+      { key: "uplinkChunkSize", kind: "range", label: "Размер фрагмента", placeholder: "1024-4096" },
     ],
   },
   {
     title: "Заголовки",
     fields: [
-      { key: "noSSEHeader", kind: "bool", label: "Без заголовка SSE", hint: "noSSEHeader: сервер не шлёт Content-Type: text/event-stream" },
+      { key: "noSSEHeader", kind: "bool", label: "Без заголовка SSE", hint: "noSSEHeader: сервер не отправляет Content-Type: text/event-stream" },
       { key: "noGRPCHeader", kind: "bool", label: "Без заголовка gRPC", hint: "noGRPCHeader" },
-      { key: "headers", kind: "headers", label: "Свои заголовки клиента", hint: "по одному в строке: Имя: значение; Host нельзя" },
+      { key: "headers", kind: "headers", label: "Дополнительные заголовки клиента", hint: "по одному в строке в формате «Имя: значение»; заголовок Host не допускается" },
     ],
   },
   {
@@ -141,9 +141,9 @@ export const extraGroups: ExtraGroup[] = [
   },
   {
     title: "XMUX (клиент)",
-    hint: "как клиент переиспользует соединения",
+    hint: "как клиент повторно использует соединения",
     fields: [
-      { key: "xmux.maxConcurrency", kind: "range", label: "maxConcurrency", placeholder: "16-32", hint: "нельзя вместе с maxConnections" },
+      { key: "xmux.maxConcurrency", kind: "range", label: "maxConcurrency", placeholder: "16-32", hint: "несовместимо с maxConnections" },
       { key: "xmux.maxConnections", kind: "range", label: "maxConnections", placeholder: "3" },
       { key: "xmux.cMaxReuseTimes", kind: "range", label: "cMaxReuseTimes", placeholder: "0" },
       { key: "xmux.hMaxRequestTimes", kind: "range", label: "hMaxRequestTimes", placeholder: "600-900" },
@@ -227,10 +227,10 @@ const renewWarnMs = 14 * 24 * 3600 * 1000
 
 export function certLine(n: Pick<Node, "tls_status">, domain: string, now = new Date()): { ok: boolean; text: string } {
   const st = n.tls_status?.[domain]
-  if (!st) return { ok: false, text: "агент ещё не проверял" }
-  if (st.error || !st.not_after) return { ok: false, text: `нет серта: ${st.error ?? "неизвестно"}` }
+  if (!st) return { ok: false, text: "агент ещё не проверял сертификат" }
+  if (st.error || !st.not_after) return { ok: false, text: `сертификата нет: ${st.error ?? "причина неизвестна"}` }
   const until = new Date(st.not_after)
   const day = until.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })
-  if (until.getTime() - now.getTime() < renewWarnMs) return { ok: false, text: `истекает ${day} — продление не прошло?` }
+  if (until.getTime() - now.getTime() < renewWarnMs) return { ok: false, text: `истекает ${day}, продление не выполнено` }
   return { ok: true, text: `выпущен, до ${day}` }
 }

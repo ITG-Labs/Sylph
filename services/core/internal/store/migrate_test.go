@@ -1319,6 +1319,8 @@ func TestMigration018KeepsAccessAndUsage(t *testing.T) {
 	}
 	exec(`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes, bonus_bytes)
 	      SELECT s.id, pp.id, 3, 2 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id WHERE pp.name = 'X'`)
+	exec(`INSERT INTO notifications_sent (user_id, kind, ref, period_id, outcome)
+	      SELECT s.user_id, 'traffic_80', s.id || ':5', s.id, 'sent' FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE p.name = 'p1'`)
 
 	type row struct {
 		Plan, Tag string
@@ -1376,8 +1378,14 @@ func TestMigration018KeepsAccessAndUsage(t *testing.T) {
 	if names, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"p1:0:Основной", "p1:1:X", "p2:0:Y", "p3:0:Основной", "p4:0:Основной", "p4:1:gB", "p4:2:C"}; !slices.Equal(names, want) {
+	if want := []string{"p1:0:Основной", "p1:1:X", "p2:0:Y", "p3:0:Основной", "p4:0:Основной", "p4:2:C"}; !slices.Equal(names, want) {
 		t.Fatalf("pools after up = %v, want %v", names, want)
+	}
+	var carried int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM notifications_sent n JOIN plan_pools pp ON n.ref = n.period_id || ':5:' || pp.id
+		 WHERE pp.name = 'Основной' AND n.kind = 'traffic_80'`).Scan(&carried); err != nil || carried != 1 {
+		t.Fatalf("a traffic notice sent for the old main limit must carry over to the main pool: %d, %v", carried, err)
 	}
 	var p3Group string
 	if err := pool.QueryRow(ctx, `SELECT g.name FROM plans p JOIN location_groups g ON g.id = p.location_group_id WHERE p.name = 'p3'`).Scan(&p3Group); err != nil || p3Group != "Общие входы" {
@@ -1402,6 +1410,11 @@ func TestMigration018KeepsAccessAndUsage(t *testing.T) {
 	if got := access(); !slices.EqualFunc(got, after, sameRow) {
 		t.Fatalf("access changed by down 018:\nup   %v\ndown %v", fmtRows(after), fmtRows(got))
 	}
+	exec(inbound, "B", "b4")
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM plan_inbounds pi JOIN node_inbounds i ON i.id = pi.inbound_id WHERE i.tag = 'b4'`).Scan(&seeB3); err != nil || seeB3 != 0 {
+		t.Fatalf("after down a new inbound on a partly grouped node must stay hidden: seen by %d, %v", seeB3, err)
+	}
+	exec(`DELETE FROM node_inbounds WHERE tag = 'b4'`)
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 018 again: %v", err)
 	}

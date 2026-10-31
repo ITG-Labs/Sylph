@@ -56,7 +56,7 @@ export function GroupsPage() {
     <>
       <PageHeader
         title="Группы локаций"
-        description="тариф видит только входы своей группы, входы вне групп не видит никто"
+        description="тариф видит только входы своей группы; входы вне групп недоступны ни одному тарифу"
         actions={
           <Button
             onClick={() => {
@@ -87,11 +87,11 @@ export function GroupsPage() {
                   {g.id !== null && <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">{g.id === null ? "ноды с входами, которые не видит ни один тариф" : "состав"}</div>
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "ноды с входами, недоступными ни одному тарифу" : "состав"}</div>
                   {g.members.length === 0 ? <span className="text-muted-foreground">нет</span> : g.members.join(", ")}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы — не видят ни одного входа" : "тарифы"}</div>
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы не видят ни одного входа" : "тарифы"}</div>
                   {g.plans.length === 0 ? <span className="text-muted-foreground">нет</span> : g.plans.join(", ")}
                 </div>
               </Card>
@@ -103,7 +103,7 @@ export function GroupsPage() {
         open={open}
         onOpenChange={setOpen}
         title="Новая группа"
-        description="Ноды, входы и тарифы добавляются с экрана группы; удалить можно только неиспользуемую группу"
+        description="Ноды, входы и тарифы добавляются на странице группы. Удалить можно только неиспользуемую группу."
         confirmLabel="Создать"
         canConfirm={name.trim() !== ""}
         success="Группа создана"

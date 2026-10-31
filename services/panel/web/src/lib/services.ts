@@ -1,6 +1,6 @@
 import type { ServiceRole } from "./types"
 
-const titles: Record<ServiceRole, string> = { bot: "Бот", subs: "subs", cron: "Крон", panel: "Панель", monitor: "Монитор" }
+const titles: Record<ServiceRole, string> = { bot: "Бот", subs: "subs", cron: "Cron", panel: "Панель", monitor: "Монитор" }
 
 export function serviceTitle(role: ServiceRole, cn: string): string {
   const name = titles[role] ?? role

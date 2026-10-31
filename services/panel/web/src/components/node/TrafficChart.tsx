@@ -142,8 +142,8 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
           <tr>
             <th>День</th>
             <th>Всего</th>
-            <th>Вниз</th>
-            <th>Вверх</th>
+            <th>Входящий</th>
+            <th>Исходящий</th>
           </tr>
         </thead>
         <tbody>

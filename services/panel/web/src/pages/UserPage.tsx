@@ -31,10 +31,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const auditAction: Record<string, string> = {
-  ban: "забанил",
-  unban: "разбанил",
+  ban: "заблокировал",
+  unban: "разблокировал",
   extend: "продлил",
-  traffic: "докинул трафик",
+  traffic: "добавил трафик",
   plan: "сменил тариф",
   rotate: "сменил ссылку",
   reset: "отвязал все устройства",
@@ -91,12 +91,12 @@ export function UserPage() {
     <>
       <Link to="/users" className="glass-pill mb-4 inline-flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-sm text-muted-foreground transition-[background-color,color,scale] duration-200 hover:bg-white/16 hover:text-foreground active:scale-[0.96]">
         <ArrowLeft className="size-4" />
-        Юзеры
+        Пользователи
       </Link>
       <PageHeader
         title={
           <span className="flex flex-wrap items-center gap-3">
-            {u.telegram_id ?? `Юзер № ${u.id}`}
+            {u.telegram_id ?? `Пользователь № ${u.id}`}
             <UserStatusBadge status={u.status} />
           </span>
         }
@@ -114,11 +114,11 @@ export function UserPage() {
               </span>
             )}
             <span>
-              № {u.id} · с нами с {fmtDate(u.created_at)}
+              № {u.id} · зарегистрирован {fmtDate(u.created_at)}
               {c.terms && (
                 <span title={fmtDateTime(c.terms.accepted_at)}>
                   {" "}
-                  · принял соглашение v{c.terms.version} {fmtDate(c.terms.accepted_at)}
+                  · соглашение v{c.terms.version} принято {fmtDate(c.terms.accepted_at)}
                 </span>
               )}
             </span>
@@ -128,7 +128,7 @@ export function UserPage() {
           banned ? (
             <Button onClick={open({ kind: "unban" })}>
               <ShieldCheck />
-              Разбанить
+              Разблокировать
             </Button>
           ) : (
             <div className="grid w-full grid-cols-[1fr_1fr_1fr_auto] gap-2 sm:flex sm:w-auto">
@@ -162,7 +162,7 @@ export function UserPage() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={open({ kind: "ban" })}>
                     <Ban />
-                    Забанить
+                    Заблокировать
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -175,7 +175,7 @@ export function UserPage() {
         <div className="tint-rim mb-6 flex gap-3 rounded-2xl border border-destructive/30 bg-destructive/[0.08] p-4 text-sm">
           <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
-            <div className="font-medium">Забанен {fmtDateTime(u.banned_at)}</div>
+            <div className="font-medium">Заблокирован {fmtDateTime(u.banned_at)}</div>
             <div className="text-muted-foreground">{u.ban_reason ? `Причина: ${u.ban_reason}` : "Причина не указана"}</div>
           </div>
         </div>
@@ -231,21 +231,21 @@ export function UserPage() {
                 )}
               </div>
             ) : (
-              <Empty>Подписки нет — можно выдать вручную</Empty>
+              <Empty>Подписки нет. Её можно выдать вручную.</Empty>
             )}
           </Section>
 
           <UserOnlineSection userId={u.id} presence={c.presence} />
 
-          <Section title="Трафик по входам" description="вверх + вниз, сутки по Москве">
+          <Section title="Трафик по входам" description="входящий и исходящий, сутки по московскому времени">
             {banned ? (
-              <Empty>У забаненного статистика не показывается</Empty>
+              <Empty>Для заблокированного пользователя статистика не показывается</Empty>
             ) : stats.isPending ? (
               <LoadingBlock rows={1} />
             ) : stats.isError ? (
               <LoadError error={stats.error} />
             ) : stats.data.inbounds.length === 0 ? (
-              <Empty>Трафика ещё не было</Empty>
+              <Empty>Трафика пока нет</Empty>
             ) : (
               <Tabs defaultValue="today">
                 <TabsList>
@@ -259,7 +259,7 @@ export function UserPage() {
                   const max = Math.max(1, ...rows.map((n) => n[k]))
                   return (
                     <TabsContent key={k} value={k} className="flex flex-col gap-3 pt-1">
-                      {rows.length === 0 && <Empty>За этот срок трафика не было</Empty>}
+                      {rows.length === 0 && <Empty>За этот период трафика нет</Empty>}
                       {rows.map((n) => (
                         <div key={`${n.node_id}:${n.tag}`} className="flex flex-col gap-1.5">
                           <div className="flex justify-between gap-3 text-sm">
@@ -298,7 +298,7 @@ export function UserPage() {
             }
           >
             {c.payments.length === 0 ? (
-              <Empty>Платежей не было</Empty>
+              <Empty>Платежей нет</Empty>
             ) : (
               <ul className="-mx-2 flex flex-col">
                 {c.payments.map((p) => (
@@ -336,7 +336,7 @@ export function UserPage() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <Section title="Ссылка подписки" description="токен из ссылки — по нему же ищется юзер">
+          <Section title="Ссылка подписки" description="токен ссылки; по нему также можно найти пользователя">
             <div className="field flex items-center gap-1 rounded-xl border border-input py-1 pr-1 pl-3.5">
               <code className="min-w-0 flex-1 truncate font-mono text-sm">{u.sub_token}</code>
               <CopyButton value={u.sub_token} label="Скопировать токен" />
@@ -374,7 +374,7 @@ export function UserPage() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{name}</div>
                         <div className="truncate text-xs text-muted-foreground">
-                          {d.user_agent} · был {fmtRelative(d.last_seen)}
+                          {d.user_agent} · последняя активность {fmtRelative(d.last_seen)}
                         </div>
                       </div>
                       {!banned && (
@@ -391,7 +391,7 @@ export function UserPage() {
 
           <Section title="Пробный и приватные тарифы">
             <div className="flex flex-col gap-1">
-              <Row label="Пробный период">{c.trial ? `брал ${fmtDate(c.trial.granted_at)}` : "не брал"}</Row>
+              <Row label="Пробный период">{c.trial ? `получен ${fmtDate(c.trial.granted_at)}` : "не использовался"}</Row>
               {c.access.length === 0 ? (
                 <Row label="Приватные тарифы">нет доступов</Row>
               ) : (
@@ -401,7 +401,7 @@ export function UserPage() {
                       <span className="text-muted-foreground">отозван {fmtDate(a.revoked_at)}</span>
                     ) : (
                       <span>
-                        открыт {fmtDate(a.granted_at)} · {a.source === "invite" ? "по приглашению" : "админом"}
+                        открыт {fmtDate(a.granted_at)} · {a.source === "invite" ? "по приглашению" : "администратором"}
                       </span>
                     )}
                   </Row>
@@ -412,7 +412,7 @@ export function UserPage() {
 
           <Section
             title="Выделенный IP"
-            description="на тарифе с пометкой «выделенный IP»"
+            description="для тарифов с включённым выделенным IP"
             action={
               !banned && (
                 <Button variant="ghost" size="sm" onClick={open({ kind: "assignAddress" })} disabled={freeAddresses.length === 0}>
@@ -426,7 +426,7 @@ export function UserPage() {
               {needsAddress(c.dedicated_plan, c.addresses) && (
                 <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
-                  <span>Тариф обещает выделенный IP, а рабочего адреса нет — юзер выходит через общие адреса нод.</span>
+                  <span>Тариф предусматривает выделенный IP, но рабочего адреса нет: трафик пользователя идёт через общие адреса нод.</span>
                 </div>
               )}
               {myAddresses.length === 0 ? (
@@ -463,13 +463,13 @@ export function UserPage() {
             </div>
           </Section>
 
-          <Section title="История действий" description="бан, продление, трафик, тариф, ссылка и устройства; платежи и периоды — в общем аудите">
+          <Section title="История действий" description="блокировка, продление, трафик, тариф, ссылка и устройства; платежи и периоды — в общем журнале аудита">
             {history.isPending ? (
               <LoadingBlock rows={2} />
             ) : history.isError ? (
               <LoadError error={history.error} />
             ) : history.data.length === 0 ? (
-              <Empty>Таких действий с юзером из панели не было</Empty>
+              <Empty>Действий с пользователем из панели не выполнялось</Empty>
             ) : (
               <ol className="flex flex-col gap-3">
                 {history.data.map((e) => (

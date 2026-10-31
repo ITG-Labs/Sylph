@@ -136,7 +136,7 @@ func TestFetchCapsSize(t *testing.T) {
 	c, _ := serve(t, release{tag: "v0.3.0", binary: big, sums: sumLine(big, Asset)})
 	c.MaxSize = 1024
 	dir := t.TempDir()
-	if _, err := c.Fetch(context.Background(), "0.3.0", dir); err == nil || errors.Is(err, ErrChecksum) || !strings.Contains(err.Error(), "больше") {
+	if _, err := c.Fetch(context.Background(), "0.3.0", dir); err == nil || errors.Is(err, ErrChecksum) || !strings.Contains(err.Error(), "превышает") {
 		t.Fatalf("oversized binary: %v", err)
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 {

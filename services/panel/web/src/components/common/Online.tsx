@@ -20,10 +20,10 @@ export function OnlineState({ nodes, lastSeen }: { nodes: NodeRef[]; lastSeen: s
       </span>
     )
   }
-  if (!lastSeen) return <span className="text-muted-foreground">не заходил</span>
+  if (!lastSeen) return <span className="text-muted-foreground">не подключался</span>
   return (
     <span className="text-muted-foreground" title={fmtDateTime(lastSeen)}>
-      был {fmtRelative(lastSeen)}
+      был в сети {fmtRelative(lastSeen)}
     </span>
   )
 }

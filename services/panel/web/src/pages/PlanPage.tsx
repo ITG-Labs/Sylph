@@ -99,7 +99,7 @@ export function PlanPage() {
       </div>
       <div className="mb-4 flex flex-col gap-2">
         {plan.location_group_id === null && (
-          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">Тариф не входит ни в одну группу и не видит ни одного входа.</div>
+          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">Тариф не привязан к группе и не видит ни одного входа.</div>
         )}
         {unseen.length > 0 && (
           <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
@@ -130,7 +130,7 @@ export function PlanPage() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Section
             title="Приглашения"
-            description="ссылка на бота: юзер жмёт /start и получает доступ"
+            description="ссылка на бота: пользователь получает доступ после команды /start"
             action={
               <Button size="sm" onClick={() => open({ kind: "invite" })}>
                 <Plus />
@@ -176,7 +176,7 @@ export function PlanPage() {
 
           <Section
             title="Доступы"
-            description="кому открыт тариф: по приглашению или вручную"
+            description="пользователи с доступом к тарифу: по приглашению или выданные вручную"
             action={
               <Button size="sm" onClick={() => open({ kind: "grant" })}>
                 <UserPlus />
@@ -189,7 +189,7 @@ export function PlanPage() {
             ) : access.isError ? (
               <LoadError error={access.error} />
             ) : access.data.length === 0 ? (
-              <Empty>Тариф пока никому не открыт</Empty>
+              <Empty>Доступ к тарифу пока не выдан</Empty>
             ) : (
               <ul className="flex flex-col divide-y">
                 {access.data.map((a) => (
@@ -205,7 +205,7 @@ export function PlanPage() {
                     {a.revoked_at ? (
                       <Badge variant="outline">отозван {fmtDate(a.revoked_at)}</Badge>
                     ) : a.telegram_id === null ? (
-                      <span className="text-xs text-muted-foreground">нет Telegram ID — отозвать нельзя</span>
+                      <span className="text-xs text-muted-foreground">нет Telegram ID, отзыв невозможен</span>
                     ) : (
                       <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => open({ kind: "revokeAccess", access: a })}>
                         Отозвать
@@ -218,7 +218,7 @@ export function PlanPage() {
           </Section>
         </div>
       ) : (
-        <Empty>Тариф публичный — его видят все в меню бота{plan.on_sale ? "" : ", но сейчас он снят с продажи"}. Приглашения и доступы — у приватных.</Empty>
+        <Empty>Тариф публичный и доступен всем в меню бота{plan.on_sale ? "" : ", но сейчас снят с продажи"}. Приглашения и доступы используются только для приватных тарифов.</Empty>
       )}
 
       <PlanFormDialog open={dialog?.kind === "edit"} onOpenChange={close} plan={plan} groups={groups.data ?? []} onDone={() => invalidate(["plans"], ["overview"])} />
@@ -229,7 +229,7 @@ export function PlanPage() {
         description={`в тариф «${plan.name}»`}
         confirmLabel="Создать"
         canConfirm={maxUsesN === null || (Number.isInteger(maxUsesN) && maxUsesN >= 1 && maxUsesN <= 100000)}
-        success="Приглашение создано — ссылку можно скопировать"
+        success="Приглашение создано"
         onConfirm={async () => {
           await core.post(`/v1/admin/plans/${plan.id}/invites`, { max_uses: maxUsesN, expires_at: expiresISO })
           await invalidate(["invites", id])
@@ -237,8 +237,8 @@ export function PlanPage() {
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="max-uses">Сколько раз</Label>
-            <Input id="max-uses" inputMode="numeric" value={maxUses} onChange={(e) => setMaxUses(e.target.value.replace(/\D/g, ""))} placeholder="пусто — без лимита" />
+            <Label htmlFor="max-uses">Число использований</Label>
+            <Input id="max-uses" inputMode="numeric" value={maxUses} onChange={(e) => setMaxUses(e.target.value.replace(/\D/g, ""))} placeholder="без ограничений" />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="expires">Действует до</Label>
@@ -250,7 +250,7 @@ export function PlanPage() {
         open={dialog?.kind === "revokeInvite"}
         onOpenChange={close}
         title="Отозвать приглашение"
-        consequences={<p>Ссылка перестанет работать. Доступы, уже выданные по ней, останутся — их отзывают отдельно.</p>}
+        consequences={<p>Ссылка перестанет работать. Доступы, уже выданные по ней, сохранятся; их можно отозвать отдельно.</p>}
         destructive
         confirmLabel="Отозвать"
         success="Приглашение отозвано"
@@ -264,7 +264,7 @@ export function PlanPage() {
         open={dialog?.kind === "grant"}
         onOpenChange={close}
         title="Открыть тариф по Telegram ID"
-        description="Если юзер ещё не нажимал /start, он заведётся сам"
+        description="Если пользователь ещё не запускал бота, учётная запись будет создана автоматически"
         confirmLabel="Открыть"
         canConfirm={/^\d{1,19}$/.test(tg)}
         success="Доступ открыт"
@@ -282,8 +282,8 @@ export function PlanPage() {
         open={dialog?.kind === "revokeAccess"}
         onOpenChange={close}
         title="Отозвать доступ"
-        description={dialog?.kind === "revokeAccess" ? `Юзер ${dialog.access.telegram_id ?? dialog.access.user_id}` : undefined}
-        consequences={<p>Юзер больше не увидит тариф в меню и не купит его заново, повторное приглашение не поможет. Текущий оплаченный период доживёт, продлить его можно.</p>}
+        description={dialog?.kind === "revokeAccess" ? `Пользователь ${dialog.access.telegram_id ?? dialog.access.user_id}` : undefined}
+        consequences={<p>Тариф исчезнет из меню пользователя и станет недоступен для покупки, в том числе по повторному приглашению. Текущий оплаченный период сохранится, его можно продлить.</p>}
         destructive
         confirmLabel="Отозвать"
         success="Доступ отозван"

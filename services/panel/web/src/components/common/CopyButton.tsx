@@ -11,7 +11,7 @@ export function CopyButton({ value, label = "Скопировать" }: { value:
       setDone(true)
       setTimeout(() => setDone(false), 1500)
     } catch {
-      toast.error("Браузер не дал скопировать")
+      toast.error("Не удалось скопировать: браузер запретил доступ к буферу обмена")
     }
   }
   return (

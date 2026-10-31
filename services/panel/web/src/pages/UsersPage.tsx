@@ -70,12 +70,12 @@ export function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Юзеры" description="поиск по Telegram ID, номеру юзера, @нику, имени или ссылке подписки" />
+      <PageHeader title="Пользователи" description="поиск по Telegram ID, номеру, @username, имени или ссылке подписки" />
 
       <div className="mb-4 flex flex-col gap-2 lg:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-10 pr-10 pl-10" placeholder="TG ID, номер, @ник, имя или ссылка" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-10 pr-10 pl-10" placeholder="Telegram ID, номер, @username, имя или ссылка" value={q} onChange={(e) => setQ(e.target.value)} />
           {q && (
             <button type="button" className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-muted-foreground transition hover:bg-white/16 hover:text-foreground" onClick={() => setQ("")} aria-label="Очистить">
               <X className="size-3.5" />
@@ -90,7 +90,7 @@ export function UsersPage() {
             <SelectContent>
               <SelectItem value="all">Все статусы</SelectItem>
               <SelectItem value="active">Активные</SelectItem>
-              <SelectItem value="banned">Забаненные</SelectItem>
+              <SelectItem value="banned">Заблокированные</SelectItem>
             </SelectContent>
           </Select>
           <Select value={subscription} onValueChange={(v) => setFilter("subscription", v)}>
@@ -108,7 +108,7 @@ export function UsersPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Онлайн и нет</SelectItem>
+              <SelectItem value="all">Любая активность</SelectItem>
               <SelectItem value="1">Онлайн сейчас</SelectItem>
             </SelectContent>
           </Select>
@@ -133,14 +133,14 @@ export function UsersPage() {
       ) : list.isError ? (
         <LoadError error={list.error} onRetry={() => list.refetch()} />
       ) : users.length === 0 ? (
-        <Empty>{filtered ? "Никого не нашлось — попробуй другой запрос или сбрось фильтры" : "Юзеров пока нет"}</Empty>
+        <Empty>{filtered ? "Ничего не найдено. Измените запрос или сбросьте фильтры." : "Пользователей пока нет"}</Empty>
       ) : (
         <>
           <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Юзер</TableHead>
+                  <TableHead>Пользователь</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead>Тариф</TableHead>
                   <TableHead>Оплачено до</TableHead>
@@ -159,7 +159,7 @@ export function UsersPage() {
                       <Link to={`/users/${u.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
                         {u.telegram_id ?? "—"}
                       </Link>
-                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={[fmtTelegram(u.telegram_username, u.telegram_name), `с нами с ${fmtDate(u.created_at)}`].filter(Boolean).join(" · ")}>
+                      <div className="max-w-60 truncate text-xs text-muted-foreground" title={[fmtTelegram(u.telegram_username, u.telegram_name), `зарегистрирован ${fmtDate(u.created_at)}`].filter(Boolean).join(" · ")}>
                         № {u.id}
                         {(u.telegram_username || u.telegram_name) && ` · ${fmtTelegram(u.telegram_username, u.telegram_name)}`}
                       </div>

@@ -19,7 +19,7 @@ import (
 
 func cmdStatus(ctx context.Context, u *ui.UI, args []string) int {
 	fs := newFlags(u, "status", "sudo ./sylph status [флаги]")
-	dir := fs.String("dir", "", "показать только роль из этой папки")
+	dir := fs.String("dir", "", "показать только роль из этого каталога")
 	if _, err := parseWithArgs(fs, args); err != nil {
 		return 2
 	}
@@ -33,7 +33,7 @@ func cmdStatus(ctx context.Context, u *ui.UI, args []string) int {
 		return 1
 	}
 	if len(roles) == 0 {
-		u.Fail("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
+		u.Fail("роли sylph на сервере не найдены (поиск через docker compose ls); укажите каталог роли через --dir")
 		return 1
 	}
 	bad := false
@@ -56,7 +56,7 @@ func cmdStatus(ctx context.Context, u *ui.UI, args []string) int {
 func statusCard(ctx context.Context, in installed, now time.Time) (string, bool) {
 	healthy := true
 	want := in.Env.Get(role.KeyVersion)
-	rows := [][2]string{{"папка", in.Dir}, {"образы", want}}
+	rows := [][2]string{{"каталог", in.Dir}, {"образы", want}}
 	var lines []string
 	services, err := compose.Services(ctx, in.Dir)
 	if err != nil {
@@ -105,7 +105,7 @@ func statusCard(ctx context.Context, in installed, now time.Time) (string, bool)
 	rows = append(rows, [2]string{"диск", diskLine})
 	body := ui.KV(rows) + "\n\n" + ui.Bold("Контейнеры") + "\n" + strings.Join(lines, "\n")
 	if len(certLines) > 0 {
-		body += "\n\n" + ui.Bold("Серты") + "\n" + strings.Join(certLines, "\n")
+		body += "\n\n" + ui.Bold("Сертификаты") + "\n" + strings.Join(certLines, "\n")
 	}
 	return body, healthy
 }
@@ -152,7 +152,7 @@ func certStatus(dir string, now time.Time) ([]string, bool) {
 		}
 		cert, err := mtls.ParseCertPEM(data)
 		if err != nil {
-			lines = append(lines, ui.Colored(ui.Red, "✗ "+rel+": не серт"))
+			lines = append(lines, ui.Colored(ui.Red, "✗ "+rel+": не является сертификатом"))
 			ok = false
 			continue
 		}

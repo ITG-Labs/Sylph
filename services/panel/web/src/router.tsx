@@ -43,7 +43,7 @@ export const router = createBrowserRouter([
       { path: "groups/:id", element: <GroupPage /> },
       { path: "audit", element: <AuditPage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "*", element: <PlaceholderPage title="Нет такой страницы" /> },
+      { path: "*", element: <PlaceholderPage title="Страница не найдена" /> },
         ],
       },
     ],

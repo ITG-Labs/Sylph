@@ -3,7 +3,7 @@ import { auditAction, auditDetails, auditEntity, auditLink } from "./audit"
 
 describe("audit", () => {
   it("humanizes known actions and falls back", () => {
-    expect(auditAction("user", "ban")).toBe("забанил юзера")
+    expect(auditAction("user", "ban")).toBe("заблокировал пользователя")
     expect(auditAction("payment", "refund")).toBe("отметил возврат")
     expect(auditAction("payments", "recheck")).toBe("перепроверил платёж в ЮKassa")
     expect(auditAction("widget", "zap")).toBe("zap widget")

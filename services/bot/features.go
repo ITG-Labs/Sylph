@@ -183,7 +183,7 @@ func statsRows(s *Stats) []NodeStats {
 	out := make([]NodeStats, 0, len(s.Inbounds))
 	for _, in := range s.Inbounds {
 		name := in.NodeName
-		if perNode[in.NodeID] > 1 && in.Tag != "" {
+		if max(perNode[in.NodeID], in.Visible) > 1 && in.Tag != "" {
 			label := in.Label
 			if label == "" {
 				label = in.Tag

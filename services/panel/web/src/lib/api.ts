@@ -20,7 +20,7 @@ async function request<T>(method: Method, url: string, body?: unknown): Promise<
       credentials: "same-origin",
     })
   } catch {
-    throw new ApiError(0, "network", "", "Панель не отвечает — проверь соединение")
+    throw new ApiError(0, "network", "", "Панель не отвечает. Проверьте подключение к сети.")
   }
   const text = await res.text()
   let data: unknown = null

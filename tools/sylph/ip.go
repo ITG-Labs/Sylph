@@ -54,7 +54,7 @@ var (
 		}
 		cv, err := compose.Version(ctx)
 		if err != nil {
-			return "", "", errors.New("нет плагина docker compose")
+			return "", "", errors.New("плагин docker compose не установлен")
 		}
 		return v, cv, nil
 	}
@@ -76,7 +76,7 @@ func parseEgressIPs(v string) ([]string, error) {
 		out = append(out, item)
 	}
 	if len(out) > maxEgressIPs {
-		return nil, fmt.Errorf("%s: не больше %d адресов", keyEgressIPs, maxEgressIPs)
+		return nil, fmt.Errorf("%s: не более %d адресов", keyEgressIPs, maxEgressIPs)
 	}
 	return out, nil
 }
@@ -84,10 +84,10 @@ func parseEgressIPs(v string) ([]string, error) {
 func checkEgressIP(v string) error {
 	a, err := netip.ParseAddr(v)
 	if err != nil || !a.Is4() || a.String() != v {
-		return fmt.Errorf("%q — не IPv4-адрес", v)
+		return fmt.Errorf("%q не является IPv4-адресом", v)
 	}
 	if a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() || a.IsLinkLocalUnicast() {
-		return fmt.Errorf("%s не годится для выхода в интернет", v)
+		return fmt.Errorf("%s нельзя использовать для выхода в интернет", v)
 	}
 	return nil
 }
@@ -101,8 +101,8 @@ func renderEgressCompose(ips []string) []byte {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("# Сгенерировано sylph из SYLPH_EGRESS_IPS в .env: не правь руками, меняй через sudo ./sylph ip;\n")
-	b.WriteString("# свои правки compose — в compose.override.yml, он подключён в COMPOSE_FILE раньше этого файла\n")
+	b.WriteString("# Создано sylph из SYLPH_EGRESS_IPS в .env. Не изменяйте вручную, используйте sudo ./sylph ip.\n")
+	b.WriteString("# Собственные изменения compose вносите в compose.override.yml: он подключается в COMPOSE_FILE раньше этого файла.\n")
 	b.WriteString("services:\n  caddy:\n    networks:\n      default:\n        gw_priority: 100\n")
 	pairs := make([]string, len(ips))
 	for i, ip := range ips {
@@ -143,7 +143,7 @@ func prepareEgressIn(dir string, out string, r *role.Role, env *envfile.Env) err
 		return nil
 	}
 	if !ours {
-		return fmt.Errorf("%s в .env задан руками (%s): допиши в конец :%s сам или убери переменную — sylph её не трогает", keyComposeFile, cur, egressFile)
+		return fmt.Errorf("%s в .env задан вручную (%s): добавьте в конец :%s или удалите переменную; sylph не изменяет её", keyComposeFile, cur, egressFile)
 	}
 	files := []string{"compose.yml"}
 	if exists(filepath.Join(dir, operatorOverride)) {
@@ -178,7 +178,7 @@ func probeFrom(ctx context.Context, ip string) (string, error) {
 			return v, nil
 		}
 	}
-	return "", errors.New("сервис проверки не назвал адрес")
+	return "", errors.New("сервис проверки не вернул адрес")
 }
 
 func hostHas(ip string) (bool, error) {
@@ -196,9 +196,9 @@ func hostHas(ip string) (bool, error) {
 
 func cmdIP(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "ip", "sudo ./sylph ip [list | add <IPv4> | remove <IPv4>] [флаги]")
-	dir := fs.String("dir", "", "папка роли ноды")
-	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
-	noCheck := fs.Bool("no-check", false, "не проверять, что с адреса есть выход в интернет")
+	dir := fs.String("dir", "", "каталог роли ноды")
+	yes := fs.Bool("yes", false, "не запрашивать подтверждение")
+	noCheck := fs.Bool("no-check", false, "не проверять доступ в интернет с адреса")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func cmdIP(ctx context.Context, u *ui.UI, args []string) error {
 		want = 1
 	}
 	if sub != "list" && sub != "add" && sub != "remove" {
-		return fmt.Errorf("неизвестная подкоманда %q: list, add или remove", sub)
+		return fmt.Errorf("неизвестная подкоманда %q: допустимы list, add и remove", sub)
 	}
 	if len(pos) > want || (want == 2 && len(pos) < 2) {
 		return errors.New("использование: sudo ./sylph ip list | add <IPv4> | remove <IPv4>")
@@ -236,18 +236,18 @@ func cmdIP(ctx context.Context, u *ui.UI, args []string) error {
 
 func ipList(u *ui.UI, ips []string) error {
 	if len(ips) == 0 {
-		u.Info("дополнительных IP у ноды нет; добавить — sudo ./sylph ip add <IPv4>")
+		u.Info("дополнительных IP у ноды нет; для добавления используйте sudo ./sylph ip add <IPv4>")
 		return nil
 	}
 	rows := make([][2]string, 0, len(ips))
 	for _, ip := range ips {
 		mark := ui.Colored(ui.Green, "на интерфейсе сервера")
 		if ok, err := hostHas(ip); err != nil || !ok {
-			mark = ui.Colored(ui.Yellow, "нет на интерфейсах сервера — выход с него не работает")
+			mark = ui.Colored(ui.Yellow, "отсутствует на интерфейсах сервера, выход с него не работает")
 		}
 		rows = append(rows, [2]string{ip, mark})
 	}
-	u.Box("Дополнительные IP ноды", ui.KV(rows)+"\n\n"+ui.Dimmed("за кем закреплён адрес — в панели, в карточке ноды"), ui.Accent)
+	u.Box("Дополнительные IP ноды", ui.KV(rows)+"\n\n"+ui.Dimmed("закрепление адресов за пользователями отображается в панели, на странице ноды"), ui.Accent)
 	return nil
 }
 
@@ -258,10 +258,10 @@ func egressChecks(ctx context.Context, u *ui.UI, ip string, noCheck bool) error 
 			return "", err
 		}
 		if !compose.AtLeast(v, minEgressDocker) {
-			return "", fmt.Errorf("docker %s старый: для доп. IP нужен %s или новее (приоритет шлюза и имя интерфейса у сети)", v, minEgressDocker)
+			return "", fmt.Errorf("версия docker %s устарела: для дополнительных IP требуется %s или новее (приоритет шлюза и имя интерфейса сети)", v, minEgressDocker)
 		}
 		if !compose.AtLeast(cv, minEgressCompose) {
-			return "", fmt.Errorf("compose %s старый: для доп. IP нужен %s или новее", cv, minEgressCompose)
+			return "", fmt.Errorf("версия compose %s устарела: для дополнительных IP требуется %s или новее", cv, minEgressCompose)
 		}
 		return v + ", compose " + cv, nil
 	}); err != nil {
@@ -273,17 +273,17 @@ func egressChecks(ctx context.Context, u *ui.UI, ip string, noCheck bool) error 
 			return "", err
 		}
 		if !ok {
-			return "", fmt.Errorf("адреса %s нет на интерфейсах сервера: сначала подними его (netplan, /etc/network/interfaces или панель хостера)", ip)
+			return "", fmt.Errorf("адрес %s отсутствует на интерфейсах сервера: сначала настройте его (netplan, /etc/network/interfaces или панель хостинг-провайдера)", ip)
 		}
 		if main, err := mainSource(); err == nil && main == ip {
-			return "", fmt.Errorf("%s — основной адрес сервера, через него и так ходят все", ip)
+			return "", fmt.Errorf("%s — основной адрес сервера, через него уже идёт весь трафик", ip)
 		}
-		return "есть", nil
+		return "настроен", nil
 	}); err != nil {
 		return err
 	}
 	if noCheck {
-		u.Warn("выход в интернет с " + ip + " не проверял (--no-check)")
+		u.Warn("доступ в интернет с " + ip + " не проверялся (--no-check)")
 		return nil
 	}
 	_, err := u.Step(ctx, "Выход в интернет", func(ctx context.Context, set func(string)) (string, error) {
@@ -293,9 +293,9 @@ func egressChecks(ctx context.Context, u *ui.UI, ip string, noCheck bool) error 
 			seen, err := probeEgress(ctx, ip)
 			switch {
 			case err == nil && seen == ip:
-				return "снаружи видно " + ip, nil
+				return "внешний адрес: " + ip, nil
 			case err == nil:
-				return "", fmt.Errorf("снаружи виден %s, а не %s: хостер подменяет адрес", seen, ip)
+				return "", fmt.Errorf("внешний адрес %s вместо %s: хостинг-провайдер подменяет адрес", seen, ip)
 			}
 			last = err
 			if i < probeTries {
@@ -306,7 +306,7 @@ func egressChecks(ctx context.Context, u *ui.UI, ip string, noCheck bool) error 
 				}
 			}
 		}
-		return "", fmt.Errorf("с %s нет выхода в интернет (%v): хостер ещё не включил адрес или он привязан к другому серверу; проверь и повтори, или --no-check", ip, last)
+		return "", fmt.Errorf("с %s нет доступа в интернет (%v): адрес ещё не активирован провайдером или привязан к другому серверу; проверьте настройки и повторите или используйте --no-check", ip, last)
 	})
 	return err
 }
@@ -320,7 +320,7 @@ func ipAdd(ctx context.Context, u *ui.UI, in installed, ips []string, ip string,
 		return nil
 	}
 	if len(ips) >= maxEgressIPs {
-		return fmt.Errorf("у ноды уже %d доп. адресов — это максимум", maxEgressIPs)
+		return fmt.Errorf("у ноды уже %d дополнительных адресов, это максимум", maxEgressIPs)
 	}
 	u.Section("Проверки")
 	if err := egressChecks(ctx, u, ip, noCheck); err != nil {
@@ -334,20 +334,20 @@ func ipAdd(ctx context.Context, u *ui.UI, in installed, ips []string, ip string,
 	}
 	u.Line("")
 	u.Box("Готово 🎉", strings.Join([]string{
-		ip + " подключён к ноде. Через полминуты он появится в панели, в карточке ноды —",
-		"там его можно закрепить за юзером с тарифом «выделенный IP».",
+		ip + " подключён к ноде. Примерно через полминуты он появится в панели на странице ноды,",
+		"где его можно закрепить за пользователем с тарифом, включающим выделенный IP.",
 		"",
-		ui.Colored(ui.Yellow, "Порт ноды открыт и на "+ip+". ufw и цепочка INPUT его не закроют — Docker публикует"),
-		ui.Colored(ui.Yellow, "порты в обход них; если вход на этом адресе не нужен, закрывай правилом в цепочке DOCKER-USER."),
+		ui.Colored(ui.Yellow, "Порт ноды доступен и на "+ip+". ufw и цепочка INPUT его не закрывают, так как Docker публикует"),
+		ui.Colored(ui.Yellow, "порты в обход них. Если входящие подключения на этот адрес не нужны, закройте их правилом в цепочке DOCKER-USER."),
 	}, "\n"), ui.Green)
 	return nil
 }
 
 func ipRemove(ctx context.Context, u *ui.UI, in installed, ips []string, ip string, yes bool) error {
 	if !slices.Contains(ips, ip) {
-		return fmt.Errorf("%s у ноды нет: sudo ./sylph ip list", ip)
+		return fmt.Errorf("у ноды нет адреса %s (список: sudo ./sylph ip list)", ip)
 	}
-	u.Warn("если адрес закреплён за юзером в панели, его трафик пойдёт через общий адрес ноды")
+	u.Warn("если адрес закреплён за пользователем в панели, его трафик пойдёт через общий адрес ноды")
 	if err := confirmRecreate(u, "Убрать "+ip+"?", yes); err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func ipRemove(ctx context.Context, u *ui.UI, in installed, ips []string, ip stri
 		return err
 	}
 	_, _ = compose.Exec(ctx, "", "network", "rm", nodeProject+"_"+egressNetwork(ip))
-	u.OK(ip + " отключён от ноды; сам адрес на интерфейсе сервера остался — его снимай сам")
+	u.OK(ip + " отключён от ноды; адрес остался на интерфейсе сервера, удалите его вручную при необходимости")
 	return nil
 }
 
@@ -364,9 +364,9 @@ func confirmRecreate(u *ui.UI, title string, yes bool) error {
 		return nil
 	}
 	if !u.TTY {
-		return errors.New("без терминала меняю адреса только с --yes")
+		return errors.New("без терминала изменение адресов выполняется только с флагом --yes")
 	}
-	ok, err := wizardFor(u).Confirm(title, "контейнеры ноды пересоздадутся: клиенты на ней отвалятся на несколько секунд", true)
+	ok, err := wizardFor(u).Confirm(title, "контейнеры ноды будут пересозданы, подключения клиентов прервутся на несколько секунд", true)
 	if err != nil {
 		return err
 	}
@@ -439,12 +439,12 @@ func applyEgress(ctx context.Context, u *ui.UI, in installed, ips []string) erro
 		return nil
 	}
 	if rerr := restoreFiles(saved); rerr != nil {
-		u.Fail("прежние .env и " + egressFile + " вернуть не вышло: " + rerr.Error())
+		u.Fail("не удалось восстановить прежние .env и " + egressFile + ": " + rerr.Error())
 		return shown(err)
 	}
-	u.Warn("вернул прежние .env и " + egressFile + " и поднимаю роль как была")
+	u.Warn("восстановлены прежние .env и " + egressFile + ", роль запускается в исходной конфигурации")
 	if uerr := compose.Up(context.WithoutCancel(ctx), in.Dir); uerr != nil {
-		u.Fail("не поднялась и с прежними файлами: " + uerr.Error())
+		u.Fail("роль не запустилась и с прежними файлами: " + uerr.Error())
 	}
 	return shown(err)
 }

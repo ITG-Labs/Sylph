@@ -22,17 +22,17 @@ export function BalancerDialog({ open, onOpenChange, doc, balancer, onSave }: { 
   const tagErr = tagProblem(doc, tag.trim(), balancer?.tag)
   const outbounds = doc.outbounds.map((o) => o.tag)
   const prefix = picked.flatMap((t) => [
-    ...outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» — начало «${o}»: xray возьмёт оба, переименуй один`),
-    ...["sylph_block", "sylph_direct"].filter((o) => o.startsWith(t)).map((o) => `«${t}» — начало системного выхода ${o}: xray захватит и его, переименуй выход`),
+    ...outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» совпадает с началом «${o}»: балансировщик xray выбирает выходы по началу тега и включит оба; переименуйте один из выходов`),
+    ...["sylph_block", "sylph_direct"].filter((o) => o.startsWith(t)).map((o) => `«${t}» совпадает с началом системного выхода ${o}: балансировщик xray выбирает выходы по началу тега и включит оба; переименуйте выход`),
   ])
-  const problem = picked.length < 2 ? "отметь хотя бы два выхода" : (prefix[0] ?? null)
+  const problem = picked.length < 2 ? "отметьте не менее двух выходов" : (prefix[0] ?? null)
 
   return (
     <ActionDialog
       open={open}
       onOpenChange={onOpenChange}
       title={balancer ? `Балансировщик ${balancer.tag}` : "Новый балансировщик"}
-      description="раскидывает трафик по нескольким выходам; правила и «весь остальной трафик» могут слать в него, как в выход"
+      description="распределяет трафик между несколькими выходами; правила и остальной трафик можно направлять в балансировщик так же, как в выход"
       consequencesBelow
       consequences={problem ? <p>{problem}</p> : undefined}
       confirmLabel={balancer ? "Готово" : "Добавить"}
@@ -43,7 +43,7 @@ export function BalancerDialog({ open, onOpenChange, doc, balancer, onSave }: { 
         <Field id="bl-tag" label="Тег" error={tag.trim() ? tagErr : null}>
           <Input id="bl-tag" value={tag} onChange={(e) => setTag(e.target.value)} />
         </Field>
-        <Field label="Как выбирать" hint={strategies.find((s) => s.value === strategy)?.hint}>
+        <Field label="Стратегия" hint={strategies.find((s) => s.value === strategy)?.hint}>
           <Select value={strategy} onValueChange={(v) => setStrategy(v as Strategy)}>
             <SelectTrigger>
               <SelectValue />
@@ -67,13 +67,13 @@ export function BalancerDialog({ open, onOpenChange, doc, balancer, onSave }: { 
           ))}
         </div>
       </Field>
-      <Field label="Запасной выход" hint={strategy === "leastPing" ? "если ни один выход не отвечает на проверку" : "куда слать, если выбранные выходы недоступны"}>
+      <Field label="Запасной выход" hint={strategy === "leastPing" ? "используется, если ни один выход не отвечает на проверку" : "используется, если выбранные выходы недоступны"}>
         <Select value={fallback} onValueChange={setFallback}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">без запасного</SelectItem>
+            <SelectItem value="none">без запасного выхода</SelectItem>
             {outbounds.map((t) => (
               <SelectItem key={t} value={t}>
                 {t}

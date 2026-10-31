@@ -20,11 +20,11 @@ import (
 
 const certTTL = 365 * 24 * time.Hour
 
-const certsUsage = `sylph certs <команда> — на своём компьютере, рядом с CA (не на сервере)
+const certsUsage = `sylph certs <команда> — выполняется на компьютере с CA (не на сервере)
 
-  bundle <роль> [--name <имя>]   пакет сертов роли; первый запуск создаст CA
-  list                           серты CA и их сроки
-  revoke <имя>                   отозвать серт`
+  bundle <роль> [--name <имя>]   пакет сертификатов роли; при первом запуске создаётся CA
+  list                           сертификаты CA и сроки их действия
+  revoke <имя>                   отозвать сертификат`
 
 func defaultCADir() string {
 	home, err := os.UserHomeDir()
@@ -37,7 +37,7 @@ func defaultCADir() string {
 func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	if len(args) == 0 {
 		u.Line(certsUsage)
-		return errors.New("нужна команда: bundle, list или revoke")
+		return errors.New("укажите команду: bundle, list или revoke")
 	}
 	switch args[0] {
 	case "bundle":
@@ -50,22 +50,22 @@ func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 		u.Line(certsUsage)
 		return nil
 	}
-	return fmt.Errorf("неизвестная команда certs %q: bundle, list или revoke", args[0])
+	return fmt.Errorf("неизвестная команда certs %q: допустимы bundle, list и revoke", args[0])
 }
 
 func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "certs bundle", "./sylph certs bundle <роль> [флаги]")
-	caDir := fs.String("ca", defaultCADir(), "папка CA")
-	name := fs.String("name", "", "имя серта ноды, например node-de-1 (только для node)")
-	file := fs.Bool("file", false, "вместо строки записать пакет файлом .sylph-certs (для scp)")
-	out := fs.String("out", ".", "куда положить файл пакета (с --file)")
-	yes := fs.Bool("yes", false, "создать CA без вопроса, если его нет")
+	caDir := fs.String("ca", defaultCADir(), "каталог CA")
+	name := fs.String("name", "", "имя сертификата ноды, например node-1 (только для node)")
+	file := fs.Bool("file", false, "записать пакет в файл .sylph-certs вместо вывода строки (для scp)")
+	out := fs.String("out", ".", "каталог для файла пакета (с --file)")
+	yes := fs.Bool("yes", false, "создать CA без подтверждения, если он отсутствует")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return errors.New("укажи роль: ./sylph certs bundle <core|panel|bot|subs|node|monitor>")
+		return errors.New("укажите роль: ./sylph certs bundle <core|panel|bot|subs|node|monitor>")
 	}
 	r, err := role.Get(pos[0])
 	if err != nil {
@@ -75,22 +75,22 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	leafName := r.Name
 	switch {
 	case r.Name == "node" && *name == "" && u.TTY:
-		if *name, err = wz.Input("Имя ноды", "оно же cert_cn ноды в панели, например node-de-1", castore.ValidName); err != nil {
+		if *name, err = wz.Input("Имя ноды", "используется как cert_cn ноды в панели, например node-1", castore.ValidName); err != nil {
 			return err
 		}
 		leafName = *name
 	case r.Name == "node" && *name == "":
-		return errors.New("для ноды нужно имя: --name node-de-1")
+		return errors.New("для ноды укажите имя: --name node-1")
 	case r.Name == "node":
 		leafName = *name
 	case *name != "":
-		return errors.New("--name только для node: у остальных ролей имя серта — имя роли")
+		return errors.New("--name используется только для node: у остальных ролей имя сертификата совпадает с именем роли")
 	}
 	if err := castore.ValidName(leafName); err != nil {
 		return err
 	}
 
-	u.Banner("пакет сертов", "роль "+r.Name+" · CA "+*caDir)
+	u.Banner("пакет сертификатов", "роль "+r.Name+" · CA "+*caDir)
 	if err := ensureCA(ctx, u, wz, *caDir, *yes); err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 			return err
 		}
 		if has {
-			u.Info("серт " + n + " уже есть — беру его")
+			u.Info("сертификат " + n + " уже существует и будет использован")
 			continue
 		}
 		usage, certRole := mtls.ClientUsage, r.Name
@@ -115,7 +115,7 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 		if err := castore.Issue(*caDir, n, usage, certRole, certTTL, now); err != nil {
 			return err
 		}
-		u.OK("выпущен серт " + n + " до " + now.Add(certTTL).Format("02.01.2006"))
+		u.OK("выпущен сертификат " + n + " до " + now.Add(certTTL).Format("02.01.2006"))
 	}
 	b, err := bundle.Collect(*caDir, r.Name, leafName, role.DefaultCoreName, now)
 	if err != nil {
@@ -130,10 +130,10 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 		lines = append(lines, l.Name+ui.Dimmed(" · до "+l.NotAfter.Local().Format("02.01.2006")))
 	}
 	if _, ok := b.Files[bundle.RevokedFile]; ok {
-		lines = append(lines, "revoked.json"+ui.Dimmed(" · список отозванных"))
+		lines = append(lines, "revoked.json"+ui.Dimmed(" · список отозванных сертификатов"))
 	}
-	inside := ui.KV([][2]string{{"внутри", strings.Join(lines, "\n        ")}})
-	keyNote := "\n\n" + ui.Dimmed("ca.key остаётся здесь, в "+*caDir+": на машины он не попадает")
+	inside := ui.KV([][2]string{{"состав", strings.Join(lines, "\n        ")}})
+	keyNote := "\n\n" + ui.Dimmed("ca.key остаётся в "+*caDir+" и не передаётся на серверы")
 	if *file {
 		data, err := b.Encode()
 		if err != nil {
@@ -152,8 +152,8 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 		}
 		shown := displayPath(path)
 		u.Box("Пакет "+r.Name+" готов", ui.KV([][2]string{{"файл", shown}})+"\n"+inside+
-			"\n\n"+ui.Bold("Довезти: ")+"scp "+shown+" root@<машина>:"+
-			"\n"+ui.Dimmed("на машине: sudo sylph install "+r.Name+" --certs ~/"+filepath.Base(path))+keyNote, ui.Green)
+			"\n\n"+ui.Bold("Передача: ")+"scp "+shown+" root@<сервер>:"+
+			"\n"+ui.Dimmed("на сервере: sudo sylph install "+r.Name+" --certs ~/"+filepath.Base(path))+keyNote, ui.Green)
 		return nil
 	}
 	line, err := b.Inline()
@@ -162,11 +162,11 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	clip := "строка ниже"
 	if u.Clipboard(line) {
-		clip = "строка ниже (и в буфере обмена, если терминал умеет)"
+		clip = "строка ниже (также скопирована в буфер обмена, если терминал это поддерживает)"
 	}
-	u.Box("Пакет "+r.Name+" готов — "+clip, inside+
-		"\n\n"+ui.Bold("Дальше: ")+"на машине роли sudo sylph → /install "+r.Name+" → в шаг «Пакет сертов» вставь строку"+
-		"\n"+ui.Dimmed("в строке приватный ключ роли — не пересылай её в чаты; после установки она больше не нужна")+keyNote, ui.Green)
+	u.Box("Пакет "+r.Name+" готов: "+clip, inside+
+		"\n\n"+ui.Bold("Далее: ")+"на сервере роли выполните sudo sylph → /install "+r.Name+" и вставьте строку на шаге «Пакет сертификатов»"+
+		"\n"+ui.Dimmed("строка содержит приватный ключ роли: не пересылайте её через мессенджеры; после установки она больше не нужна")+keyNote, ui.Green)
 	u.Line(line)
 	return nil
 }
@@ -180,20 +180,20 @@ func ensureCA(ctx context.Context, u *ui.UI, wz wizard.Wizard, dir string, yes b
 		return nil
 	}
 	if os.Geteuid() == 0 {
-		return errors.New("CA создаю только на своём компьютере и без sudo: ключ CA не должен жить на сервере")
+		return errors.New("CA создаётся только на компьютере администратора и без sudo: ключ CA не должен храниться на сервере")
 	}
 	if projects, err := compose.Ls(ctx); err == nil {
 		for _, p := range projects {
 			if strings.HasPrefix(p.Name, "sylph-") {
-				return fmt.Errorf("на этой машине стоит роль (%s): CA создают на своём компьютере, а не на сервере", p.Name)
+				return fmt.Errorf("на этом компьютере установлена роль (%s): CA создаётся на компьютере администратора, а не на сервере", p.Name)
 			}
 		}
 	}
 	if !yes {
 		if !u.TTY {
-			return fmt.Errorf("CA в %s нет: создать новый — флаг --yes", dir)
+			return fmt.Errorf("CA в %s не найден: для создания нового используйте флаг --yes", dir)
 		}
-		create, err := wz.Confirm("Создать новый боевой CA в "+dir+"?", "CA ещё нет. Его ключ ca.key останется только здесь, на вашем компьютере; все серты ролей будут подписаны им", true)
+		create, err := wz.Confirm("Создать новый рабочий CA в "+dir+"?", "CA ещё не создан. Его ключ ca.key будет храниться только на этом компьютере; им будут подписаны все сертификаты ролей", true)
 		if err != nil {
 			return err
 		}
@@ -204,13 +204,13 @@ func ensureCA(ctx context.Context, u *ui.UI, wz wizard.Wizard, dir string, yes b
 	if err := castore.Init(dir, "Sylph CA", time.Now()); err != nil {
 		return err
 	}
-	u.OK("создан CA в " + dir + " — сделай копию ca.key офлайн, без него новых сертов не выпустить")
+	u.OK("создан CA в " + dir + ". Сохраните резервную копию ca.key на внешнем носителе: без него выпуск новых сертификатов невозможен")
 	return nil
 }
 
 func certsList(u *ui.UI, args []string) error {
 	fs := newFlags(u, "certs list", "./sylph certs list [флаги]")
-	caDir := fs.String("ca", defaultCADir(), "папка CA")
+	caDir := fs.String("ca", defaultCADir(), "каталог CA")
 	if _, err := parseWithArgs(fs, args); err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func certsList(u *ui.UI, args []string) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("CA в %s нет: его создаст первый `./sylph certs bundle <роль>`", *caDir)
+		return fmt.Errorf("CA в %s не найден: он будет создан при первом запуске `./sylph certs bundle <роль>`", *caDir)
 	}
 	infos, err := castore.List(*caDir)
 	if err != nil {
@@ -253,29 +253,29 @@ func certsList(u *ui.UI, args []string) error {
 		rows = append(rows, [2]string{ci.Name, when})
 	}
 	if len(rows) == 0 {
-		u.Info("в CA пока нет сертов")
+		u.Info("в CA пока нет сертификатов")
 		return nil
 	}
-	u.Box("Серты CA "+*caDir, ui.KV(rows), ui.Accent)
+	u.Box("Сертификаты CA "+*caDir, ui.KV(rows), ui.Accent)
 	return nil
 }
 
 func certsRevoke(u *ui.UI, args []string) error {
 	fs := newFlags(u, "certs revoke", "./sylph certs revoke <имя> [флаги]")
-	caDir := fs.String("ca", defaultCADir(), "папка CA")
-	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
+	caDir := fs.String("ca", defaultCADir(), "каталог CA")
+	yes := fs.Bool("yes", false, "не запрашивать подтверждение")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return errors.New("укажи имя серта: ./sylph certs revoke <имя> (имена — в ./sylph certs list)")
+		return errors.New("укажите имя сертификата: ./sylph certs revoke <имя> (список имён: ./sylph certs list)")
 	}
 	if !*yes {
 		if !u.TTY {
-			return errors.New("без терминала отзываю только с --yes")
+			return errors.New("без терминала отзыв выполняется только с флагом --yes")
 		}
-		ok, err := wizardFor(u).Confirm("Отозвать серт "+pos[0]+"?", "ядро перестанет его пускать после перезапуска с новым revoked.json; вернуть нельзя", false)
+		ok, err := wizardFor(u).Confirm("Отозвать сертификат "+pos[0]+"?", "ядро перестанет принимать его после перезапуска с новым revoked.json; отмена отзыва невозможна", false)
 		if err != nil {
 			return err
 		}
@@ -286,8 +286,8 @@ func certsRevoke(u *ui.UI, args []string) error {
 	if err := castore.Revoke(*caDir, pos[0]); err != nil {
 		return err
 	}
-	u.OK("серт " + pos[0] + " отозван")
-	u.Info("дальше: sylph certs bundle core → на машине ядра sudo sylph install core и вставь новый пакет")
+	u.OK("сертификат " + pos[0] + " отозван")
+	u.Info("далее: выполните sylph certs bundle core, затем на сервере ядра sudo sylph install core и вставьте новый пакет")
 	return nil
 }
 

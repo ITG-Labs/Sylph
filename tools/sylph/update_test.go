@@ -113,7 +113,7 @@ func TestSelfUpdateKeepsGoingWithoutANewerRelease(t *testing.T) {
 			if data, _ := os.ReadFile(exe); string(data) != "old" {
 				t.Fatalf("binary touched: %q", data)
 			}
-			if name == "github down" && !strings.Contains(out.String(), "не смог проверить") {
+			if name == "github down" && !strings.Contains(out.String(), "не удалось проверить") {
 				t.Fatalf("no warning: %s", out)
 			}
 		})

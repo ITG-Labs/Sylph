@@ -19,8 +19,8 @@ import type { Payment, PaymentActionResult } from "@/lib/types"
 type Action = "apply" | "reject" | "refund"
 
 const providerStatus: Record<string, string> = {
-  pending: "ждёт оплаты",
-  waiting_for_capture: "ждёт подтверждения",
+  pending: "ожидает оплаты",
+  waiting_for_capture: "ожидает подтверждения",
   succeeded: "оплачен",
   canceled: "отменён",
 }
@@ -64,7 +64,7 @@ export function PaymentPage() {
   }
   const act = (a: Action) => async (reason: string) => {
     const res = await core.post<PaymentActionResult>(`${path}/${a}`, { reason })
-    if (a === "reject") toast.success(`Итог: ${paymentStatusLabel(res.status)}`)
+    if (a === "reject") toast.success(`Результат: ${paymentStatusLabel(res.status)}`)
     setRecheck(null)
     await refresh()
   }
@@ -85,7 +85,7 @@ export function PaymentPage() {
         description={
           <span className="flex items-center gap-1 font-mono text-xs">
             {p.payment_id}
-            <CopyButton value={p.payment_id} label="Скопировать id платежа" />
+            <CopyButton value={p.payment_id} label="Скопировать ID платежа" />
           </span>
         }
         actions={
@@ -132,12 +132,12 @@ export function PaymentPage() {
                     {recheck.provider.refunded && recheck.provider.refunded !== "0.00" ? `, возвращено ${recheck.provider.refunded} ₽` : ""}
                   </div>
                   <div className="text-muted-foreground">
-                    {recheck.applied ? "Платёж проведён — юзер получил период." : `У нас: ${paymentStatusLabel(recheck.status)}.`}
-                    {recheck.status === "succeeded" && recheck.provider.refunded && recheck.provider.refunded !== "0.00" && " Деньги вернули — отметь возврат, чтобы закрыть период."}
+                    {recheck.applied ? "Платёж проведён, пользователь получил период." : `Статус в панели: ${paymentStatusLabel(recheck.status)}.`}
+                    {recheck.status === "succeeded" && recheck.provider.refunded && recheck.provider.refunded !== "0.00" && " Средства возвращены: отметьте возврат, чтобы закрыть период."}
                   </div>
                 </div>
               ) : (
-                <div className="font-medium">ЮKassa такого платежа не знает</div>
+                <div className="font-medium">Платёж не найден в ЮKassa</div>
               )}
             </div>
           ) : null}
@@ -146,7 +146,7 @@ export function PaymentPage() {
 
       <Section title="Подробности">
         <div className="flex flex-col">
-          <Row label="Юзер">
+          <Row label="Пользователь">
             <Link to={`/users/${p.user_id}`} className="text-primary hover:underline">
               {p.telegram_id ?? "—"} · № {p.user_id}
             </Link>
@@ -166,9 +166,9 @@ export function PaymentPage() {
       <ActionDialog
         open={action === "apply"}
         onOpenChange={(v) => !v && setAction(null)}
-        title="Провести всё равно"
-        consequences={<p>Юзер получит период по обычным правилам оплаты: тот же тариф — в очередь, другой — сразу, остаток текущего сгорит.</p>}
-        reason={{ label: "Причина", required: true, placeholder: "например: доплатил разницу переводом" }}
+        title="Провести платёж"
+        consequences={<p>Пользователь получит период по обычным правилам оплаты: тот же тариф встанет в очередь, другой начнёт действовать сразу, остаток текущего периода будет аннулирован.</p>}
+        reason={{ label: "Причина", required: true, placeholder: "например, разница доплачена переводом" }}
         confirmLabel="Провести"
         success="Платёж проведён"
         onConfirm={act("apply")}
@@ -179,13 +179,13 @@ export function PaymentPage() {
         title="Отклонить платёж"
         consequences={
           stuckPending ? (
-            <p>Ядро сначала спросит ЮKassa: если там окончательный статус — запишется он (оплачен — проведётся); если ЮKassa платёж не знает или он висит дольше суток — отклонится; моложе суток — откажет.</p>
+            <p>Ядро сначала запросит статус в ЮKassa. Окончательный статус будет сохранён (оплаченный платёж будет проведён). Если платёж не найден в ЮKassa или ожидает оплаты дольше суток, он будет отклонён. Платёж, созданный менее суток назад, отклонить нельзя.</p>
           ) : (
-            <p>Платёж станет отклонённым, период не выдаётся. Если деньги всё же пришли — его можно будет провести позже.</p>
+            <p>Платёж будет отклонён, период не выдаётся. Если оплата всё же поступит, платёж можно провести позже.</p>
           )
         }
         destructive
-        reason={{ label: "Причина", required: true, placeholder: "например: сумма не сходится, деньги вернули" }}
+        reason={{ label: "Причина", required: true, placeholder: "например, сумма не совпадает" }}
         confirmLabel="Отклонить"
         onConfirm={act("reject")}
       />
@@ -195,12 +195,12 @@ export function PaymentPage() {
         title="Отметить возврат"
         consequences={
           <>
-            <p className="font-medium">Панель деньги не двигает — верни их сам в кабинете ЮKassa{p.source === "manual" ? " или как платил юзер" : ""}.</p>
-            <p>Платёж станет «возвращён», его период закроется, если ещё идёт или ждёт в очереди.</p>
+            <p className="font-medium">Панель не выполняет возврат средств: верните их в личном кабинете ЮKassa{p.source === "manual" ? " или тем способом, которым была проведена оплата" : ""}.</p>
+            <p>Платёж получит статус «возвращён»; связанный период будет закрыт, если он действует или ожидает в очереди.</p>
           </>
         }
         destructive
-        reason={{ label: "Причина", required: true, placeholder: "например: вернул в кабинете, юзер передумал" }}
+        reason={{ label: "Причина", required: true, placeholder: "например, возврат по запросу пользователя" }}
         confirmLabel="Отметить возврат"
         success="Возврат отмечен"
         onConfirm={act("refund")}

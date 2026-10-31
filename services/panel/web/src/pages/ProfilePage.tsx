@@ -114,7 +114,7 @@ export function ProfilePage() {
   const close = (v: boolean) => !v && setDialog(null)
   const update = (fn: (d: RoutingDoc) => RoutingDoc) => setDraft((d) => (d ? fn(structuredClone(d)) : d))
   const stale = dirty && seen.current !== null && seen.current !== saved.revision
-  const problems = stale ? ["Профиль уже сохранил кто-то другой — «Отменить» загрузит новую версию"] : docProblems(doc)
+  const problems = stale ? ["Профиль был сохранён другим администратором; «Отменить» загрузит актуальную версию"] : docProblems(doc)
   const general = doc.rules.map((r, i) => ({ r, i })).filter(({ r }) => !isPlanRule(r))
   const byPlan = doc.rules.map((r, i) => ({ r, i })).filter(({ r }) => isPlanRule(r))
   const leastPing = doc.balancers.some((b) => b.strategy === "leastPing")
@@ -217,7 +217,7 @@ export function ProfilePage() {
           <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
             <Section
               title="Правила"
-              description="xray идёт по списку сверху вниз и берёт первое подошедшее"
+              description="xray проверяет правила сверху вниз и применяет первое подходящее"
               action={
                 <div className="flex gap-2">
                   <DropdownMenu>
@@ -244,13 +244,13 @@ export function ProfilePage() {
               }
             >
               {doc.rules.length === 0 ? (
-                <Empty>Правил нет — весь трафик идёт по «всему остальному»</Empty>
+                <Empty>Правил нет; весь трафик направляется по правилу для остального трафика</Empty>
               ) : (
                 <div className="flex flex-col gap-2">
                   {general.map((x, k) => ruleRow(x, k === 0, k === general.length - 1))}
                   {byPlan.length > 0 && (
                     <>
-                      <div className="mt-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">по тарифу — после остальных, меняются без перезапуска xray</div>
+                      <div className="mt-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">правила по тарифам применяются после остальных и изменяются без перезапуска xray</div>
                       {byPlan.map((x, k) => ruleRow(x, k === 0, k === byPlan.length - 1))}
                     </>
                   )}
@@ -260,7 +260,7 @@ export function ProfilePage() {
 
             <Section
               title="Выходы"
-              description="куда правила могут отправить трафик"
+              description="направления, в которые правила могут отправлять трафик"
               action={
                 <Button size="sm" onClick={() => setDialog({ kind: "outbound" })}>
                   <Plus />
@@ -269,7 +269,7 @@ export function ProfilePage() {
               }
             >
               {doc.outbounds.length === 0 ? (
-                <Empty>Выходов нет — нужен хотя бы один</Empty>
+                <Empty>Выходов нет; нужен хотя бы один выход</Empty>
               ) : (
                 <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                   {doc.outbounds.map((o, i) => (
@@ -304,7 +304,7 @@ export function ProfilePage() {
                 <div className="flex flex-col gap-2">
                   <div className="text-sm font-medium">Ноды</div>
                   {saved.node_ids.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">профиль назначают на странице ноды</p>
+                    <p className="text-xs text-muted-foreground">профиль назначается на странице ноды</p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {saved.node_ids.map((nid) => (
@@ -318,10 +318,10 @@ export function ProfilePage() {
               </div>
             </Section>
 
-            <Section title="Весь остальной трафик" description="что не подошло ни под одно правило">
+            <Section title="Остальной трафик" description="трафик, не подходящий ни под одно правило">
               <Select value={doc.default} onValueChange={(v) => update((x) => ({ ...x, default: v }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="выбери выход" />
+                  <SelectValue placeholder="Выберите выход" />
                 </SelectTrigger>
                 <SelectContent>
                   {targets(doc).map((t) => (
@@ -335,7 +335,7 @@ export function ProfilePage() {
 
             <Section
               title="Балансировщики"
-              description="несколько выходов под одним тегом"
+              description="группа выходов под одним тегом"
               action={
                 <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "balancer" })} disabled={doc.outbounds.length < 2}>
                   <Plus />
@@ -372,7 +372,7 @@ export function ProfilePage() {
             </Section>
 
             {leastPing && (
-              <Section title="Проверка скорости" description="для «самого быстрого»: xray дёргает ссылку через каждый выход">
+              <Section title="Проверка задержки" description="для стратегии «Наименьшая задержка»: xray периодически запрашивает ссылку через каждый выход">
                 <div className="grid grid-cols-[1fr_6rem] gap-3">
                   <Field id="pr-url" label="Ссылка">
                     <Input id="pr-url" value={doc.probe.url} onChange={(e) => update((x) => ({ ...x, probe: { ...x.probe, url: e.target.value } }))} className="font-mono text-xs" />
@@ -438,7 +438,7 @@ export function ProfilePage() {
         open={!!delOutbound}
         onOpenChange={close}
         title={`Удалить выход ${delOutbound?.tag ?? ""}`}
-        consequences={delOutbound && usages(doc, delOutbound.tag).length > 0 ? <p>Он нужен: {usages(doc, delOutbound.tag).join(", ")}. Сначала перенаправь их.</p> : undefined}
+        consequences={delOutbound && usages(doc, delOutbound.tag).length > 0 ? <p>Выход используется: {usages(doc, delOutbound.tag).join(", ")}. Сначала измените направление.</p> : undefined}
         destructive
         canConfirm={!!delOutbound && usages(doc, delOutbound.tag).length === 0}
         confirmLabel="Удалить"
@@ -466,7 +466,7 @@ export function ProfilePage() {
         open={!!delBalancer}
         onOpenChange={close}
         title={`Удалить балансировщик ${delBalancer?.tag ?? ""}`}
-        consequences={delBalancer && usages(doc, delBalancer.tag).length > 0 ? <p>Он нужен: {usages(doc, delBalancer.tag).join(", ")}. Сначала перенаправь их.</p> : undefined}
+        consequences={delBalancer && usages(doc, delBalancer.tag).length > 0 ? <p>Балансировщик используется: {usages(doc, delBalancer.tag).join(", ")}. Сначала измените направление.</p> : undefined}
         destructive
         canConfirm={!!delBalancer && usages(doc, delBalancer.tag).length === 0}
         confirmLabel="Удалить"
@@ -498,13 +498,13 @@ export function ProfilePage() {
           saved.nodes === 0 ? undefined : restart ? (
             <>
               <p>
-                {saved.nodes} {plural(saved.nodes, "нода перезапустит", "ноды перезапустят", "нод перезапустят")} xray — открытые соединения на {saved.nodes === 1 ? "ней" : "них"} оборвутся.
+                {saved.nodes} {plural(saved.nodes, "нода перезапустит", "ноды перезапустят", "нод перезапустят")} xray, открытые соединения на {saved.nodes === 1 ? "ней" : "них"} прервутся.
               </p>
-              <p>Если нужной geo-базы на ноде ещё нет, нода подождёт её и применит профиль, когда скачает.</p>
-              {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} тоже перезапустят xray, если на них самих стоит профиль: у них меняется список служебных ключей.</p>}
+              <p>Если нужной geo-базы на ноде ещё нет, нода применит профиль после её загрузки.</p>
+              {exits.length > 0 && <p>Ноды-выходы {exits.map((x) => `«${nodeName(x)}»`).join(", ")} также перезапустят xray, если на них назначен профиль: у них изменится список служебных ключей.</p>}
             </>
           ) : (
-            <p>Меняются только правила по тарифу — ноды подхватят их без перезапуска.</p>
+            <p>Изменяются только правила по тарифам; ноды применят их без перезапуска.</p>
           )
         }
         destructive={saved.nodes > 0 && restart}
@@ -528,7 +528,7 @@ export function ProfilePage() {
         open={dialog?.kind === "delete"}
         onOpenChange={close}
         title={`Удалить профиль «${saved.name}»`}
-        consequences={saved.nodes > 0 ? <p>Профиль назначен {saved.nodes} {plural(saved.nodes, "ноде", "нодам", "нодам")} — сначала переключи их на другой профиль или сними.</p> : <p>Профиль ни на одной ноде, удаление ничего не задевает.</p>}
+        consequences={saved.nodes > 0 ? <p>Профиль назначен {saved.nodes} {plural(saved.nodes, "ноде", "нодам", "нодам")}. Сначала назначьте этим нодам другой профиль или снимите его.</p> : <p>Профиль не назначен ни одной ноде, удаление ни на что не повлияет.</p>}
         destructive
         canConfirm={saved.nodes === 0}
         confirmLabel="Удалить"
@@ -552,8 +552,8 @@ function PreviewPanel({ profile, nodes, dirty }: { profile: Profile; nodes: { id
   const text = preview.data ? JSON.stringify(preview.data, null, 2) : ""
   return (
     <Section
-      title="Что получит xray"
-      description={dirty ? "сохранённая версия — несохранённые правки сюда не попали; секреты скрыты" : "секреты скрыты; правила по тарифу агент держит отдельно — они в plan_rules"}
+      title="Конфигурация xray"
+      description={dirty ? "сохранённая версия без несохранённых изменений; секреты скрыты" : "секреты скрыты; правила по тарифам агент хранит отдельно, в plan_rules"}
       action={
         <div className="flex items-center gap-2">
           <Select value={nodeId} onValueChange={setNodeId}>

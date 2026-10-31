@@ -7,7 +7,7 @@ export function PlaceholderPage({ title }: { title: string }) {
       <PageHeader title={title} />
       <div className="glass-thin flex flex-col items-center gap-3 rounded-2xl py-16 text-muted-foreground">
         <Construction className="size-8" />
-        <p>Этот экран ещё в работе</p>
+        <p>Проверьте адрес страницы.</p>
       </div>
     </>
   )

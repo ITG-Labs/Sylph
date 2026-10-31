@@ -336,7 +336,7 @@ func (m *stepModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			m.cancel()
-			m.detail = "отменяю…"
+			m.detail = "отмена…"
 		}
 	case spinner.TickMsg:
 		var cmd tea.Cmd
