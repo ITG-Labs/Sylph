@@ -62,17 +62,17 @@ type Plan struct {
 	Name              string     `json:"name"`
 	PriceRub          int64      `json:"price_rub"`
 	PeriodDays        int        `json:"period_days"`
-	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
 	DeviceLimit       *int       `json:"device_limit"`
 	OnSale            bool       `json:"on_sale"`
 	HWIDRequired      bool       `json:"hwid_required"`
 	Trial             bool       `json:"trial"`
 	Visibility        string     `json:"visibility"`
 	Pools             []PlanPool `json:"pools"`
+	FreeInbounds      int        `json:"free_inbounds"`
 }
 
 type PlanPool struct {
-	Label             string `json:"label"`
+	Name              string `json:"name"`
 	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
 }
 
@@ -89,7 +89,6 @@ type Period struct {
 	StartsAt          time.Time   `json:"starts_at"`
 	ExpiresAt         time.Time   `json:"expires_at"`
 	TrafficUsedBytes  int64       `json:"traffic_used_bytes"`
-	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
 	TrafficExhausted  bool        `json:"traffic_exhausted"`
 	MainIdle          bool        `json:"main_idle"`
 	Pools             []PoolUsage `json:"pools"`

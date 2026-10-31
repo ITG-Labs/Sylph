@@ -33,8 +33,8 @@ func TestBannedUserGetsNoAnswerAtAll(t *testing.T) {
 
 func TestStatusCountsTheTrafficBonus(t *testing.T) {
 	st := activeStatus()
-	st.Subscription.TrafficUsedBytes = 100 << 30
-	st.Subscription.TrafficLimitBytes = i64(150 << 30)
+	st.Subscription.Pools[0].UsedBytes = 100 << 30
+	st.Subscription.Pools[0].TrafficLimitBytes = i64(150 << 30)
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
