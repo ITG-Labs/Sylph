@@ -35,7 +35,7 @@ func TestSyncNodeUsers(t *testing.T) {
 	if _, err := svc.store.ApplyPayment(ctx, u1.ID, pGroup.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	pAll := &model.Plan{Name: "all", PriceRub: 200, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
+	pAll := &model.Plan{Name: "all", PriceRub: 200, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, pAll); err != nil {
 		t.Fatal(err)
 	}

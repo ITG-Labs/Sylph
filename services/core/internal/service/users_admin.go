@@ -88,7 +88,10 @@ func (s *Service) AddTraffic(ctx context.Context, userID int64, poolID *int64, b
 	if bytes < 1 || bytes > maxBonusBytes {
 		return nil, fieldErr("bytes", "must be 1 byte to 1 PiB")
 	}
-	sub, err := s.store.AddTrafficBonus(ctx, userID, poolID, bytes, time.Now().UTC())
+	if poolID == nil || *poolID <= 0 {
+		return nil, fieldErr("pool_id", "required")
+	}
+	sub, err := s.store.AddTrafficBonus(ctx, userID, *poolID, bytes, time.Now().UTC())
 	if err != nil {
 		return nil, adminErr(err)
 	}

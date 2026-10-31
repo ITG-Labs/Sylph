@@ -151,25 +151,24 @@ func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePlanCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name              string           `json:"name"`
-		PriceRub          int64            `json:"price_rub"`
-		PeriodDays        int              `json:"period_days"`
-		TrafficLimitBytes *int64           `json:"traffic_limit_bytes"`
-		LocationGroupID   *int64           `json:"location_group_id"`
-		DeviceLimit       *int             `json:"device_limit"`
-		HWIDRequired      *bool            `json:"hwid_required"`
-		Trial             bool             `json:"trial"`
-		Visibility        string           `json:"visibility"`
-		OnSale            *bool            `json:"on_sale"`
-		DedicatedIP       bool             `json:"dedicated_ip"`
-		Pools             []model.PlanPool `json:"pools"`
+		Name            string           `json:"name"`
+		PriceRub        int64            `json:"price_rub"`
+		PeriodDays      int              `json:"period_days"`
+		LocationGroupID *int64           `json:"location_group_id"`
+		DeviceLimit     *int             `json:"device_limit"`
+		HWIDRequired    *bool            `json:"hwid_required"`
+		Trial           bool             `json:"trial"`
+		Visibility      string           `json:"visibility"`
+		OnSale          *bool            `json:"on_sale"`
+		DedicatedIP     bool             `json:"dedicated_ip"`
+		Pools           []model.PlanPool `json:"pools"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
 	p := &model.Plan{
 		Name: body.Name, PriceRub: body.PriceRub, PeriodDays: body.PeriodDays,
-		TrafficLimitBytes: body.TrafficLimitBytes, LocationGroupID: body.LocationGroupID, DeviceLimit: body.DeviceLimit,
+		LocationGroupID: body.LocationGroupID, DeviceLimit: body.DeviceLimit,
 		HWIDRequired: body.DeviceLimit != nil, Trial: body.Trial, Visibility: body.Visibility, DedicatedIP: body.DedicatedIP,
 		Pools: body.Pools,
 	}

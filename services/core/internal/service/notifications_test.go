@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
@@ -43,7 +44,8 @@ func sameKinds(got []Notification, want ...string) bool {
 func trafficCand(used, limit int64) store.NotifyCandidate {
 	now := time.Now()
 	return store.NotifyCandidate{UserID: 1, TelegramID: 10, PeriodID: i64(7), PeriodStarts: at(now.Add(-day)),
-		PeriodEnds: at(now.Add(20 * day)), PaidUntil: at(now.Add(20 * day)), UsedBytes: used, LimitBytes: &limit}
+		PeriodEnds: at(now.Add(20 * day)), PaidUntil: at(now.Add(20 * day)), MainIdle: true,
+		Pools: []store.PoolTraffic{{ID: 1, Name: "Основной", Used: used, Limit: &limit}}}
 }
 
 func TestDueForTrafficBoundaries(t *testing.T) {
@@ -69,7 +71,7 @@ func TestDueForTrafficBoundaries(t *testing.T) {
 		}
 	}
 	n := dueFor(trafficCand(800, 1000), now, allOn)[0]
-	if n.Ref != "7:0" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
+	if n.Ref != "7:0:1" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
 		t.Fatalf("traffic notification = %+v", n)
 	}
 	off := allOn
@@ -163,23 +165,23 @@ func TestDueForExpired(t *testing.T) {
 func TestDueForPools(t *testing.T) {
 	now := time.Now()
 	c := trafficCand(100, 1000)
-	c.Pools = []store.PoolTraffic{{ID: 3, Name: "Премиум", Used: 96, Bonus: 5, Limit: i64(100)}, {ID: 4, Name: "Без лимита", Used: 1 << 40}}
+	c.Pools = append(c.Pools, store.PoolTraffic{ID: 3, Name: "Премиум", Used: 96, Bonus: 5, Limit: i64(100)}, store.PoolTraffic{ID: 4, Name: "Без лимита", Used: 1 << 40})
 	got := dueFor(c, now, allOn)
 	if len(got) != 1 || got[0].Kind != "traffic_95" || got[0].Ref != "7:5:3" || got[0].PoolID == nil || *got[0].PoolID != 3 ||
 		got[0].PoolName != "Премиум" || !got[0].MultiPool || *got[0].TrafficUsedBytes != 96 {
 		t.Fatalf("pool notifications = %+v", got)
 	}
-	c.UsedBytes = 1000
-	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_out", "traffic_95") || got[0].PoolID != nil || got[0].Ref != "7:0" || !got[0].MultiPool {
-		t.Fatalf("main and pool = %+v", got)
-	}
-	c.MainIdle = true
-	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_95") {
-		t.Fatalf("an idle main pool must stay quiet: %v", kinds(got))
+	c.Pools[0].Used = 1000
+	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_out", "traffic_95") || *got[0].PoolID != 1 || got[0].Ref != "7:0:1" || !got[0].MultiPool {
+		t.Fatalf("two pools = %+v", got)
 	}
 	plain := trafficCand(1000, 1000)
-	if got := dueFor(plain, now, allOn); got[0].MultiPool || got[0].PoolName != "" {
-		t.Fatalf("a single-pool plan = %+v", got[0])
+	if got := dueFor(plain, now, allOn); got[0].MultiPool {
+		t.Fatalf("one pool over everything the plan sees reads as plain traffic: %+v", got[0])
+	}
+	plain.MainIdle = false
+	if got := dueFor(plain, now, allOn); !got[0].MultiPool {
+		t.Fatalf("one pool next to unlimited inbounds must be named: %+v", got[0])
 	}
 }
 
@@ -197,7 +199,7 @@ func TestMarkNotifiedAcceptsPoolRefs(t *testing.T) {
 func TestDueForTrafficAndExpiryTogether(t *testing.T) {
 	now := time.Now()
 	c := expiryCand(now, 29*day, time.Hour, false)
-	c.UsedBytes, c.LimitBytes = 1000, i64(1000)
+	c.MainIdle, c.Pools = true, []store.PoolTraffic{{ID: 1, Name: "Основной", Used: 1000, Limit: i64(1000)}}
 	if got := dueFor(c, now, allOn); !sameKinds(got, "traffic_out", "expiry_1h") {
 		t.Fatalf("both = %v", kinds(got))
 	}
@@ -206,9 +208,12 @@ func TestDueForTrafficAndExpiryTogether(t *testing.T) {
 func notifyFixture(t *testing.T) (*Service, *model.Plan, *model.User) {
 	t.Helper()
 	svc := setupService(t)
-	limit := int64(1000)
-	plan := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, svc.store)}
+	plan := &model.Plan{Name: "month", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	visibleNode(t, svc, "notify-node")
+	if _, err := store.LimitAllForTests(context.Background(), poolOf(svc), plan.ID, 1000); err != nil {
 		t.Fatal(err)
 	}
 	u, _, err := svc.store.RegisterTelegramUser(context.Background(), 777, model.NewToken(), model.NewUUID())
@@ -222,11 +227,43 @@ func insertPeriodAt(t *testing.T, svc *Service, userID, planID int64, starts, ex
 	t.Helper()
 	var id int64
 	if err := poolOf(svc).QueryRow(context.Background(),
-		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		userID, planID, starts, expires, used).Scan(&id); err != nil {
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES ($1, $2, $3, $4) RETURNING id`,
+		userID, planID, starts, expires).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
+	setPeriodUsage(t, svc, id, "used_bytes", used)
 	return id
+}
+
+func setPeriodUsage(t *testing.T, svc *Service, periodID int64, column string, v int64) {
+	t.Helper()
+	ctx := context.Background()
+	tag, err := poolOf(svc).Exec(ctx,
+		`INSERT INTO period_pool_usage (period_id, pool_id, `+column+`)
+		 SELECT s.id, pp.id, $2 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id AND pp.name = $3 WHERE s.id = $1
+		 ON CONFLICT (period_id, pool_id) DO UPDATE SET `+column+` = EXCLUDED.`+column, periodID, v, store.TestMainPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() == 0 && column == "used_bytes" {
+		if _, err := poolOf(svc).Exec(ctx, `UPDATE subscriptions SET traffic_used_bytes = $2 WHERE id = $1`, periodID, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func visibleNode(t *testing.T, svc *Service, cn string) *model.Node {
+	t.Helper()
+	ctx := context.Background()
+	n := &model.Node{CertCN: cn, Name: cn}
+	if err := svc.store.UpsertNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	spec := inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"www." + cn + ".example.org"}}}
+	if _, err := svc.CreateInbound(ctx, n.ID, spec); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func due(t *testing.T, svc *Service, now time.Time) []Notification {
@@ -247,7 +284,6 @@ func mark(t *testing.T, svc *Service, n Notification, outcome string) {
 
 func TestDueNotificationsOnlyMoreUrgentAfterMark(t *testing.T) {
 	svc, plan, u := notifyFixture(t)
-	ctx := context.Background()
 	now := time.Now()
 	period := insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(-27*day), now.Add(2*day), 850)
 	got := due(t, svc, now)
@@ -260,9 +296,7 @@ func TestDueNotificationsOnlyMoreUrgentAfterMark(t *testing.T) {
 	if got := due(t, svc, now); len(got) != 0 {
 		t.Fatalf("after marks = %v", kinds(got))
 	}
-	if _, err := poolOf(svc).Exec(ctx, `UPDATE subscriptions SET traffic_used_bytes = 1000 WHERE id = $1`, period); err != nil {
-		t.Fatal(err)
-	}
+	setPeriodUsage(t, svc, period, "used_bytes", 1000)
 	got = due(t, svc, now.Add(36*time.Hour))
 	if !sameKinds(got, "traffic_out", "expiry_1d") {
 		t.Fatalf("later = %v", kinds(got))
@@ -289,17 +323,14 @@ func TestDueNotificationsSkipLessUrgentAfterJump(t *testing.T) {
 
 func TestDueNotificationsNewPointAfterBonusAndRenewal(t *testing.T) {
 	svc, plan, u := notifyFixture(t)
-	ctx := context.Background()
 	now := time.Now()
 	period := insertPeriodAt(t, svc, u.ID, plan.ID, now.Add(-27*day), now.Add(2*day), 850)
 	for _, n := range due(t, svc, now) {
 		mark(t, svc, n, "sent")
 	}
-	if _, err := poolOf(svc).Exec(ctx, `UPDATE subscriptions SET traffic_bonus_bytes = 50 WHERE id = $1`, period); err != nil {
-		t.Fatal(err)
-	}
+	setPeriodUsage(t, svc, period, "bonus_bytes", 50)
 	got := due(t, svc, now)
-	if !sameKinds(got, "traffic_80") || got[0].Ref != trafficRef(period, 50) {
+	if !sameKinds(got, "traffic_80") || got[0].Ref != poolRef(period, 50, *got[0].PoolID) {
 		t.Fatalf("after bonus = %+v", got)
 	}
 	mark(t, svc, got[0], "sent")
@@ -426,7 +457,7 @@ func TestDueNotificationsPlanLimitEditKeepsThePoint(t *testing.T) {
 		t.Fatalf("first = %v", kinds(got))
 	}
 	mark(t, svc, got[0], "sent")
-	if _, err := poolOf(svc).Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 1100 WHERE id = $1`, plan.ID); err != nil {
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE plan_pools SET traffic_limit_bytes = 1100 WHERE plan_id = $1`, plan.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := due(t, svc, now); len(got) != 0 {
@@ -440,7 +471,7 @@ func TestDueNotificationsPlanLimitEditKeepsThePoint(t *testing.T) {
 	if got := due(t, svc, now); len(got) != 0 {
 		t.Fatalf("45%% user warned: %v", kinds(got))
 	}
-	if _, err := poolOf(svc).Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 600 WHERE id = $1`, plan.ID); err != nil {
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE plan_pools SET traffic_limit_bytes = 600 WHERE plan_id = $1`, plan.ID); err != nil {
 		t.Fatal(err)
 	}
 	got = due(t, svc, now)

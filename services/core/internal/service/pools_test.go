@@ -57,6 +57,11 @@ func TestPlanPoolsAreValidated(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
 	n := poolNode(t, svc, "n1")
+	views, err := svc.ListInbounds(ctx, n.ID)
+	if err != nil || len(views) != 1 {
+		t.Fatalf("inbounds = %+v, %v", views, err)
+	}
+	in := views[0].ID
 	group := testGroup(t, svc.store)
 	p := &model.Plan{Name: "m", PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic, LocationGroupID: group}
 	if err := svc.CreatePlanChecked(ctx, p); err != nil {
@@ -66,12 +71,14 @@ func TestPlanPoolsAreValidated(t *testing.T) {
 	long := string(make([]rune, 65))
 	for _, pools := range [][]model.PlanPool{
 		{{}},
-		{{NodeID: &n.ID, GroupID: group}},
-		{{NodeID: &n.ID, TrafficLimitBytes: &zero}},
-		{{NodeID: &missing}},
-		{{GroupID: &missing}},
-		{{ID: missing, NodeID: &n.ID}},
-		{{NodeID: &n.ID, Name: long}},
+		{{Name: "   "}},
+		{{Name: "x", TrafficLimitBytes: &zero}},
+		{{Name: "x", InboundIDs: []int64{missing}}},
+		{{Name: "x", InboundIDs: []int64{-1}}},
+		{{ID: missing, Name: "x"}},
+		{{Name: long}},
+		{{Name: "x", InboundIDs: []int64{in}}, {Name: "y", InboundIDs: []int64{in}}},
+		{{Name: "x", InboundIDs: []int64{in, in}}},
 	} {
 		_, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{Pools: &pools})
 		var fe *FieldError
@@ -79,20 +86,14 @@ func TestPlanPoolsAreValidated(t *testing.T) {
 			t.Fatalf("pools %+v: err = %v, want a field error on pools", pools, err)
 		}
 	}
-	if err := svc.SetGroupMembers(ctx, *group, []int64{n.ID}, nil); err != nil {
-		t.Fatal(err)
-	}
-	overlap := []model.PlanPool{{NodeID: &n.ID}, {GroupID: group}}
-	_, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{Pools: &overlap})
-	wantField(t, err, "pools")
 	limit := int64(100)
-	good := []model.PlanPool{{Name: "Премиум", NodeID: &n.ID, TrafficLimitBytes: &limit}}
+	good := []model.PlanPool{{Name: "Премиум", InboundIDs: []int64{in}, TrafficLimitBytes: &limit}}
 	got, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{Pools: &good})
-	if err != nil || len(got.Pools) != 1 || got.Pools[0].ID == 0 || got.Pools[0].Name != "Премиум" {
+	if err != nil || len(got.Pools) != 1 || got.Pools[0].ID == 0 || got.Pools[0].Name != "Премиум" || !slices.Equal(got.Pools[0].InboundIDs, []int64{in}) {
 		t.Fatalf("pools = %+v, %v", got, err)
 	}
 	renamed, err := svc.UpdatePlan(ctx, p.ID, PlanPatch{Name: new("renamed")})
-	if err != nil || len(renamed.Pools) != 1 || renamed.Pools[0].ID != got.Pools[0].ID {
+	if err != nil || len(renamed.Pools) != 1 || renamed.Pools[0].ID != got.Pools[0].ID || !slices.Equal(renamed.Pools[0].InboundIDs, []int64{in}) {
 		t.Fatalf("a patch without pools must keep them: %+v, %v", renamed, err)
 	}
 	var patch PlanPatch
@@ -165,17 +166,29 @@ func TestGroupMembersAndDelete(t *testing.T) {
 	}
 }
 
-func TestSubscriptionTotalsSkipAnIdleMainPool(t *testing.T) {
+func TestSubscriptionTotalsFollowPoolsAndFreeInbounds(t *testing.T) {
 	f := newSubFixture(t, nil, nil)
-	f.node(t, "alpha", &f.group.ID, true, "main")
+	ctx := context.Background()
+	n := f.node(t, "alpha", &f.group.ID, true, "main", "spare")
+	views, err := f.svc.ListInbounds(ctx, n.ID)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("inbounds = %+v, %v", views, err)
+	}
 	limit := int64(100)
-	pools := []model.PlanPool{{GroupID: &f.group.ID, TrafficLimitBytes: &limit}}
-	if _, err := f.svc.UpdatePlan(context.Background(), f.plan.ID, PlanPatch{Pools: &pools}); err != nil {
+	pools := []model.PlanPool{{Name: "Основной", InboundIDs: []int64{views[0].ID}, TrafficLimitBytes: &limit}}
+	plan, err := f.svc.UpdatePlan(ctx, f.plan.ID, PlanPatch{Pools: &pools})
+	if err != nil || plan.FreeInbounds != 1 {
+		t.Fatalf("plan = %+v, %v", plan, err)
+	}
+	if v := f.view(t, ""); v.TrafficLimitBytes != nil {
+		t.Fatalf("a visible inbound outside pools makes the client total unlimited, got %v", *v.TrafficLimitBytes)
+	}
+	pools[0].InboundIDs = []int64{views[0].ID, views[1].ID}
+	if _, err := f.svc.UpdatePlan(ctx, f.plan.ID, PlanPatch{Pools: &pools}); err != nil {
 		t.Fatal(err)
 	}
-	v := f.view(t, "")
-	if v.TrafficLimitBytes == nil || *v.TrafficLimitBytes != 100 {
-		t.Fatalf("a client must see the limit of the only pool that counts, got %v", v.TrafficLimitBytes)
+	if v := f.view(t, ""); v.TrafficLimitBytes == nil || *v.TrafficLimitBytes != 100 {
+		t.Fatalf("a client must see the limit of the only pool, got %v", v.TrafficLimitBytes)
 	}
 }
 

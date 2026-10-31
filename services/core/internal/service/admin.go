@@ -63,6 +63,7 @@ func validText(field, v string, max int) error {
 const (
 	maxGroupMembers = 1000
 	maxPlanPools    = 32
+	maxPoolInbounds = 1000
 )
 
 func nonNilIDs(ids []int64) []int64 {
@@ -128,9 +129,6 @@ func validatePlan(p *model.Plan) error {
 	if p.PeriodDays < 1 || p.PeriodDays > 3650 {
 		return fieldErr("period_days", "must be 1-3650")
 	}
-	if p.TrafficLimitBytes != nil && *p.TrafficLimitBytes <= 0 {
-		return fieldErr("traffic_limit_bytes", "must be positive or null for unlimited")
-	}
 	if p.DeviceLimit != nil && (*p.DeviceLimit < 1 || *p.DeviceLimit > 100) {
 		return fieldErr("device_limit", "must be 1-100 or null for unlimited")
 	}
@@ -146,15 +144,25 @@ func validatePlan(p *model.Plan) error {
 	if len(p.Pools) > maxPlanPools {
 		return fieldErr("pools", "too many pools")
 	}
+	seen := map[int64]bool{}
 	for _, pool := range p.Pools {
-		if (pool.NodeID == nil) == (pool.GroupID == nil) {
-			return fieldErr("pools", "each pool needs exactly one of node_id or group_id")
+		if err := validName("pools", pool.Name); err != nil {
+			return err
 		}
 		if pool.TrafficLimitBytes != nil && *pool.TrafficLimitBytes <= 0 {
 			return fieldErr("pools", "traffic_limit_bytes must be positive or null for unlimited")
 		}
-		if err := validText("pools", pool.Name, 64); err != nil {
-			return err
+		if len(pool.InboundIDs) > maxPoolInbounds {
+			return fieldErr("pools", "too many inbounds in a pool")
+		}
+		for _, id := range pool.InboundIDs {
+			if id <= 0 {
+				return fieldErr("pools", "unknown inbound")
+			}
+			if seen[id] {
+				return fieldErr("pools", "pools overlap: an inbound would count towards two pools")
+			}
+			seen[id] = true
 		}
 	}
 	return nil
@@ -179,7 +187,7 @@ func planWriteErr(err error) error {
 	if errors.Is(err, store.ErrPoolOverlap) {
 		return fieldErr("pools", "pools overlap: an inbound would count towards two pools")
 	}
-	return referenceOr(conflictOr(err, "name", "plan already exists"), "pools", "unknown pool, node or group")
+	return referenceOr(conflictOr(err, "name", "plan already exists"), "pools", "unknown pool or inbound")
 }
 
 func (s *Service) CreatePlanChecked(ctx context.Context, p *model.Plan) error {
@@ -197,18 +205,17 @@ func (s *Service) CreatePlanOnSale(ctx context.Context, p *model.Plan, onSale bo
 }
 
 type PlanPatch struct {
-	Name              *string           `json:"name"`
-	PriceRub          *int64            `json:"price_rub"`
-	PeriodDays        *int              `json:"period_days"`
-	TrafficLimitBytes Optional[int64]   `json:"traffic_limit_bytes"`
-	LocationGroupID   Optional[int64]   `json:"location_group_id"`
-	DeviceLimit       Optional[int]     `json:"device_limit"`
-	OnSale            *bool             `json:"on_sale"`
-	HWIDRequired      *bool             `json:"hwid_required"`
-	Trial             *bool             `json:"trial"`
-	Visibility        *string           `json:"visibility"`
-	DedicatedIP       *bool             `json:"dedicated_ip"`
-	Pools             *[]model.PlanPool `json:"pools"`
+	Name            *string           `json:"name"`
+	PriceRub        *int64            `json:"price_rub"`
+	PeriodDays      *int              `json:"period_days"`
+	LocationGroupID Optional[int64]   `json:"location_group_id"`
+	DeviceLimit     Optional[int]     `json:"device_limit"`
+	OnSale          *bool             `json:"on_sale"`
+	HWIDRequired    *bool             `json:"hwid_required"`
+	Trial           *bool             `json:"trial"`
+	Visibility      *string           `json:"visibility"`
+	DedicatedIP     *bool             `json:"dedicated_ip"`
+	Pools           *[]model.PlanPool `json:"pools"`
 }
 
 func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*model.Plan, error) {
@@ -224,9 +231,6 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	}
 	if patch.PeriodDays != nil {
 		p.PeriodDays = *patch.PeriodDays
-	}
-	if patch.TrafficLimitBytes.Set {
-		p.TrafficLimitBytes = patch.TrafficLimitBytes.Value
 	}
 	if patch.LocationGroupID.Set {
 		p.LocationGroupID = patch.LocationGroupID.Value

@@ -21,21 +21,30 @@ func seedBigBase(t *testing.T, s *Store) {
 		`INSERT INTO group_nodes (group_id, node_id) SELECT g.id, n.id FROM location_groups g JOIN nodes n ON n.id % 10 = g.id % 10 WHERE n.id <= 30`,
 		`INSERT INTO group_inbounds (group_id, inbound_id)
 		 SELECT g.id, i.id FROM location_groups g JOIN node_inbounds i ON i.node_id > 30 AND i.tag = 'cdn' AND i.node_id % 10 = g.id % 10`,
-		`INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id)
-		 SELECT 'p' || i, 100, 30, 1099511627776, CASE WHEN i % 4 = 0 THEN NULL ELSE (SELECT id FROM location_groups ORDER BY id OFFSET (i % 10) LIMIT 1) END
+		`INSERT INTO plans (name, price_rub, period_days, location_group_id)
+		 SELECT 'p' || i, 100, 30, CASE WHEN i % 4 = 0 THEN NULL ELSE (SELECT id FROM location_groups ORDER BY id OFFSET (i % 10) LIMIT 1) END
 		 FROM generate_series(1, 20) i`,
-		`INSERT INTO plan_pools (plan_id, position, node_id, traffic_limit_bytes)
-		 SELECT p.id, 0, (SELECT n.id FROM group_nodes gn JOIN nodes n ON n.id = gn.node_id WHERE gn.group_id = p.location_group_id ORDER BY n.id LIMIT 1), 107374182400
-		 FROM plans p WHERE p.location_group_id IS NOT NULL AND p.id % 2 = 0`,
+		`INSERT INTO plan_pools (plan_id, position, name, traffic_limit_bytes)
+		 SELECT p.id, 1, 'premium', 107374182400 FROM plans p WHERE p.location_group_id IS NOT NULL AND p.id % 2 = 0`,
+		`INSERT INTO plan_pool_inbounds (plan_id, pool_id, inbound_id)
+		 SELECT pp.plan_id, pp.id, i.id FROM plan_pools pp JOIN plans p ON p.id = pp.plan_id
+		 JOIN node_inbounds i ON i.node_id = (SELECT n.id FROM group_nodes gn JOIN nodes n ON n.id = gn.node_id WHERE gn.group_id = p.location_group_id ORDER BY n.id LIMIT 1)
+		 WHERE pp.name = 'premium'`,
+		`INSERT INTO plan_pools (plan_id, position, name, traffic_limit_bytes) SELECT id, 0, 'main', 1099511627776 FROM plans`,
+		`INSERT INTO plan_pool_inbounds (plan_id, pool_id, inbound_id)
+		 SELECT pi.plan_id, pp.id, pi.inbound_id FROM plan_inbounds pi JOIN plan_pools pp ON pp.plan_id = pi.plan_id AND pp.name = 'main'
+		 WHERE pi.pool_id IS NULL`,
 		`INSERT INTO users (telegram_id, sub_token, email) SELECT i, 'tok' || i, '' FROM generate_series(1, 20000) i`,
 		`INSERT INTO user_keys (user_id, uuid) SELECT id, md5(id::text) FROM users`,
-		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes)
-		 SELECT u.id, (SELECT id FROM plans ORDER BY id OFFSET (u.id % 20) LIMIT 1), now() - interval '1 day', now() + interval '29 days',
-		        CASE WHEN u.id % 7 = 0 THEN 900000000000 ELSE u.id * 1000 END
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at)
+		 SELECT u.id, (SELECT id FROM plans ORDER BY id OFFSET (u.id % 20) LIMIT 1), now() - interval '1 day', now() + interval '29 days'
 		 FROM users u`,
 		`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes)
+		 SELECT s.id, pp.id, CASE WHEN s.user_id % 7 = 0 THEN 900000000000 ELSE s.user_id * 1000 END
+		 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id AND pp.name = 'main'`,
+		`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes)
 		 SELECT s.id, pp.id, CASE WHEN s.id % 5 = 0 THEN 107374182400 ELSE 90000000000 END
-		 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id WHERE s.id % 3 = 0`,
+		 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id AND pp.name = 'premium' WHERE s.id % 3 = 0`,
 		`ANALYZE`,
 	} {
 		if _, err := s.pool.Exec(ctx, q); err != nil {

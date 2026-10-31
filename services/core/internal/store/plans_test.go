@@ -22,7 +22,7 @@ func TestLocationGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 {
+	if len(list) != 2 || list[1].ID != g.ID {
 		t.Fatalf("list = %+v", list)
 	}
 }
@@ -32,7 +32,8 @@ func TestPlans(t *testing.T) {
 	ctx := context.Background()
 	limit := int64(100 * 1024 * 1024 * 1024)
 	devices := 3
-	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, TrafficLimitBytes: &limit, DeviceLimit: &devices, HWIDRequired: true, LocationGroupID: testGroup(t, s)}
+	p := &model.Plan{Name: "month", PriceRub: 200, PeriodDays: 30, DeviceLimit: &devices, HWIDRequired: true, LocationGroupID: sharedGroup(t, s),
+		Pools: []model.PlanPool{{Name: "Основной", TrafficLimitBytes: &limit}}}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestPlans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "month" || *got.TrafficLimitBytes != limit || *got.DeviceLimit != 3 {
+	if got.Name != "month" || len(got.Pools) != 1 || *got.Pools[0].TrafficLimitBytes != limit || *got.DeviceLimit != 3 {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -162,7 +163,7 @@ func TestFreePlansAreNotOnSale(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	paid := mkPlan(t, s)
-	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, LocationGroupID: testGroup(t, s)}
+	free := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, LocationGroupID: sharedGroup(t, s)}
 	if err := s.CreatePlan(ctx, free); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	devices := 2
-	p := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, DeviceLimit: &devices, HWIDRequired: true, Trial: true, Visibility: "private", LocationGroupID: testGroup(t, s)}
+	p := &model.Plan{Name: "trial", PriceRub: 0, PeriodDays: 3, DeviceLimit: &devices, HWIDRequired: true, Trial: true, Visibility: "private", LocationGroupID: sharedGroup(t, s)}
 	if err := s.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 	if again.HWIDRequired || again.Trial || again.Visibility != "public" {
 		t.Fatalf("after update %+v", again)
 	}
-	plain := &model.Plan{Name: "plain", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
+	plain := &model.Plan{Name: "plain", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, s)}
 	if err := s.CreatePlan(ctx, plain); err != nil {
 		t.Fatal(err)
 	}
@@ -210,18 +211,18 @@ func TestPlanAccessAxesRoundTrip(t *testing.T) {
 func TestSecondTrialOnSaleIsConflict(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
-	if err := s.CreatePlan(ctx, &model.Plan{Name: "t1", PeriodDays: 3, Trial: true, LocationGroupID: testGroup(t, s)}); err != nil {
+	if err := s.CreatePlan(ctx, &model.Plan{Name: "t1", PeriodDays: 3, Trial: true, LocationGroupID: sharedGroup(t, s)}); err != nil {
 		t.Fatal(err)
 	}
-	err := s.CreatePlan(ctx, &model.Plan{Name: "t2", PeriodDays: 3, Trial: true, LocationGroupID: testGroup(t, s)})
+	err := s.CreatePlan(ctx, &model.Plan{Name: "t2", PeriodDays: 3, Trial: true, LocationGroupID: sharedGroup(t, s)})
 	if !errors.Is(err, ErrTrialOnSale) {
 		t.Fatalf("second trial: %v", err)
 	}
-	other := &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: testGroup(t, s)}
+	other := &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: sharedGroup(t, s)}
 	if err := s.CreatePlan(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	err = s.CreatePlan(ctx, &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: testGroup(t, s)})
+	err = s.CreatePlan(ctx, &model.Plan{Name: "paid", PriceRub: 10, PeriodDays: 3, LocationGroupID: sharedGroup(t, s)})
 	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrTrialOnSale) {
 		t.Fatalf("duplicate name: %v", err)
 	}

@@ -158,7 +158,7 @@ func (s *Service) subscriptionView(ctx context.Context, u *model.User, req Subsc
 }
 
 func TrafficTotals(sub *model.Subscription) (used int64, limit *int64) {
-	used, limit = sub.TrafficUsedBytes, sub.TrafficLimitBytes
+	used = sub.TrafficUsedBytes
 	if sub.MainIdle && len(sub.Pools) > 0 {
 		used, limit = sub.Pools[0].UsedBytes, sub.Pools[0].TrafficLimitBytes
 		return addPools(used, limit, sub.Pools[1:])

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ITG-Labs/sylph/services/core/internal/model"
 	"github.com/ITG-Labs/sylph/services/core/internal/service"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func idsOf(id *int64) []int64 {
@@ -15,11 +15,17 @@ func idsOf(id *int64) []int64 {
 	return []int64{*id}
 }
 
-func testGroup(t testing.TB, svc *service.Service) *int64 {
+func sharedGroup(t testing.TB, svc *service.Service) *int64 {
 	t.Helper()
-	g, err := svc.CreateGroup(context.Background(), "g-"+model.NewToken()[:12])
+	groups, err := svc.ListGroups(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &g.ID
+	for _, g := range groups {
+		if g.Name == store.TestSharedGroup {
+			return &g.ID
+		}
+	}
+	t.Fatal("no shared test group")
+	return nil
 }

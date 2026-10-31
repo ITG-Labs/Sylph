@@ -127,7 +127,7 @@ func TestDeleteGroupWaitsForAMoveInto(t *testing.T) {
 	if !errors.Is(delErr, ErrGroupNotEmpty) {
 		t.Fatalf("delete during a move: %v", delErr)
 	}
-	if got := groupNames(t, s); len(got) != 1 {
+	if got := groupNames(t, s); len(got) != 2 {
 		t.Fatalf("groups = %v", got)
 	}
 }

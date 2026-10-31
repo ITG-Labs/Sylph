@@ -282,7 +282,7 @@ func TestSyncCarriesPlansAndGeo(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
 	n, _ := realityNode(t, svc, "node-g")
-	plan := &model.Plan{Name: "Премиум", PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic, LocationGroupID: testGroup(t, svc.store)}
+	plan := &model.Plan{Name: "Премиум", PriceRub: 1, PeriodDays: 30, Visibility: model.VisibilityPublic, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.CreatePlanChecked(ctx, plan); err != nil {
 		t.Fatal(err)
 	}

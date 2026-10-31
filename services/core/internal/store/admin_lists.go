@@ -196,7 +196,7 @@ func (s *Store) UserCard(ctx context.Context, userID int64) (*UserCard, error) {
 	return card, nil
 }
 
-var periodRowColumns = `s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, ` + effectiveLimit + `, s.created_at, p.name, pay.payment_id,
+var periodRowColumns = `s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.created_at, p.name, pay.payment_id,
 	period_exhausted(s.id), ` + mainIdle("s.plan_id") + `, ` + periodPools("s")
 
 const periodRowFrom = ` FROM subscriptions s JOIN plans p ON p.id = s.plan_id LEFT JOIN payments pay ON pay.period_id = s.id`
@@ -236,8 +236,8 @@ func (s *Store) periodRows(ctx context.Context, query string, args ...any) ([]Pe
 	out := []PeriodRow{}
 	for rows.Next() {
 		var r PeriodRow
-		if err := rows.Scan(&r.ID, &r.UserID, &r.PlanID, &r.StartsAt, &r.ExpiresAt, &r.Canceled, &r.TrafficUsedBytes, &r.TrafficBonusBytes,
-			&r.TrafficLimitBytes, &r.CreatedAt, &r.PlanName, &r.PaymentID, &r.TrafficExhausted, &r.MainIdle, &r.Pools); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.PlanID, &r.StartsAt, &r.ExpiresAt, &r.Canceled, &r.TrafficUsedBytes,
+			&r.CreatedAt, &r.PlanName, &r.PaymentID, &r.TrafficExhausted, &r.MainIdle, &r.Pools); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

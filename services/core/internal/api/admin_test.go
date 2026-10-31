@@ -14,6 +14,7 @@ import (
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 type adminResp struct {
@@ -100,7 +101,7 @@ func (e *adminEnv) call(t *testing.T, method, path string, body any) adminResp {
 	t.Helper()
 	if m, ok := body.(map[string]any); ok && method == http.MethodPost && path == "/v1/admin/plans" {
 		if _, set := m["location_group_id"]; !set {
-			m["location_group_id"] = *testGroup(t, e.svc)
+			m["location_group_id"] = *sharedGroup(t, e.svc)
 		}
 	}
 	return adminCall(t, e.panel, method, e.ts.URL+path, body)
@@ -174,7 +175,7 @@ func TestAdminGroups(t *testing.T) {
 		Name string `json:"name"`
 	}
 	r.decode(t, &list)
-	if len(list) != 1 || list[0].Name != "premium" {
+	if len(list) != 2 || list[0].Name != store.TestSharedGroup || list[1].Name != "premium" {
 		t.Fatalf("list = %+v", list)
 	}
 }
@@ -187,27 +188,34 @@ func TestAdminPlans(t *testing.T) {
 	e.call(t, http.MethodPost, "/v1/admin/groups", map[string]string{"name": "premium"}).decode(t, &g)
 	r := e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{
 		"name": "month", "price_rub": 199, "period_days": 30,
-		"traffic_limit_bytes": 100 << 30, "location_group_id": g.ID, "device_limit": 3,
+		"pools": []map[string]any{{"name": "Основной", "traffic_limit_bytes": 100 << 30}}, "location_group_id": g.ID, "device_limit": 3,
 	})
 	mustStatus(t, r, http.StatusOK)
 	var p struct {
-		ID                int64  `json:"id"`
-		Name              string `json:"name"`
-		PriceRub          int64  `json:"price_rub"`
-		TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
-		LocationGroupID   *int64 `json:"location_group_id"`
-		DeviceLimit       *int   `json:"device_limit"`
+		ID              int64  `json:"id"`
+		Name            string `json:"name"`
+		PriceRub        int64  `json:"price_rub"`
+		LocationGroupID *int64 `json:"location_group_id"`
+		DeviceLimit     *int   `json:"device_limit"`
+		FreeInbounds    *int   `json:"free_inbounds"`
+		Pools           []struct {
+			Name              string  `json:"name"`
+			TrafficLimitBytes *int64  `json:"traffic_limit_bytes"`
+			InboundIDs        []int64 `json:"inbound_ids"`
+		} `json:"pools"`
 	}
 	r.decode(t, &p)
-	if p.ID == 0 || p.DeviceLimit == nil || *p.DeviceLimit != 3 || p.LocationGroupID == nil || *p.LocationGroupID != g.ID {
-		t.Fatalf("plan = %+v", p)
+	if p.ID == 0 || p.DeviceLimit == nil || *p.DeviceLimit != 3 || p.LocationGroupID == nil || *p.LocationGroupID != g.ID ||
+		len(p.Pools) != 1 || *p.Pools[0].TrafficLimitBytes != 100<<30 || p.Pools[0].InboundIDs == nil || p.FreeInbounds == nil {
+		t.Fatalf("plan = %s", r.body)
 	}
-	r = e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"price_rub": 249, "device_limit": nil, "traffic_limit_bytes": nil})
+	r = e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"price_rub": 249, "device_limit": nil, "pools": []any{}})
 	mustStatus(t, r, http.StatusOK)
 	r.decode(t, &p)
-	if p.PriceRub != 249 || p.DeviceLimit != nil || p.TrafficLimitBytes != nil || p.Name != "month" || p.LocationGroupID == nil {
+	if p.PriceRub != 249 || p.DeviceLimit != nil || len(p.Pools) != 0 || p.Name != "month" || p.LocationGroupID == nil {
 		t.Fatalf("patched plan = %+v", p)
 	}
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"traffic_limit_bytes": 1}), http.StatusBadRequest)
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "month", "price_rub": 1, "period_days": 30}), http.StatusConflict, "conflict", "name")
 	mustField(t, e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "x", "price_rub": 1, "period_days": 30, "location_group_id": 424242}), http.StatusBadRequest, "bad_request", "location_group_id")
 	bad := []struct {
@@ -217,7 +225,7 @@ func TestAdminPlans(t *testing.T) {
 		{map[string]any{"name": "", "price_rub": 1, "period_days": 30}, "name"},
 		{map[string]any{"name": "a", "price_rub": -1, "period_days": 30}, "price_rub"},
 		{map[string]any{"name": "a", "price_rub": 1, "period_days": 0}, "period_days"},
-		{map[string]any{"name": "a", "price_rub": 1, "period_days": 30, "traffic_limit_bytes": 0}, "traffic_limit_bytes"},
+		{map[string]any{"name": "a", "price_rub": 1, "period_days": 30, "pools": []map[string]any{{"name": "x", "traffic_limit_bytes": 0}}}, "pools"},
 		{map[string]any{"name": "a", "price_rub": 1, "period_days": 30, "device_limit": 0}, "device_limit"},
 	}
 	for _, b := range bad {
@@ -495,20 +503,23 @@ func TestAdminGroupMembersAndPlanPools(t *testing.T) {
 	var p struct {
 		ID    int64 `json:"id"`
 		Pools []struct {
-			ID                int64  `json:"id"`
-			NodeID            *int64 `json:"node_id"`
-			TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+			ID                int64   `json:"id"`
+			InboundIDs        []int64 `json:"inbound_ids"`
+			TrafficLimitBytes *int64  `json:"traffic_limit_bytes"`
 		} `json:"pools"`
 	}
 	r = e.call(t, http.MethodPost, "/v1/admin/plans", map[string]any{"name": "premium", "price_rub": 1, "period_days": 30, "location_group_id": g.ID,
-		"pools": []map[string]any{{"node_id": n.ID, "traffic_limit_bytes": 100}}})
+		"pools": []map[string]any{{"name": "CDN", "inbound_ids": []int64{in.ID}, "traffic_limit_bytes": 100}}})
 	mustStatus(t, r, http.StatusOK)
 	r.decode(t, &p)
-	if len(p.Pools) != 1 || p.Pools[0].ID == 0 || *p.Pools[0].NodeID != n.ID || *p.Pools[0].TrafficLimitBytes != 100 {
+	if len(p.Pools) != 1 || p.Pools[0].ID == 0 || len(p.Pools[0].InboundIDs) != 1 || p.Pools[0].InboundIDs[0] != in.ID || *p.Pools[0].TrafficLimitBytes != 100 {
 		t.Fatalf("plan = %+v", p)
 	}
-	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"pools": []map[string]any{{"node_id": n.ID}, {"group_id": g.ID}}}),
+	mustField(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID),
+		map[string]any{"pools": []map[string]any{{"name": "a", "inbound_ids": []int64{in.ID}}, {"name": "b", "inbound_ids": []int64{in.ID}}}}),
 		http.StatusBadRequest, "bad_request", "pools")
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", p.ID), map[string]any{"pools": []map[string]any{{"name": "a", "node_id": n.ID}}}),
+		http.StatusBadRequest)
 	var plans []struct {
 		ID    int64             `json:"id"`
 		Pools []json.RawMessage `json:"pools"`

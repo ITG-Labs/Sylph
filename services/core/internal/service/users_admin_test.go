@@ -104,7 +104,7 @@ func TestAdminCannotManageABannedUser(t *testing.T) {
 	if _, err := f.svc.RecordPayment(ctx, "manual-1", f.user.ID, f.plan.ID, 0); !errors.As(err, &ce) || ce.Field != "user_id" {
 		t.Fatalf("manual payment: %v", err)
 	}
-	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate, LocationGroupID: testGroup(t, f.svc.store)}
+	vip := &model.Plan{Name: "vip", PriceRub: 99, PeriodDays: 30, Visibility: model.VisibilityPrivate, LocationGroupID: sharedGroup(t, f.svc.store)}
 	if err := f.svc.CreatePlanChecked(ctx, vip); err != nil {
 		t.Fatal(err)
 	}
@@ -136,9 +136,17 @@ func TestManualSubscriptionInputIsChecked(t *testing.T) {
 	if _, err := f.svc.BanUser(ctx, f.user.ID, "bad\x00reason"); !errors.As(err, &fe) || fe.Field != "reason" {
 		t.Fatalf("reason with a control character: %v", err)
 	}
+	if _, err := f.svc.AddTraffic(ctx, f.user.ID, nil, 10); !errors.As(err, &fe) || fe.Field != "pool_id" {
+		t.Fatalf("bonus without a pool: %v", err)
+	}
+	pools := []model.PlanPool{{Name: "Без лимита"}}
+	plan, err := f.svc.UpdatePlan(ctx, f.plan.ID, PlanPatch{Pools: &pools})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var ce *ConflictError
-	if _, err := f.svc.AddTraffic(ctx, f.user.ID, nil, 10); !errors.As(err, &ce) || ce.Field != "bytes" {
-		t.Fatalf("bonus on an unlimited plan: %v", err)
+	if _, err := f.svc.AddTraffic(ctx, f.user.ID, &plan.Pools[0].ID, 10); !errors.As(err, &ce) || ce.Field != "bytes" {
+		t.Fatalf("bonus on an unlimited pool: %v", err)
 	}
 	if _, err := f.svc.ExtendSubscription(ctx, 999999, 5); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown user: %v", err)
@@ -153,19 +161,23 @@ func TestSubscriptionCountsTheTrafficBonus(t *testing.T) {
 	if v := f.view(t, ""); v.Status != StatusTrafficExceeded {
 		t.Fatalf("status before the bonus = %s", v.Status)
 	}
-	sub, err := f.svc.AddTraffic(ctx, f.user.ID, nil, 500)
+	plan, err := f.svc.store.GetPlan(ctx, f.plan.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.TrafficLimitBytes == nil || *sub.TrafficLimitBytes != 1500 {
-		t.Fatalf("limit after the bonus = %v", sub.TrafficLimitBytes)
+	sub, err := f.svc.AddTraffic(ctx, f.user.ID, &plan.Pools[0].ID, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Pools) != 1 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 1500 {
+		t.Fatalf("limit after the bonus = %+v", sub.Pools)
 	}
 	v := f.view(t, "")
 	if v.Status != StatusOK || v.TrafficLimitBytes == nil || *v.TrafficLimitBytes != 1500 {
 		t.Fatalf("view after the bonus: %s, limit %v", v.Status, v.TrafficLimitBytes)
 	}
 	st, err := f.svc.GetUserStatus(ctx, *f.user.TelegramID)
-	if err != nil || st.Subscription.TrafficLimitBytes == nil || *st.Subscription.TrafficLimitBytes != 1500 {
+	if err != nil || len(st.Subscription.Pools) != 1 || *st.Subscription.Pools[0].TrafficLimitBytes != 1500 {
 		t.Fatalf("status for the bot: %+v, %v", st, err)
 	}
 }

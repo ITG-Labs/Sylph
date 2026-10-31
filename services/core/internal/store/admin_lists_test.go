@@ -40,6 +40,7 @@ func TestListUsersSearchAndFilters(t *testing.T) {
 	a := tgUser(t, s, 1001)
 	b := tgUser(t, s, 1002)
 	c := tgUser(t, s, 1003)
+	deltaNode(t, s)
 	p := mkLimitedPlan(t, s, 30, 5000)
 	res := pay(t, s, a.ID, p.ID, time.Now().UTC())
 	setUsed(t, s, res.PeriodID, 70)

@@ -106,23 +106,36 @@ func TestManageSubscriptionThroughTheAPI(t *testing.T) {
 	r := e.call(t, http.MethodPost, path+"/extend", map[string]any{"days": 5})
 	mustStatus(t, r, http.StatusOK)
 	var sub struct {
-		ID                int64  `json:"id"`
-		TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
-		PaidUntil         string `json:"paid_until"`
+		ID        int64  `json:"id"`
+		PaidUntil string `json:"paid_until"`
+		Pools     []struct {
+			PoolID            int64  `json:"pool_id"`
+			TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+		} `json:"pools"`
 	}
 	r.decode(t, &sub)
 	if sub.ID == 0 || sub.PaidUntil == "" {
 		t.Fatalf("extend answered %s", r.body)
 	}
-	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 1000}), http.StatusConflict, "conflict", "bytes")
+	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 1000}), http.StatusBadRequest, "bad_request", "pool_id")
 	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": -1}), http.StatusBadRequest, "bad_request", "bytes")
 
 	limit := int64(1000)
-	other := map[string]any{"name": "limited", "price_rub": 1, "period_days": 30, "traffic_limit_bytes": limit}
+	nodeID := e.createNode(t, "node-1", nil)
+	e.createInbound(t, nodeID, "main")
+	inbounds, err := e.svc.ListInbounds(context.Background(), nodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := map[string]any{"name": "limited", "price_rub": 1, "period_days": 30,
+		"pools": []map[string]any{{"name": "Основной", "traffic_limit_bytes": limit, "inbound_ids": []int64{inbounds[0].ID}}}}
 	r = e.call(t, http.MethodPost, "/v1/admin/plans", other)
 	mustStatus(t, r, http.StatusOK)
 	var plan struct {
-		ID int64 `json:"id"`
+		ID    int64 `json:"id"`
+		Pools []struct {
+			ID int64 `json:"id"`
+		} `json:"pools"`
 	}
 	r.decode(t, &plan)
 	r = e.call(t, http.MethodPost, path+"/plan", map[string]any{"plan_id": plan.ID})
@@ -140,10 +153,10 @@ func TestManageSubscriptionThroughTheAPI(t *testing.T) {
 		t.Fatal("same plan reported as changed")
 	}
 	mustStatus(t, e.call(t, http.MethodPost, path+"/plan", map[string]any{"plan_id": 999999}), http.StatusNotFound)
-	r = e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 500})
+	r = e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 500, "pool_id": plan.Pools[0].ID})
 	mustStatus(t, r, http.StatusOK)
 	r.decode(t, &sub)
-	if sub.TrafficLimitBytes == nil || *sub.TrafficLimitBytes != 1500 {
+	if len(sub.Pools) != 1 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 1500 {
 		t.Fatalf("traffic bonus answered %s", r.body)
 	}
 

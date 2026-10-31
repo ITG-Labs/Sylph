@@ -110,16 +110,7 @@ func dueFor(c store.NotifyCandidate, now time.Time, st store.Settings) []Notific
 	if st.NotifyTraffic && c.PeriodID != nil {
 		traffic := base
 		traffic.PeriodEnds, traffic.PaidUntil = c.PeriodEnds, c.PaidUntil
-		traffic.MultiPool, traffic.TrafficExhausted = len(c.Pools) > 0, c.Exhausted
-		if !c.MainIdle && c.LimitBytes != nil && *c.LimitBytes > 0 {
-			used, limit := c.UsedBytes, *c.LimitBytes
-			if kind := trafficKind(used, limit); kind != "" {
-				n := traffic
-				n.Kind, n.Ref = kind, trafficRef(*c.PeriodID, c.BonusBytes)
-				n.TrafficUsedBytes, n.TrafficLimitBytes = &used, &limit
-				out = append(out, n)
-			}
-		}
+		traffic.MultiPool, traffic.TrafficExhausted = len(c.Pools) > 1 || !c.MainIdle, c.Exhausted
 		for _, p := range c.Pools {
 			if p.Limit == nil || *p.Limit <= 0 {
 				continue

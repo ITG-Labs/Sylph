@@ -13,11 +13,35 @@ const day = 24 * time.Hour
 
 func mkLimitedPlan(t *testing.T, s *Store, days int, limit int64) *model.Plan {
 	t.Helper()
-	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: days, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, s)}
-	if err := s.CreatePlan(context.Background(), p); err != nil {
+	ctx := context.Background()
+	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: days, LocationGroupID: sharedGroup(t, s)}
+	if err := s.CreatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	var inbounds int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM node_inbounds`).Scan(&inbounds); err != nil {
+		t.Fatal(err)
+	}
+	if inbounds == 0 {
+		deltaNode(t, s)
+	}
+	if _, err := LimitAllForTests(ctx, s.pool, p.ID, limit); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPlan(ctx, p.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func mainPool(t *testing.T, s *Store, planID int64) int64 {
+	t.Helper()
+	var id int64
+	if err := s.pool.QueryRow(context.Background(), `SELECT id FROM plan_pools WHERE plan_id = $1 AND name = $2`, planID, TestMainPool).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func userPeriods(t *testing.T, s *Store, userID int64) []model.Subscription {
@@ -55,7 +79,28 @@ func sameTime(a, b time.Time) bool {
 
 func setUsed(t *testing.T, s *Store, periodID, used int64) {
 	t.Helper()
-	if _, err := s.pool.Exec(context.Background(), `UPDATE subscriptions SET traffic_used_bytes = $2 WHERE id = $1`, periodID, used); err != nil {
+	ctx := context.Background()
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes)
+		 SELECT s.id, pp.id, $2 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id AND pp.name = $3 WHERE s.id = $1
+		 ON CONFLICT (period_id, pool_id) DO UPDATE SET used_bytes = EXCLUDED.used_bytes`, periodID, used, TestMainPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() > 0 {
+		return
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET traffic_used_bytes = $2 WHERE id = $1`, periodID, used); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setBonus(t *testing.T, s *Store, periodID, bonus int64) {
+	t.Helper()
+	if _, err := s.pool.Exec(context.Background(),
+		`INSERT INTO period_pool_usage (period_id, pool_id, bonus_bytes)
+		 SELECT s.id, pp.id, $2 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id AND pp.name = $3 WHERE s.id = $1
+		 ON CONFLICT (period_id, pool_id) DO UPDATE SET bonus_bytes = EXCLUDED.bonus_bytes`, periodID, bonus, TestMainPool); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -303,7 +348,8 @@ func TestCrossingTheLimitBumpsNodesOnce(t *testing.T) {
 		t.Fatalf("user below the limit is not on the node: %v", keys)
 	}
 	res := record(t, s, n.ID, "b-2", model.TrafficDelta{KeyUUID: k, BytesUp: 400})
-	if len(res.Exhausted) != 1 || res.Exhausted[0] != (Exhaustion{UserID: u.ID, Used: 1000, Limit: 1000}) {
+	if len(res.Exhausted) != 1 || res.Exhausted[0].PoolID == nil || *res.Exhausted[0].PoolID != mainPool(t, s, p.ID) ||
+		res.Exhausted[0].UserID != u.ID || res.Exhausted[0].Used != 1000 || res.Exhausted[0].Limit != 1000 {
 		t.Fatalf("crossing = %+v", res.Exhausted)
 	}
 	v1 := nodeVersion(t, s, n.CertCN)

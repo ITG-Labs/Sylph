@@ -16,3 +16,18 @@ func testGroup(t testing.TB, st *store.Store) *int64 {
 	}
 	return &g.ID
 }
+
+func sharedGroup(t testing.TB, st *store.Store) *int64 {
+	t.Helper()
+	groups, err := st.ListLocationGroups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.Name == store.TestSharedGroup {
+			return &g.ID
+		}
+	}
+	t.Fatal("no shared test group")
+	return nil
+}
