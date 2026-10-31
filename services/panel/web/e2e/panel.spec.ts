@@ -59,7 +59,7 @@ test("every screen renders without console errors under the real CSP", async () 
   shared.on("pageerror", (e) => errors.push(e.message))
   for (const [path, heading] of [
     ["/", "Сводка"],
-    ["/users", "Юзеры"],
+    ["/users", "Пользователи"],
     ["/payments", "Платежи"],
     ["/nodes", "Ноды"],
     ["/routing", "Маршрутизация"],
@@ -213,7 +213,7 @@ test("a routing profile is built, saved, assigned to a node and removed", async 
   await shared.getByRole("dialog").getByRole("button", { name: "Добавить" }).click()
 
   await shared.getByRole("button", { name: "Шаблон" }).click()
-  await shared.getByRole("menuitem", { name: /Блок торрентов/ }).click()
+  await shared.getByRole("menuitem", { name: /Блокировка торрентов/ }).click()
   await shared.getByRole("button", { name: "Правило", exact: true }).click()
   await shared.getByLabel("Домены").fill("example.org")
   await shared.getByRole("dialog").getByRole("combobox").last().click()
