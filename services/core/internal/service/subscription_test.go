@@ -28,9 +28,14 @@ func newSubFixture(t *testing.T, deviceLimit *int, trafficLimit *int64) *subFixt
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "month", PriceRub: 199, PeriodDays: 30, LocationGroupID: &g.ID, DeviceLimit: deviceLimit, HWIDRequired: deviceLimit != nil, TrafficLimitBytes: trafficLimit}
+	p := &model.Plan{Name: "month", PriceRub: 199, PeriodDays: 30, LocationGroupID: &g.ID, DeviceLimit: deviceLimit, HWIDRequired: deviceLimit != nil}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
+	}
+	if trafficLimit != nil {
+		if _, err := store.LimitAllForTests(ctx, poolOf(svc), p.ID, *trafficLimit); err != nil {
+			t.Fatal(err)
+		}
 	}
 	u, key, err := svc.RegisterUser(ctx, 900)
 	if err != nil {
@@ -46,7 +51,8 @@ func (f *subFixture) spend(t *testing.T, bytes int64) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := f.svc.store.GetNodeByCN(ctx, "meter"); err != nil {
-		if err := f.svc.store.UpsertNode(ctx, &model.Node{CertCN: "meter", Name: "meter"}); err != nil {
+		n := visibleNode(t, f.svc, "meter")
+		if err := f.svc.store.SetNodeGroups(ctx, n.ID, []int64{f.group.ID}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -239,10 +245,10 @@ func TestSubscriptionConnections(t *testing.T) {
 	for _, c := range v.Connections {
 		names[c.Name] = c
 	}
-	if len(v.Connections) != 3 {
-		t.Fatalf("connections = %+v", v.Connections)
+	if len(v.Connections) != 2 {
+		t.Fatalf("connections = %+v (a node outside every group is seen by nobody)", v.Connections)
 	}
-	for _, want := range []string{"alpha · L-main", "alpha · L-spare", "delta"} {
+	for _, want := range []string{"alpha · L-main", "alpha · L-spare"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing %q in %+v", want, v.Connections)
 		}

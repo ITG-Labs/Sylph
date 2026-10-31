@@ -125,8 +125,6 @@ export interface Period {
   expires_at: string
   canceled: boolean
   traffic_used_bytes: number
-  traffic_bonus_bytes: number
-  traffic_limit_bytes: number | null
   traffic_exhausted: boolean
   main_idle: boolean
   pools: PoolUsage[]
@@ -347,10 +345,8 @@ export interface InboundRef {
 export interface PlanPool {
   id: number
   name: string
-  label: string
-  node_id: number | null
-  group_id: number | null
   traffic_limit_bytes: number | null
+  inbound_ids: number[]
 }
 
 export interface Plan {
@@ -358,7 +354,6 @@ export interface Plan {
   name: string
   price_rub: number
   period_days: number
-  traffic_limit_bytes: number | null
   location_group_id: number | null
   device_limit: number | null
   on_sale: boolean
@@ -367,9 +362,9 @@ export interface Plan {
   visibility: "public" | "private"
   dedicated_ip: boolean
   pools: PlanPool[]
+  free_inbounds: number
   created_at: string
   active_users?: number
-  pool_overlaps?: number
 }
 
 export interface UpDown {

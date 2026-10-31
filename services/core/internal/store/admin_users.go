@@ -64,22 +64,13 @@ func lockCurrent(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) (*
 	return &timeline[0], timeline, nil
 }
 
-func (s *Store) AddTrafficBonus(ctx context.Context, userID int64, poolID *int64, bytes int64, now time.Time) (*model.Subscription, error) {
+func (s *Store) AddTrafficBonus(ctx context.Context, userID int64, poolID int64, bytes int64, now time.Time) (*model.Subscription, error) {
 	err := s.withTx(ctx, func(tx pgx.Tx) error {
 		cur, _, err := lockCurrent(ctx, tx, userID, now)
 		if err != nil {
 			return err
 		}
-		if poolID != nil {
-			return addPoolBonus(ctx, tx, cur, *poolID, bytes)
-		}
-		if cur.limit == nil {
-			return ErrUnlimitedPlan
-		}
-		_, err = tx.Exec(ctx,
-			`UPDATE subscriptions SET traffic_bonus_bytes = LEAST(traffic_bonus_bytes::numeric + $2, 9223372036854775807)::bigint WHERE id = $1`,
-			cur.id, bytes)
-		return err
+		return addPoolBonus(ctx, tx, cur, poolID, bytes)
 	})
 	if err != nil {
 		return nil, err

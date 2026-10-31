@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 type dueNotification struct {
@@ -27,12 +29,16 @@ func TestNotificationsDueAndSent(t *testing.T) {
 	ctx := context.Background()
 	bot := e.client(t, "bot", mtls.RoleBot)
 	u, p := botUserAndPlan(t, e.apiEnv, 8301, 199)
-	if _, err := e.pool.Exec(ctx, `UPDATE plans SET traffic_limit_bytes = 1000 WHERE id = $1`, p.ID); err != nil {
+	nodeID := e.createNode(t, "node-1", nil)
+	e.createInbound(t, nodeID, "main")
+	pool, err := store.LimitAllForTests(ctx, e.pool, p.ID, 1000)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.pool.Exec(ctx,
-		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes) VALUES ($1, $2, now() - interval '1 day', now() + interval '20 days', 960)`,
-		u.ID, p.ID); err != nil {
+		`WITH s AS (INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) VALUES ($1, $2, now() - interval '1 day', now() + interval '20 days') RETURNING id)
+		 INSERT INTO period_pool_usage (period_id, pool_id, used_bytes) SELECT id, $3, 960 FROM s`,
+		u.ID, p.ID, pool); err != nil {
 		t.Fatal(err)
 	}
 	r := adminCall(t, bot, http.MethodGet, e.ts.URL+"/v1/notifications/due", nil)
@@ -41,7 +47,7 @@ func TestNotificationsDueAndSent(t *testing.T) {
 	r.decode(t, &due)
 	if len(due) != 1 || due[0].Kind != "traffic_95" || due[0].UserID != u.ID || due[0].TelegramID != 8301 || due[0].Trial ||
 		due[0].TrafficUsedBytes == nil || *due[0].TrafficUsedBytes != 960 || *due[0].TrafficLimitBytes != 1000 ||
-		due[0].PeriodEnds == nil || due[0].PaidUntil == nil || !due[0].PaidUntil.Equal(*due[0].PeriodEnds) || !strings.HasSuffix(due[0].Ref, ":0") {
+		due[0].PeriodEnds == nil || due[0].PaidUntil == nil || !due[0].PaidUntil.Equal(*due[0].PeriodEnds) || !strings.HasSuffix(due[0].Ref, fmt.Sprintf(":0:%d", pool)) {
 		t.Fatalf("due = %s", r.body)
 	}
 	sent := map[string]any{"user_id": u.ID, "kind": due[0].Kind, "ref": due[0].Ref, "outcome": "sent"}

@@ -96,11 +96,7 @@ func (a *App) trialText(p Plan) string {
 	var b strings.Builder
 	b.WriteString(a.header(icGift, "Пробный период"))
 	fmt.Fprintf(&b, "Бесплатно на %s.\n\n", days(p.PeriodDays))
-	if p.TrafficLimitBytes != nil {
-		fmt.Fprintf(&b, "%s %s трафика\n", a.ic(icTraffic), formatBytes(*p.TrafficLimitBytes))
-	} else {
-		fmt.Fprintf(&b, "%s без лимита трафика\n", a.ic(icTraffic))
-	}
+	fmt.Fprintf(&b, "%s %s\n", a.ic(icTraffic), planTraffic(p))
 	if p.DeviceLimit != nil {
 		fmt.Fprintf(&b, "%s %s\n", a.ic(icDevice), devicesUpTo(*p.DeviceLimit))
 	}

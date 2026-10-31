@@ -310,16 +310,6 @@ func (a *App) linkBlock(title, token string) string {
 	return a.ic(icLink) + " <b>" + title + "</b>\nТапни, чтобы скопировать:\n\n<code>" + html.EscapeString(a.link(token)) + "</code>"
 }
 
-func trafficLimit(st *Status) *int64 {
-	if st.Plan == nil || st.Plan.TrafficLimitBytes == nil {
-		return nil
-	}
-	if st.Subscription != nil && st.Subscription.TrafficLimitBytes != nil {
-		return st.Subscription.TrafficLimitBytes
-	}
-	return st.Plan.TrafficLimitBytes
-}
-
 func exhausted(st *Status) bool {
 	return st.Subscription != nil && st.Subscription.TrafficExhausted
 }
@@ -344,19 +334,24 @@ func (a *App) statusText(st *Status) string {
 	}
 	fmt.Fprintf(&b, "%s Тариф «%s»\n\n", a.ic(icPlan), html.EscapeString(plan.Name))
 	fmt.Fprintf(&b, "%s <b>Трафик</b>\n", a.ic(icTraffic))
-	if !sub.MainIdle || len(sub.Pools) == 0 {
-		if len(sub.Pools) > 0 {
-			b.WriteString("Основной\n")
+	switch {
+	case len(sub.Pools) == 0:
+		writeUsage(&b, sub.TrafficUsedBytes, nil)
+	case len(sub.Pools) == 1 && sub.MainIdle:
+		writeUsage(&b, sub.Pools[0].UsedBytes, sub.Pools[0].TrafficLimitBytes)
+	default:
+		for _, p := range sub.Pools {
+			b.WriteString(html.EscapeString(p.Name))
+			if p.Exhausted {
+				b.WriteString(" · исчерпан")
+			}
+			b.WriteString("\n")
+			writeUsage(&b, p.UsedBytes, p.TrafficLimitBytes)
 		}
-		writeUsage(&b, sub.TrafficUsedBytes, trafficLimit(st))
-	}
-	for _, p := range sub.Pools {
-		b.WriteString(html.EscapeString(p.Name))
-		if p.Exhausted {
-			b.WriteString(" · исчерпан")
+		if !sub.MainIdle {
+			b.WriteString("Остальные серверы\n")
+			writeUsage(&b, sub.TrafficUsedBytes, nil)
 		}
-		b.WriteString("\n")
-		writeUsage(&b, p.UsedBytes, p.TrafficLimitBytes)
 	}
 	fmt.Fprintf(&b, "%s <b>Устройства</b>\n", a.ic(icDevice))
 	if plan.DeviceLimit != nil {
@@ -408,10 +403,6 @@ func trafficBar(used, limit int64) string {
 }
 
 func (a *App) planBlock(p Plan) string {
-	traffic := "без лимита трафика"
-	if p.TrafficLimitBytes != nil {
-		traffic = formatBytes(*p.TrafficLimitBytes) + " трафика"
-	}
 	devices := "устройств без лимита"
 	if p.DeviceLimit != nil {
 		devices = devicesUpTo(*p.DeviceLimit)
@@ -419,7 +410,7 @@ func (a *App) planBlock(p Plan) string {
 	block := fmt.Sprintf("%s <b>%s</b>\n%s %d ₽ за %s\n%s %s\n%s %s",
 		a.ic(icPlan), html.EscapeString(p.Name),
 		a.ic(icTag), p.PriceRub, days(p.PeriodDays),
-		a.ic(icTraffic), traffic+poolLines(p.Pools),
+		a.ic(icTraffic), planTraffic(p),
 		a.ic(icDevice), devices)
 	if p.Visibility == "private" {
 		block += "\n" + a.ic(icLock) + " <i>закрытый тариф</i>"
@@ -427,14 +418,24 @@ func (a *App) planBlock(p Plan) string {
 	return block
 }
 
-func poolLines(pools []PlanPool) string {
-	var b strings.Builder
-	for _, p := range pools {
-		limit := "без лимита"
-		if p.TrafficLimitBytes != nil {
-			limit = formatBytes(*p.TrafficLimitBytes)
+func planTraffic(p Plan) string {
+	if len(p.Pools) == 0 || (len(p.Pools) == 1 && p.FreeInbounds == 0) {
+		if len(p.Pools) == 0 || p.Pools[0].TrafficLimitBytes == nil {
+			return "без лимита трафика"
 		}
-		fmt.Fprintf(&b, "\n   %s — %s", html.EscapeString(p.Label), limit)
+		return formatBytes(*p.Pools[0].TrafficLimitBytes) + " трафика"
+	}
+	var b strings.Builder
+	b.WriteString("трафик по серверам:")
+	for _, pool := range p.Pools {
+		limit := "без лимита"
+		if pool.TrafficLimitBytes != nil {
+			limit = formatBytes(*pool.TrafficLimitBytes)
+		}
+		fmt.Fprintf(&b, "\n   %s — %s", html.EscapeString(pool.Name), limit)
+	}
+	if p.FreeInbounds > 0 {
+		b.WriteString("\n   Остальные серверы — без лимита")
 	}
 	return b.String()
 }

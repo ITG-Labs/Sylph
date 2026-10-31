@@ -65,8 +65,7 @@ func (s *Store) DeleteLocationGroup(ctx context.Context, id int64) error {
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM group_nodes WHERE group_id = $1)
 		     OR EXISTS (SELECT 1 FROM group_inbounds WHERE group_id = $1)
-		     OR EXISTS (SELECT 1 FROM plans WHERE location_group_id = $1)
-		     OR EXISTS (SELECT 1 FROM plan_pools WHERE group_id = $1)`,
+		     OR EXISTS (SELECT 1 FROM plans WHERE location_group_id = $1)`,
 		id).Scan(&used); err != nil {
 		return err
 	}

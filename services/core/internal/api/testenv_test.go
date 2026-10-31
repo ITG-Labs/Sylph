@@ -111,6 +111,9 @@ func newAPIEnvWith(t *testing.T, ca *mtls.CA, revoked *mtls.RevocationList) *api
 	if err := store.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.ShareForTests(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
 	logs := &lockedBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	svc := service.NewService(store.NewStore(pool), logger)

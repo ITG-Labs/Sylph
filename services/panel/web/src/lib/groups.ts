@@ -10,9 +10,8 @@ export interface NodeLike {
   last_sync_at?: string | null
 }
 
-export interface PoolTarget {
-  node_id: number | null
-  group_id: number | null
+export interface PoolLike {
+  inbound_ids: number[]
 }
 
 export interface InboundLike {
@@ -33,7 +32,7 @@ export interface PlanLike {
   name: string
   location_group_id: number | null
   active_users: number
-  pools?: PoolTarget[]
+  pools?: PoolLike[]
 }
 
 export interface World {
@@ -67,8 +66,11 @@ export function groupsOf(w: World, inbound: InboundLike): number[] {
 }
 
 export function sees(w: World, plan: PlanLike, inbound: InboundLike): boolean {
-  const groups = groupsOf(w, inbound)
-  return groups.length === 0 || (plan.location_group_id !== null && groups.includes(plan.location_group_id))
+  return plan.location_group_id !== null && groupsOf(w, inbound).includes(plan.location_group_id)
+}
+
+export function ungrouped(w: World, inbound: InboundLike): boolean {
+  return groupsOf(w, inbound).length === 0
 }
 
 export function visibleInbounds(w: World, plan: PlanLike): InboundLike[] {
@@ -112,6 +114,10 @@ export function accessChanges(before: World, after: World): PlanChange[] {
     if (lost.length > 0 || gained.length > 0 || orphaned) out.push({ plan: was, lost, gained, orphaned })
   }
   return out
+}
+
+export function inboundTitle(w: Pick<World, "nodes">, i: InboundLike): string {
+  return `${w.nodes.find((n) => n.id === i.node_id)?.name ?? `нода ${i.node_id}`} · ${i.label || i.tag}`
 }
 
 const q = (s: string) => `«${s}»`
@@ -188,12 +194,20 @@ export function isHarsh(lines: ImpactLine[]): boolean {
   return lines.some((l) => l.tone === "danger" || l.tone === "lose")
 }
 
-export function poolCovers(w: World, plan: PlanLike, pool: PoolTarget): InboundLike[] {
-  return visibleInbounds(w, plan).filter((i) => (pool.node_id !== null ? i.node_id === pool.node_id : pool.group_id !== null && groupsOf(w, i).includes(pool.group_id)))
+export function poolCovers(w: World, plan: PlanLike, pool: PoolLike): InboundLike[] {
+  return visibleInbounds(w, plan).filter((i) => pool.inbound_ids.includes(i.id))
 }
 
-const poolIndex = (w: World, plan: PlanLike, i: InboundLike) =>
-  (plan.pools ?? []).findIndex((pool) => (pool.node_id !== null ? i.node_id === pool.node_id : pool.group_id !== null && groupsOf(w, i).includes(pool.group_id)))
+export function freeInbounds(w: World, plan: PlanLike): InboundLike[] {
+  return visibleInbounds(w, plan).filter((i) => !(plan.pools ?? []).some((pool) => pool.inbound_ids.includes(i.id)))
+}
+
+export function unseenPoolInbounds(w: World, plan: PlanLike): InboundLike[] {
+  const ids = new Set((plan.pools ?? []).flatMap((pool) => pool.inbound_ids))
+  return w.inbounds.filter((i) => ids.has(i.id) && !sees(w, plan, i))
+}
+
+const poolIndex = (plan: PlanLike, i: InboundLike) => (plan.pools ?? []).findIndex((pool) => pool.inbound_ids.includes(i.id))
 
 function oldAgentLines(w: World): ImpactLine[] {
   const out: ImpactLine[] = []
@@ -203,7 +217,7 @@ function oldAgentLines(w: World): ImpactLine[] {
     if (own.length < 2) continue
     const hit = w.plans.filter((p) => {
       const seen = own.filter((i) => sees(w, p, i))
-      return (seen.length > 0 && seen.length < own.length) || new Set(seen.map((i) => poolIndex(w, p, i))).size > 1
+      return (seen.length > 0 && seen.length < own.length) || new Set(seen.map((i) => poolIndex(p, i))).size > 1
     })
     if (hit.length === 0) continue
     const whom = hit.length === 1 ? `тарифа ${q(hit[0].name)}` : `тарифов ${hit.map((p) => q(p.name)).join(", ")}`

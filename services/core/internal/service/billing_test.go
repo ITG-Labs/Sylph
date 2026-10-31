@@ -25,6 +25,9 @@ func setupService(t *testing.T) *Service {
 	if err := store.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.ShareForTests(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
 	st := store.NewStore(pool)
 	svc := NewService(st, slog.New(slog.DiscardHandler))
 	testPools.Store(svc, pool)
@@ -77,7 +80,7 @@ func TestHandlePaymentIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "m", PriceRub: 150, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
+	p := &model.Plan{Name: "m", PriceRub: 150, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +114,7 @@ func TestPaymentLogTellsWhenThePeriodStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc.store)}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +181,7 @@ func TestUserStatusWithSubscriptionAndDevices(t *testing.T) {
 	ctx := context.Background()
 	u, _, _ := svc.RegisterUser(ctx, 320)
 	limit := 2
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit, HWIDRequired: true, LocationGroupID: testGroup(t, svc.store)}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, DeviceLimit: &limit, HWIDRequired: true, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}

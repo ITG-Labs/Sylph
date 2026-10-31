@@ -14,9 +14,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { core } from "@/lib/api"
-import { fmtBytes, fmtDate, fmtDateTime, fmtRub, plural } from "@/lib/format"
+import { fmtBytes, fmtDate, fmtDateTime, fmtRub } from "@/lib/format"
+import { freeInbounds, inboundTitle, unseenPoolInbounds } from "@/lib/groups"
 import { useGroups, useInvalidate, usePlans } from "@/lib/queries"
 import type { Access, Invite } from "@/lib/types"
+import { useWorld } from "@/lib/world"
 
 type Dialog = { kind: "edit" } | { kind: "invite" } | { kind: "revokeInvite"; invite: Invite } | { kind: "grant" } | { kind: "revokeAccess"; access: Access }
 
@@ -33,6 +35,7 @@ export function PlanPage() {
   const { id } = useParams()
   const plans = usePlans()
   const groups = useGroups()
+  const { world } = useWorld()
   const invalidate = useInvalidate()
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [maxUses, setMaxUses] = useState("")
@@ -53,10 +56,17 @@ export function PlanPage() {
     setTg("")
     setDialog(d)
   }
-  const group =
-    plan.location_group_id === null
-      ? "только то, что не в группах"
-      : `${groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`} + всё без группы`
+  const group = plan.location_group_id === null ? "без группы" : (groups.data?.find((g) => g.id === plan.location_group_id)?.name ?? `группа ${plan.location_group_id}`)
+  const like = world?.plans.find((p) => p.id === plan.id)
+  const free = world && like ? freeInbounds(world, like) : []
+  const unseen = world && like ? unseenPoolInbounds(world, like) : []
+  const titles = (ids: number[]) =>
+    world
+      ? world.inbounds
+          .filter((i) => ids.includes(i.id))
+          .map((i) => inboundTitle(world, i))
+          .join(", ")
+      : ""
   const maxUsesN = maxUses === "" ? null : Number(maxUses)
   const expiresISO = expires ? new Date(expires).toISOString() : null
 
@@ -81,28 +91,40 @@ export function PlanPage() {
           </Button>
         }
       />
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Fact label="Цена" value={fmtRub(plan.price_rub)} />
         <Fact label="Период" value={`${plan.period_days} дн`} />
-        <Fact label={plan.pools.length > 0 ? "Основной трафик" : "Трафик"} value={fmtBytes(plan.traffic_limit_bytes)} />
         <Fact label="Устройств" value={`${plan.device_limit ?? "∞"}${plan.hwid_required ? " · HWID" : ""}`} />
-        <Fact label="Видит" value={group} />
+        <Fact label="Группа" value={group} />
       </div>
-      {plan.pools.length > 0 && (
-        <div className="mb-4 flex flex-col gap-2">
-          {(plan.pool_overlaps ?? 0) > 0 && (
-            <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
-              Пулы тарифа пересекаются: после изменения групп {plan.pool_overlaps} {plural(plan.pool_overlaps ?? 0, "вход попадает", "входа попадают", "входов попадают")} в два пула. Трафик
-              такого входа идёт в первый по списку пул — поправь пулы или состав групп.
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 flex flex-col gap-2">
+        {plan.location_group_id === null && (
+          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">Тариф не входит ни в одну группу и не видит ни одного входа.</div>
+        )}
+        {unseen.length > 0 && (
+          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
+            В пулах есть входы, которых нет в группе тарифа, — они не учитываются: {unseen.map((i) => `«${world ? inboundTitle(world, i) : i.tag}»`).join(", ")}.
+          </div>
+        )}
+        {plan.pools.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {plan.pools.map((pool) => (
-              <Fact key={pool.id} label={`Пул · ${pool.node_id !== null ? "нода" : "группа"}`} value={`${pool.label} — ${fmtBytes(pool.traffic_limit_bytes)}`} />
+              <div key={pool.id} className="well flex flex-col gap-1 rounded-xl p-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-medium">{pool.name}</span>
+                  <span className="tabular-nums">{pool.traffic_limit_bytes === null ? "без лимита" : fmtBytes(pool.traffic_limit_bytes)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{pool.inbound_ids.length === 0 ? "Нет входов" : titles(pool.inbound_ids)}</div>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+        {free.length > 0 && (
+          <div className="text-sm text-muted-foreground">
+            Без ограничения трафика: {free.map((i) => `«${world ? inboundTitle(world, i) : i.tag}»`).join(", ")}
+          </div>
+        )}
+      </div>
 
       {isPrivate ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

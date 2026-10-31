@@ -67,7 +67,7 @@ func TestCoreStatus(t *testing.T) {
 	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"user":{"id":7,"telegram_id":1001,"sub_token":"tok","status":"active"},
 		 "subscription":{"id":3,"plan_id":2,"starts_at":"2026-10-01T10:00:00Z","expires_at":"2026-10-31T10:00:00Z","traffic_used_bytes":1073741824,"paid_until":"2026-11-30T10:00:00Z"},
-		 "plan":{"id":2,"name":"Месяц","price_rub":199,"period_days":30,"traffic_limit_bytes":107374182400,"device_limit":3,"on_sale":true},
+		 "plan":{"id":2,"name":"Месяц","price_rub":199,"period_days":30,"pools":[{"id":1,"name":"Основной","traffic_limit_bytes":107374182400,"inbound_ids":[3]}],"free_inbounds":0,"device_limit":3,"on_sale":true},
 		 "devices":1}`)
 	})
 	st, err := c.Status(context.Background(), 1001)
@@ -75,7 +75,7 @@ func TestCoreStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st.User.ID != 7 || st.User.SubToken != "tok" || st.Subscription == nil || st.Subscription.PlanID != 2 || st.Subscription.TrafficUsedBytes != 1<<30 ||
-		st.Subscription.PaidUntil == nil || st.Plan == nil || st.Plan.Name != "Месяц" || *st.Plan.TrafficLimitBytes != 100<<30 || *st.Plan.DeviceLimit != 3 || st.Devices != 1 {
+		st.Subscription.PaidUntil == nil || st.Plan == nil || st.Plan.Name != "Месяц" || len(st.Plan.Pools) != 1 || *st.Plan.Pools[0].TrafficLimitBytes != 100<<30 || *st.Plan.DeviceLimit != 3 || st.Devices != 1 {
 		t.Fatalf("status = %+v", st)
 	}
 	if got := (*calls)[0]; got.method != http.MethodGet || got.path != "/v1/users/1001" {
@@ -114,7 +114,7 @@ func TestCorePlansPaymentsAndActions(t *testing.T) {
 	})
 	ctx := context.Background()
 	plans, err := c.Plans(ctx, 7)
-	if err != nil || len(plans) != 1 || plans[0].ID != 2 || plans[0].TrafficLimitBytes != nil || plans[0].PeriodDays != 30 || plans[0].Visibility != "private" {
+	if err != nil || len(plans) != 1 || plans[0].ID != 2 || len(plans[0].Pools) != 0 || plans[0].PeriodDays != 30 || plans[0].Visibility != "private" {
 		t.Fatalf("plans = %+v, %v", plans, err)
 	}
 	p, err := c.CreatePayment(ctx, 7, 2)

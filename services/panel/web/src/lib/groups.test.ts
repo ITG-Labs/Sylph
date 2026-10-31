@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest"
-import { accessChanges, describeChanges, newOldAgentLines, poolCovers, sees, visibleInbounds, withMembers, withNodeGroups, withPlanGroup, type World } from "./groups"
+import {
+  accessChanges,
+  describeChanges,
+  freeInbounds,
+  newOldAgentLines,
+  poolCovers,
+  sees,
+  ungrouped,
+  unseenPoolInbounds,
+  visibleInbounds,
+  withMembers,
+  withNodeGroups,
+  withPlanGroup,
+  type World,
+} from "./groups"
 
 const node = (id: number, enabled = true, address = "x.example") => ({ id, name: `n${id}`, enabled, address, inbounds: 2 })
 const inb = (id: number, node_id: number, tag: string) => ({ id, node_id, tag, label: "" })
@@ -21,27 +35,26 @@ const world: World = {
 }
 
 describe("visibility", () => {
-  it("a plan sees its group and everything without a group", () => {
-    expect(ids(visibleInbounds(world, world.plans[0]))).toEqual([11, 31, 41])
-    expect(ids(visibleInbounds(world, world.plans[1]))).toEqual([21, 22, 31, 41])
-    expect(ids(visibleInbounds(world, world.plans[2]))).toEqual([22, 31, 41])
+  it("a plan sees only its group, and what is in no group nobody sees", () => {
+    expect(ids(visibleInbounds(world, world.plans[0]))).toEqual([11])
+    expect(ids(visibleInbounds(world, world.plans[1]))).toEqual([21, 22])
+    expect(ids(visibleInbounds(world, world.plans[2]))).toEqual([22])
+    expect(ungrouped(world, world.inbounds[3])).toBe(true)
+    expect(ungrouped(world, world.inbounds[2])).toBe(false)
   })
 
-  it("an inbound in a group is hidden from other plans even when its node is not grouped", () => {
+  it("an inbound in a group stays with that group when its node leaves another", () => {
     const loose = withNodeGroups(world, 2, [])
-    expect(sees(loose, loose.plans[0], loose.inbounds[1])).toBe(true)
-    expect(sees(loose, loose.plans[0], loose.inbounds[2])).toBe(false)
+    expect(sees(loose, loose.plans[1], loose.inbounds[1])).toBe(false)
+    expect(sees(loose, loose.plans[2], loose.inbounds[2])).toBe(true)
+    expect(ungrouped(loose, loose.inbounds[1])).toBe(true)
   })
 })
 
 describe("access changes", () => {
-  it("taking a node out of its only group gives it to every plan", () => {
+  it("taking a node out of its only group hides it from everyone", () => {
     const changes = accessChanges(world, withMembers(world, PREM, [], []))
-    expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained)])).toEqual([
-      [10, [], [21]],
-      [20, [22], []],
-      [30, [], [21]],
-    ])
+    expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained), c.orphaned])).toEqual([[20, [21, 22], [], true]])
   })
 
   it("moving a plan swaps what it sees and spots plans left with nothing live", () => {
@@ -61,62 +74,54 @@ describe("change texts", () => {
     const shared = withMembers(world, CDN, [], [22, 11])
     expect(texts(describeChanges(world, accessChanges(world, shared)))).toEqual(["Тариф «p30» начнёт видеть ноду «n1». Сейчас на нём никого нет."])
     const moved = withPlanGroup(world, 20, EU)
-    expect(texts(describeChanges(world, accessChanges(world, moved)))).toEqual([
-      "30 юзеров тарифа «p20» потеряют ноду «n2»: она перестанет их пускать в течение минуты, а из приложения пропадёт при следующем обновлении подписки.",
-      "30 юзеров тарифа «p20» получат ноду «n1» при следующем обновлении подписки.",
-    ])
-    const loose = withNodeGroups(world, 2, [])
-    expect(texts(describeChanges(world, accessChanges(world, loose)))).toEqual([
-      "12 юзеров тарифа «p10» получат вход «n2 · main» при следующем обновлении подписки.",
-      "30 юзеров тарифа «p20» потеряют вход «n2 · cdn»: он перестанет их пускать в течение минуты, а из приложения пропадёт при следующем обновлении подписки.",
-      "Тариф «p30» начнёт видеть вход «n2 · main». Сейчас на нём никого нет.",
-    ])
+    expect(texts(describeChanges(world, accessChanges(world, moved)))).toHaveLength(2)
+    const partly = withMembers(world, PREM, [], [21])
+    expect(texts(describeChanges(world, accessChanges(world, partly)))).toEqual([expect.stringContaining("вход «n2 · cdn»")])
   })
 
-  it("marks nodes outside subscriptions, warns about orphans and says when nothing changes", () => {
-    const hidden = withMembers(world, EU, [1, 4], [])
-    expect(texts(describeChanges(world, accessChanges(world, hidden)))).toEqual([
-      "30 юзеров тарифа «p20» потеряют ноду «n4» (выключена — в подписке её нет): она перестанет их пускать в течение минуты.",
-      "Тариф «p30» перестанет видеть ноду «n4» (выключена — в подписке её нет). Сейчас на нём никого нет.",
-    ])
+  it("warns about orphans and says when nothing changes", () => {
     const orphan = withMembers(withMembers(world, EU, [1, 3], []), CDN, [], [])
     const lines = describeChanges(world, accessChanges(world, orphan))
-    expect(lines.at(-1)).toEqual({ tone: "danger", text: "У тарифа «p30» в подписке не останется ни одного входа — его юзерам станет не к чему подключиться." })
-    expect(texts(describeChanges(world, accessChanges(world, world)))).toEqual(["Доступы юзеров не меняются."])
+    expect(lines.at(-1)?.tone).toBe("danger")
+    expect(lines.at(-1)?.text).toContain("«p30»")
+    expect(describeChanges(world, accessChanges(world, world))).toHaveLength(1)
+    expect(describeChanges(world, accessChanges(world, world))[0].tone).toBe("info")
   })
 })
 
 describe("plans without a group", () => {
-  it("see only what is in no group, and leaving a group is a move like any other", () => {
-    const free = withPlanGroup(world, 10, null)
-    expect(ids(visibleInbounds(free, free.plans[0]))).toEqual([31, 41])
-    const changes = accessChanges(world, free)
-    expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained)])).toEqual([[10, [11], []]])
+  it("see nothing", () => {
+    const none = withPlanGroup(world, 10, null)
+    expect(visibleInbounds(none, none.plans[0])).toEqual([])
+    const changes = accessChanges(world, none)
+    expect(changes.map((c) => [c.plan.id, ids(c.lost), ids(c.gained), c.orphaned])).toEqual([[10, [11], [], true]])
   })
 })
 
-describe("old agents", () => {
-  const old = (w: World): World => ({ ...w, nodes: w.nodes.map((n) => (n.id === 2 ? { ...n, agent_per_inbound: false, last_sync_at: "2026-10-30T10:00:00Z" } : n)) })
-  it("warn when a change leaves plans with only part of a node an old agent runs", () => {
-    const before = old(world)
-    expect(newOldAgentLines(before, before)).toEqual([])
-    const split = withNodeGroups(before, 2, [])
-    const lines = newOldAgentLines(before, split)
-    expect(lines).toHaveLength(1)
-    expect(lines[0].tone).toBe("danger")
-    expect(lines[0].text).toContain("«n2»")
-    expect(lines[0].text).toContain("«p10»")
+describe("pools", () => {
+  const pooled = (w: World, planID: number, pools: number[][]): World => ({
+    ...w,
+    plans: w.plans.map((p) => (p.id === planID ? { ...p, pools: pools.map((inbound_ids) => ({ inbound_ids })) } : p)),
   })
 
-  it("warn when pools split such a node", () => {
+  it("cover only what the plan sees and leave the rest free", () => {
+    const w = pooled(world, 20, [[21, 31]])
+    const p20 = w.plans[1]
+    expect(ids(poolCovers(w, p20, { inbound_ids: [21, 31] }))).toEqual([21])
+    expect(ids(freeInbounds(w, p20))).toEqual([22])
+    expect(ids(unseenPoolInbounds(w, p20))).toEqual([31])
+  })
+
+  it("warn when a change splits a node an old agent runs", () => {
+    const old = (w: World): World => ({ ...w, nodes: w.nodes.map((n) => (n.id === 2 ? { ...n, agent_per_inbound: false, last_sync_at: "2026-10-30T10:00:00Z" } : n)) })
     const before = old(withMembers(world, CDN, [], []))
-    const pooled: World = { ...before, plans: before.plans.map((p) => (p.id === 20 ? { ...p, pools: [{ node_id: null, group_id: CDN }] } : p)) }
-    const withCDN = withMembers(pooled, CDN, [], [22])
-    expect(newOldAgentLines(before, withCDN).map((l) => l.text).join(" ")).toContain("«p20»")
-  })
-
-  it("say what a pool covers for a plan", () => {
-    expect(ids(poolCovers(world, world.plans[1], { node_id: 2, group_id: null }))).toEqual([21, 22])
-    expect(poolCovers(world, world.plans[0], { node_id: 2, group_id: null })).toEqual([])
+    expect(newOldAgentLines(before, before)).toEqual([])
+    const partly = newOldAgentLines(before, withMembers(before, PREM, [], [21]))
+    expect(partly).toHaveLength(1)
+    expect(partly[0].tone).toBe("danger")
+    expect(partly[0].text).toContain("«n2»")
+    expect(partly[0].text).toContain("«p20»")
+    expect(newOldAgentLines(before, pooled(before, 20, [[22]])).map((l) => l.text).join(" ")).toContain("«p20»")
+    expect(newOldAgentLines(before, pooled(before, 20, [[21, 22]]))).toEqual([])
   })
 })

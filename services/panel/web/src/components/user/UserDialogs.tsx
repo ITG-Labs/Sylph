@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { core } from "@/lib/api"
-import { fmtBytes, fmtDate, fmtRub, parseGB } from "@/lib/format"
+import { fmtBytes, fmtDate, fmtPlanTraffic, fmtRub, parseGB } from "@/lib/format"
 import { assignable } from "@/lib/addresses"
 import type { NodeAddress, Period, Plan, UserAddress, UserCard } from "@/lib/types"
 
@@ -58,7 +58,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
   const close = (v: boolean) => !v && onClose()
   const [days, setDays] = useState("")
   const [gb, setGb] = useState("")
-  const [pool, setPool] = useState("main")
+  const [pool, setPool] = useState("")
   const [planId, setPlanId] = useState("")
   const [amount, setAmount] = useState("")
   const [addressId, setAddressId] = useState("")
@@ -68,7 +68,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
   useEffect(() => {
     setDays("")
     setGb("")
-    setPool("main")
+    setPool(String(card.periods.find((p) => p.state === "current")?.pools.find((x) => x.traffic_limit_bytes !== null)?.pool_id ?? ""))
     setPlanId("")
     setAmount("")
     setAddressId("")
@@ -124,19 +124,16 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         confirmLabel={bytes ? `Добавить ${fmtBytes(bytes)}` : "Добавить"}
         canConfirm={bytes !== null && !!current && poolLimited(current, pool)}
         success="Трафик добавлен"
-        onConfirm={() => run(core.post(`/v1/admin/users/${uid}/traffic`, pool === "main" ? { bytes } : { bytes, pool_id: Number(pool) }))}
+        onConfirm={() => run(core.post(`/v1/admin/users/${uid}/traffic`, { bytes, pool_id: Number(pool) }))}
       >
         {current && current.pools.length > 0 && (
           <div className="flex flex-col gap-2">
             <Label>Пул</Label>
             <Select value={pool} onValueChange={setPool}>
               <SelectTrigger aria-label="Пул">
-                <SelectValue />
+                <SelectValue placeholder="Выберите пул" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="main" disabled={current.traffic_limit_bytes === null}>
-                  Основной{current.traffic_limit_bytes === null ? " — безлимит" : ""}
-                </SelectItem>
                 {current.pools.map((x) => (
                   <SelectItem key={x.pool_id} value={String(x.pool_id)} disabled={x.traffic_limit_bytes === null}>
                     {x.name}
@@ -176,7 +173,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
                 .filter((p) => p.id !== current?.plan_id)
                 .map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name} · {p.period_days} дн · {fmtBytes(p.traffic_limit_bytes)}
+                    {p.name} · {p.period_days} дн · {fmtPlanTraffic(p)}
                   </SelectItem>
                 ))}
             </SelectContent>
@@ -367,12 +364,10 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
 }
 
 function poolLimited(p: Period, pool: string): boolean {
-  if (pool === "main") return p.traffic_limit_bytes !== null
   return p.pools.some((x) => String(x.pool_id) === pool && x.traffic_limit_bytes !== null)
 }
 
 function poolUsage(p: Period, pool: string): string {
   const x = p.pools.find((y) => String(y.pool_id) === pool)
-  const [used, limit, name] = x ? [x.used_bytes, x.traffic_limit_bytes, x.name] : [p.traffic_used_bytes, p.traffic_limit_bytes, p.pools.length > 0 ? "основной" : ""]
-  return `${name ? `пул «${name}»: ` : ""}потрачено ${fmtBytes(used)} из ${fmtBytes(limit)}`
+  return x ? `пул «${x.name}»: использовано ${fmtBytes(x.used_bytes)} из ${fmtBytes(x.traffic_limit_bytes)}` : "пул не выбран"
 }

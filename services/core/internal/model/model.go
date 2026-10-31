@@ -120,29 +120,27 @@ const (
 )
 
 type Plan struct {
-	ID                int64      `json:"id"`
-	Name              string     `json:"name"`
-	PriceRub          int64      `json:"price_rub"`
-	PeriodDays        int        `json:"period_days"`
-	TrafficLimitBytes *int64     `json:"traffic_limit_bytes"`
-	LocationGroupID   *int64     `json:"location_group_id"`
-	DeviceLimit       *int       `json:"device_limit"`
-	OnSale            bool       `json:"on_sale"`
-	HWIDRequired      bool       `json:"hwid_required"`
-	Trial             bool       `json:"trial"`
-	Visibility        string     `json:"visibility"`
-	DedicatedIP       bool       `json:"dedicated_ip"`
-	Pools             []PlanPool `json:"pools"`
-	CreatedAt         time.Time  `json:"created_at"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	PriceRub        int64      `json:"price_rub"`
+	PeriodDays      int        `json:"period_days"`
+	LocationGroupID *int64     `json:"location_group_id"`
+	DeviceLimit     *int       `json:"device_limit"`
+	OnSale          bool       `json:"on_sale"`
+	HWIDRequired    bool       `json:"hwid_required"`
+	Trial           bool       `json:"trial"`
+	Visibility      string     `json:"visibility"`
+	DedicatedIP     bool       `json:"dedicated_ip"`
+	Pools           []PlanPool `json:"pools"`
+	FreeInbounds    int        `json:"free_inbounds"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 type PlanPool struct {
-	ID                int64  `json:"id"`
-	Name              string `json:"name"`
-	Label             string `json:"label"`
-	NodeID            *int64 `json:"node_id"`
-	GroupID           *int64 `json:"group_id"`
-	TrafficLimitBytes *int64 `json:"traffic_limit_bytes"`
+	ID                int64   `json:"id"`
+	Name              string  `json:"name"`
+	TrafficLimitBytes *int64  `json:"traffic_limit_bytes"`
+	InboundIDs        []int64 `json:"inbound_ids"`
 }
 
 type PoolUsage struct {
@@ -200,20 +198,18 @@ type UserKey struct {
 }
 
 type Subscription struct {
-	ID                int64       `json:"id"`
-	UserID            int64       `json:"user_id"`
-	PlanID            int64       `json:"plan_id"`
-	StartsAt          time.Time   `json:"starts_at"`
-	ExpiresAt         time.Time   `json:"expires_at"`
-	Canceled          bool        `json:"canceled"`
-	TrafficUsedBytes  int64       `json:"traffic_used_bytes"`
-	TrafficBonusBytes int64       `json:"traffic_bonus_bytes"`
-	TrafficLimitBytes *int64      `json:"traffic_limit_bytes"`
-	TrafficExhausted  bool        `json:"traffic_exhausted"`
-	MainIdle          bool        `json:"main_idle"`
-	Pools             []PoolUsage `json:"pools"`
-	PaidUntil         *time.Time  `json:"paid_until,omitempty"`
-	CreatedAt         time.Time   `json:"created_at"`
+	ID               int64       `json:"id"`
+	UserID           int64       `json:"user_id"`
+	PlanID           int64       `json:"plan_id"`
+	StartsAt         time.Time   `json:"starts_at"`
+	ExpiresAt        time.Time   `json:"expires_at"`
+	Canceled         bool        `json:"canceled"`
+	TrafficUsedBytes int64       `json:"traffic_used_bytes"`
+	TrafficExhausted bool        `json:"traffic_exhausted"`
+	MainIdle         bool        `json:"main_idle"`
+	Pools            []PoolUsage `json:"pools"`
+	PaidUntil        *time.Time  `json:"paid_until,omitempty"`
+	CreatedAt        time.Time   `json:"created_at"`
 }
 
 type Payment struct {

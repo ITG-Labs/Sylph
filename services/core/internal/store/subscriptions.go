@@ -18,8 +18,6 @@ func (s *Store) CreateSubscription(ctx context.Context, sub *model.Subscription)
 	).Scan(&sub.ID, &sub.CreatedAt)
 }
 
-const effectiveLimit = `CASE WHEN p.traffic_limit_bytes IS NOT NULL THEN LEAST(p.traffic_limit_bytes::numeric + s.traffic_bonus_bytes, 9223372036854775807)::bigint END`
-
 const poolRelevance = `rel AS MATERIALIZED (SELECT DISTINCT plan_id, pool FROM plan_inbounds)`
 
 func poolCounts(plan, pool string) string {
@@ -34,7 +32,7 @@ func mainIdle(plan string) string {
 func periodPools(period string) string {
 	return `COALESCE((SELECT json_agg(json_build_object(
 		'pool_id', x.pool_id,
-		'name', COALESCE(NULLIF(pp.name, ''), (SELECT name FROM nodes WHERE id = pp.node_id), (SELECT name FROM location_groups WHERE id = pp.group_id)),
+		'name', pp.name,
 		'used_bytes', x.used_bytes, 'bonus_bytes', x.bonus_bytes, 'traffic_limit_bytes', x.limit_bytes,
 		'exhausted', x.limit_bytes IS NOT NULL AND x.used_bytes >= x.limit_bytes) ORDER BY x.position, x.pool_id)
 		FROM period_pools x JOIN plan_pools pp ON pp.id = x.pool_id
@@ -44,7 +42,7 @@ func periodPools(period string) string {
 func (s *Store) GetActiveSubscription(ctx context.Context, userID int64) (*model.Subscription, error) {
 	row := s.pool.QueryRow(ctx,
 		`WITH `+poolRelevance+`
-		 SELECT s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.traffic_bonus_bytes, `+effectiveLimit+`, s.created_at,
+		 SELECT s.id, s.user_id, s.plan_id, s.starts_at, s.expires_at, s.canceled, s.traffic_used_bytes, s.created_at,
 		        (SELECT max(q.expires_at) FROM subscriptions q WHERE q.user_id = s.user_id AND NOT q.canceled AND q.expires_at > now()),
 		        period_exhausted(s.id), `+mainIdle("s.plan_id")+`, `+periodPools("s")+`
 		 FROM subscriptions s JOIN plans p ON p.id = s.plan_id
@@ -52,7 +50,7 @@ func (s *Store) GetActiveSubscription(ctx context.Context, userID int64) (*model
 		 ORDER BY s.starts_at DESC, s.id DESC LIMIT 1`, userID)
 	sub := &model.Subscription{}
 	err := row.Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Canceled, &sub.TrafficUsedBytes,
-		&sub.TrafficBonusBytes, &sub.TrafficLimitBytes, &sub.CreatedAt, &sub.PaidUntil, &sub.TrafficExhausted, &sub.MainIdle, &sub.Pools)
+		&sub.CreatedAt, &sub.PaidUntil, &sub.TrafficExhausted, &sub.MainIdle, &sub.Pools)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -72,8 +70,6 @@ type period struct {
 	planID    int64
 	startsAt  time.Time
 	expires   time.Time
-	used      int64
-	limit     *int64
 	exhausted bool
 }
 
@@ -138,10 +134,10 @@ func applyPaymentTx(ctx context.Context, tx pgx.Tx, userID int64, planID int64, 
 
 func lockTimeline(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) ([]period, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT s.id, s.plan_id, s.starts_at, s.expires_at, s.traffic_used_bytes, `+effectiveLimit+`, period_exhausted(s.id)
-		 FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+		`SELECT s.id, s.plan_id, s.starts_at, s.expires_at, period_exhausted(s.id)
+		 FROM subscriptions s
 		 WHERE s.user_id = $1 AND NOT s.canceled AND s.expires_at > $2
-		 ORDER BY s.starts_at, s.id FOR UPDATE OF s`, userID, now)
+		 ORDER BY s.starts_at, s.id FOR UPDATE`, userID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +145,7 @@ func lockTimeline(ctx context.Context, tx pgx.Tx, userID int64, now time.Time) (
 	var out []period
 	for rows.Next() {
 		var p period
-		if err := rows.Scan(&p.id, &p.planID, &p.startsAt, &p.expires, &p.used, &p.limit, &p.exhausted); err != nil {
+		if err := rows.Scan(&p.id, &p.planID, &p.startsAt, &p.expires, &p.exhausted); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

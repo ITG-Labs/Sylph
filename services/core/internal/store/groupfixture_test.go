@@ -3,15 +3,13 @@ package store
 import (
 	"context"
 	"testing"
-
-	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
 
-func testGroup(t testing.TB, s *Store) *int64 {
+func sharedGroup(t testing.TB, s *Store) *int64 {
 	t.Helper()
-	g, err := s.CreateLocationGroup(context.Background(), "g-"+model.NewToken()[:12])
-	if err != nil {
+	var id int64
+	if err := s.pool.QueryRow(context.Background(), `SELECT id FROM location_groups WHERE name = $1`, TestSharedGroup).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
-	return &g.ID
+	return &id
 }

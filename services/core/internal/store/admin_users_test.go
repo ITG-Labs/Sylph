@@ -21,12 +21,12 @@ func TestTrafficBonusBringsExhaustedUserBack(t *testing.T) {
 		t.Fatal("exhausted user still on the node")
 	}
 	v := nodeVersion(t, s, n.CertCN)
-	sub, err := s.AddTrafficBonus(ctx, u.ID, nil, 500, time.Now().UTC())
+	sub, err := s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), 500, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.TrafficBonusBytes != 500 || sub.TrafficLimitBytes == nil || *sub.TrafficLimitBytes != 1500 {
-		t.Fatalf("bonus %d, limit %v", sub.TrafficBonusBytes, sub.TrafficLimitBytes)
+	if sub.Pools[0].BonusBytes != 500 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 1500 {
+		t.Fatalf("bonus %d, limit %v", sub.Pools[0].BonusBytes, sub.Pools[0].TrafficLimitBytes)
 	}
 	if nodeVersion(t, s, n.CertCN) <= v {
 		t.Fatal("bonus did not bump the nodes")
@@ -38,8 +38,8 @@ func TestTrafficBonusBringsExhaustedUserBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if active.TrafficBonusBytes != 500 || active.TrafficLimitBytes == nil || *active.TrafficLimitBytes != 1500 {
-		t.Fatalf("active period: bonus %d, limit %v", active.TrafficBonusBytes, active.TrafficLimitBytes)
+	if active.Pools[0].BonusBytes != 500 || active.Pools[0].TrafficLimitBytes == nil || *active.Pools[0].TrafficLimitBytes != 1500 {
+		t.Fatalf("active period: bonus %d, limit %v", active.Pools[0].BonusBytes, active.Pools[0].TrafficLimitBytes)
 	}
 	res := record(t, s, n.ID, "b-2", model.TrafficDelta{KeyUUID: k, BytesUp: 500})
 	if len(res.Exhausted) != 1 || res.Exhausted[0].Limit != 1500 {
@@ -54,10 +54,11 @@ func TestTrafficBonusSaturates(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	u := mkUser(t, s)
+	deltaNode(t, s)
 	p := mkLimitedPlan(t, s, 30, 1<<62)
 	pay(t, s, u.ID, p.ID, time.Now().UTC())
 	for range 3 {
-		if _, err := s.AddTrafficBonus(ctx, u.ID, nil, 1<<62, time.Now().UTC()); err != nil {
+		if _, err := s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), 1<<62, time.Now().UTC()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,8 +66,8 @@ func TestTrafficBonusSaturates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.TrafficLimitBytes == nil || *sub.TrafficLimitBytes <= 1<<62 {
-		t.Fatalf("limit = %v", sub.TrafficLimitBytes)
+	if sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes <= 1<<62 {
+		t.Fatalf("limit = %v", sub.Pools[0].TrafficLimitBytes)
 	}
 }
 
@@ -74,14 +75,22 @@ func TestTrafficBonusNeedsALimitedActivePeriod(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	u := mkUser(t, s)
-	if _, err := s.AddTrafficBonus(ctx, u.ID, nil, 1, time.Now().UTC()); !errors.Is(err, ErrNoActivePeriod) {
+	if _, err := s.AddTrafficBonus(ctx, u.ID, 1, 1, time.Now().UTC()); !errors.Is(err, ErrNoActivePeriod) {
 		t.Fatalf("without a period: %v", err)
 	}
-	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
-	if _, err := s.AddTrafficBonus(ctx, u.ID, nil, 1, time.Now().UTC()); !errors.Is(err, ErrUnlimitedPlan) {
-		t.Fatalf("unlimited plan: %v", err)
+	p := mkPlan(t, s)
+	p.Pools = []model.PlanPool{{Name: "unlimited"}}
+	if err := s.UpdatePlan(ctx, p); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := s.AddTrafficBonus(ctx, 999999, nil, 1, time.Now().UTC()); !errors.Is(err, ErrNotFound) {
+	pay(t, s, u.ID, p.ID, time.Now().UTC())
+	if _, err := s.AddTrafficBonus(ctx, u.ID, p.Pools[0].ID, 1, time.Now().UTC()); !errors.Is(err, ErrUnlimitedPlan) {
+		t.Fatalf("unlimited pool: %v", err)
+	}
+	if _, err := s.AddTrafficBonus(ctx, u.ID, 999999, 1, time.Now().UTC()); !errors.Is(err, ErrPoolNotInPlan) {
+		t.Fatalf("unknown pool: %v", err)
+	}
+	if _, err := s.AddTrafficBonus(ctx, 999999, p.Pools[0].ID, 1, time.Now().UTC()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown user: %v", err)
 	}
 }
@@ -94,7 +103,7 @@ func TestBonusKeepsSamePlanPaymentQueued(t *testing.T) {
 	now := time.Now().UTC()
 	first := pay(t, s, u.ID, p.ID, now)
 	setUsed(t, s, first.PeriodID, 1000)
-	if _, err := s.AddTrafficBonus(ctx, u.ID, nil, 10, now); err != nil {
+	if _, err := s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), 10, now); err != nil {
 		t.Fatal(err)
 	}
 	if res := pay(t, s, u.ID, p.ID, now); res.StartsNow {
@@ -317,7 +326,7 @@ func TestBannedUserCannotBeManaged(t *testing.T) {
 	if _, err := s.BanUser(ctx, u.ID, "", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddTrafficBonus(ctx, u.ID, nil, 1, now); !errors.Is(err, ErrUserBanned) {
+	if _, err := s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), 1, now); !errors.Is(err, ErrUserBanned) {
 		t.Fatalf("bonus: %v", err)
 	}
 	if _, err := s.ExtendPeriod(ctx, u.ID, 1, now); !errors.Is(err, ErrUserBanned) {

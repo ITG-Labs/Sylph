@@ -8,6 +8,7 @@ import (
 
 	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, string, *model.Node) {
@@ -17,9 +18,11 @@ func limitedUserOnNode(t *testing.T, svc *Service, tg int64) (*model.User, strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit := int64(1000)
-	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, TrafficLimitBytes: &limit, LocationGroupID: testGroup(t, svc.store)}
+	p := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc.store)}
 	if err := svc.store.CreatePlan(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.LimitAllForTests(ctx, poolOf(svc), p.ID, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.store.ApplyPayment(ctx, u.ID, p.ID, time.Now().UTC()); err != nil {
@@ -41,7 +44,8 @@ func trafficUsed(t *testing.T, svc *Service, userID int64) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sub.TrafficUsedBytes
+	used, _ := TrafficTotals(sub)
+	return used
 }
 
 func onNode(t *testing.T, svc *Service, n *model.Node, key string) bool {

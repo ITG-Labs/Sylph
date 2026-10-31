@@ -19,6 +19,9 @@ func setupStore(t *testing.T) *Store {
 	if err := ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ShareForTests(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
 	return NewStore(pool)
 }
 

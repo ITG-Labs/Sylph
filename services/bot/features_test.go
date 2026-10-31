@@ -10,7 +10,7 @@ import (
 )
 
 func trialPlan() *Plan {
-	return &Plan{ID: 9, Name: "Пробный", PeriodDays: 3, TrafficLimitBytes: i64(5 << 30), DeviceLimit: iptr(1), HWIDRequired: true, Trial: true, OnSale: true}
+	return &Plan{ID: 9, Name: "Пробный", PeriodDays: 3, Pools: mainPool(5 << 30), DeviceLimit: iptr(1), HWIDRequired: true, Trial: true, OnSale: true}
 }
 
 func TestMenuOffersTrialOnlyWhenAvailable(t *testing.T) {

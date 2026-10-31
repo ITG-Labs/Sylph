@@ -337,8 +337,9 @@ func tptr(t time.Time) *time.Time { return &t }
 func activeStatus() *Status {
 	return &Status{
 		User:         User{ID: 7, SubToken: "tok"},
-		Subscription: &Period{PlanID: 2, StartsAt: at("2026-10-01T10:00:00Z"), ExpiresAt: at("2026-10-31T10:00:00Z"), TrafficUsedBytes: 1 << 30, PaidUntil: tptr(at("2026-11-30T10:00:00Z"))},
-		Plan:         &Plan{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, TrafficLimitBytes: i64(100 << 30), DeviceLimit: iptr(3), OnSale: true},
+		Subscription: &Period{PlanID: 2, StartsAt: at("2026-10-01T10:00:00Z"), ExpiresAt: at("2026-10-31T10:00:00Z"), MainIdle: true, PaidUntil: tptr(at("2026-11-30T10:00:00Z")),
+			Pools: []PoolUsage{{PoolID: 1, Name: "Основной", UsedBytes: 1 << 30, TrafficLimitBytes: i64(100 << 30)}}},
+		Plan: &Plan{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, Pools: mainPool(100 << 30), DeviceLimit: iptr(3), OnSale: true},
 		Devices:      1,
 	}
 }
@@ -502,7 +503,8 @@ func TestStatusWhenTrafficIsExhausted(t *testing.T) {
 
 func TestStatusWithoutLimitsAndWithoutSubscription(t *testing.T) {
 	st := activeStatus()
-	st.Plan.TrafficLimitBytes, st.Plan.DeviceLimit = nil, nil
+	st.Plan.Pools, st.Plan.DeviceLimit = nil, nil
+	st.Subscription.Pools, st.Subscription.MainIdle = nil, false
 	st.Subscription.TrafficUsedBytes = 1536 << 20
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
@@ -538,7 +540,7 @@ func TestPlanNamesAreEscaped(t *testing.T) {
 
 func TestBuyListsPlansAndTheRules(t *testing.T) {
 	core := &fakeCore{status: activeStatus(), plans: []Plan{
-		{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, TrafficLimitBytes: i64(100 << 30), DeviceLimit: iptr(3), OnSale: true},
+		{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, Pools: mainPool(100 << 30), DeviceLimit: iptr(3), OnSale: true},
 		{ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true},
 	}}
 	app, tg := newTestApp(t, core)
@@ -846,7 +848,7 @@ func tgTime(tm time.Time) string {
 
 func allTexts(t *testing.T, app *App, tg *fakeTelegram, core *fakeCore) []sent {
 	t.Helper()
-	core.plans = []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, TrafficLimitBytes: i64(100 << 30), DeviceLimit: iptr(3), OnSale: true}, {ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true}}
+	core.plans = []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, Pools: mainPool(100 << 30), DeviceLimit: iptr(3), OnSale: true}, {ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true}}
 	core.payment = &Payment{PaymentID: "p1", ConfirmationURL: "https://yoomoney.ru/x", AmountRub: 1990}
 	core.check = &Check{Status: "succeeded", TelegramID: i64(tgUser), PaidUntil: tptr(at("2026-11-30T10:00:00Z"))}
 	core.rotated = "new-tok"
@@ -1062,4 +1064,8 @@ func TestQueueWordingCoversExistingQueue(t *testing.T) {
 	mustContain(t, tg.last(t).text, "после всех уже оплаченных")
 	app.Handle(context.Background(), tg, callback("menu:buy"))
 	mustContain(t, tg.last(t).text, "после всех уже оплаченных")
+}
+
+func mainPool(limit int64) []PlanPool {
+	return []PlanPool{{Name: "Основной", TrafficLimitBytes: &limit}}
 }

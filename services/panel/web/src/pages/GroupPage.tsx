@@ -76,9 +76,8 @@ export function GroupPage() {
     return i ? `${nodeOf(i.node_id)?.name ?? `нода ${i.node_id}`} · ${i.label || i.tag}` : `вход ${iid}`
   }
   const gPlans = plans.filter((p) => p.location_group_id === gid)
-  const poolPlans = plans.filter((p) => p.pools.some((pool) => pool.group_id === gid))
   const memberCount = g.node_ids.length + g.inbound_ids.length
-  const removable = memberCount === 0 && gPlans.length === 0 && poolPlans.length === 0
+  const removable = memberCount === 0 && gPlans.length === 0
   const where = (group: number | null) => (group === null ? null : (groups.find((x) => x.id === group)?.name ?? `группа ${group}`))
   const refresh = () => invalidate(["nodes"], ["plans"], ["groups"], ["overview"])
   const open = (d: Dialog) => {
@@ -185,7 +184,7 @@ export function GroupPage() {
 
         <Section
           title="Тарифы"
-          description="их юзеры видят состав группы и всё, что не входит ни в одну группу"
+          description="тарифы видят только входы своей группы"
           action={
             <Button size="sm" onClick={() => open({ kind: "addPlan" })}>
               <Plus />
@@ -193,7 +192,7 @@ export function GroupPage() {
             </Button>
           }
         >
-          {gPlans.length === 0 && poolPlans.length === 0 ? (
+          {gPlans.length === 0 ? (
             <Empty>Тарифов нет — состав группы сейчас никому не виден</Empty>
           ) : (
             <div className="flex flex-col gap-2">
@@ -213,12 +212,6 @@ export function GroupPage() {
                   </Button>
                 </div>
               ))}
-              {poolPlans.map((p) => (
-                <Link key={`pool${p.id}`} to={`/plans/${p.id}`} className="well block rounded-xl py-2 pr-3 pl-3.5 transition-colors hover:bg-white/6">
-                  <div className="truncate font-medium">{p.name}</div>
-                  <div className="text-xs text-muted-foreground">считает трафик группы отдельным пулом</div>
-                </Link>
-              ))}
             </div>
           )}
         </Section>
@@ -228,7 +221,7 @@ export function GroupPage() {
         open={dialog?.kind === "rename"}
         onOpenChange={close}
         title="Переименовать группу"
-        description="Имя группы видно в панели и как подпись пула в боте, если у пула нет своего имени"
+        description="Название группы отображается только в панели"
         confirmLabel="Сохранить"
         canConfirm={name.trim() !== "" && name.trim() !== g.name}
         success="Группа переименована"
@@ -254,8 +247,7 @@ export function GroupPage() {
             <>
               <p>Удалить можно только неиспользуемую группу. Сначала:</p>
               {memberCount > 0 && <p>очисти состав;</p>}
-              {gPlans.length > 0 && <p>перенеси в другие группы тарифы {quoted(gPlans.map((p) => p.name))};</p>}
-              {poolPlans.length > 0 && <p>убери пулы с этой группой из тарифов {quoted(poolPlans.map((p) => p.name))}.</p>}
+              {gPlans.length > 0 && <p>перенеси в другие группы тарифы {quoted(gPlans.map((p) => p.name))}.</p>}
             </>
           )
         }
@@ -331,7 +323,7 @@ export function GroupPage() {
         open={dialog?.kind === "removePlan"}
         onOpenChange={close}
         title={dialog?.kind === "removePlan" ? `Убрать «${dialog.plan.name}» из группы` : "Убрать тариф"}
-        description="Тариф останется без группы и будет видеть только то, что не входит ни в одну группу"
+        description="Тариф останется без группы и перестанет видеть все входы"
         consequences={consequences}
         destructive={isHarsh(lines)}
         confirmLabel="Убрать"

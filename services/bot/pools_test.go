@@ -9,13 +9,14 @@ import (
 
 func TestStatusShowsEveryPool(t *testing.T) {
 	st := activeStatus()
+	st.Subscription.MainIdle, st.Subscription.TrafficUsedBytes = false, 1<<30
 	st.Subscription.Pools = []PoolUsage{{PoolID: 4, Name: "Германия <DE>", UsedBytes: 100 << 30, TrafficLimitBytes: i64(100 << 30), Exhausted: true},
 		{PoolID: 5, Name: "CDN", UsedBytes: 3 << 30}}
 	core := &fakeCore{status: st}
 	app, tg := newTestApp(t, core)
 	app.Handle(context.Background(), tg, callback("menu:sub"))
 	m := tg.last(t).text
-	mustContain(t, m, "✅ <b>Активна</b>", "Основной", "1 ГБ из 100 ГБ", "Германия &lt;DE&gt; · исчерпан", "100 ГБ из 100 ГБ", "CDN", "3 ГБ · без лимита")
+	mustContain(t, m, "✅ <b>Активна</b>", "Германия &lt;DE&gt; · исчерпан", "100 ГБ из 100 ГБ", "CDN", "3 ГБ · без лимита", "Остальные серверы", "1 ГБ · без лимита")
 	if strings.Contains(m, "Трафик исчерпан") {
 		t.Fatalf("one spent pool must not read as the whole subscription:\n%s", m)
 	}
@@ -26,14 +27,17 @@ func TestStatusShowsEveryPool(t *testing.T) {
 
 func TestPlanCardListsItsPools(t *testing.T) {
 	app, _ := newTestApp(t, &fakeCore{})
-	p := Plan{Name: "Премиум", PriceRub: 499, PeriodDays: 30, TrafficLimitBytes: i64(500 << 30),
-		Pools: []PlanPool{{Label: "Германия", TrafficLimitBytes: i64(100 << 30)}, {Label: "CDN <x>"}}}
+	p := Plan{Name: "Премиум", PriceRub: 499, PeriodDays: 30, FreeInbounds: 2,
+		Pools: []PlanPool{{Name: "Основной", TrafficLimitBytes: i64(500 << 30)}, {Name: "Германия", TrafficLimitBytes: i64(100 << 30)}, {Name: "CDN <x>"}}}
 	got := app.planBlock(p)
-	mustContain(t, got, "500 ГБ трафика", "Германия — 100 ГБ", "CDN &lt;x&gt; — без лимита")
-	plain := app.planBlock(Plan{Name: "Месяц", PriceRub: 199, PeriodDays: 30, TrafficLimitBytes: i64(100 << 30)})
-	if strings.Contains(plain, "—") {
-		t.Fatalf("a plan without pools grew pool lines:\n%s", plain)
+	mustContain(t, got, "трафик по серверам:", "Основной — 500 ГБ", "Германия — 100 ГБ", "CDN &lt;x&gt; — без лимита", "Остальные серверы — без лимита")
+	plain := app.planBlock(Plan{Name: "Месяц", PriceRub: 199, PeriodDays: 30, Pools: mainPool(100 << 30)})
+	mustContain(t, plain, "100 ГБ трафика")
+	if strings.Contains(plain, "—") || strings.Contains(plain, "Основной") {
+		t.Fatalf("a plan with one pool over everything grew pool lines:\n%s", plain)
 	}
+	mustContain(t, app.planBlock(Plan{Name: "Безлимит", PriceRub: 1, PeriodDays: 30}), "без лимита трафика")
+	mustContain(t, app.planBlock(Plan{Name: "Частично", PriceRub: 1, PeriodDays: 30, Pools: mainPool(1 << 30), FreeInbounds: 1}), "Основной — 1 ГБ", "Остальные серверы — без лимита")
 }
 
 func TestPoolNoticesNameThePool(t *testing.T) {
@@ -53,16 +57,14 @@ func TestPoolNoticesNameThePool(t *testing.T) {
 	mustContain(t, text, "Трафик «Германия» закончился", "VPN не работает")
 }
 
-func TestStatusHidesAMainPoolThatCoversNothing(t *testing.T) {
+func TestStatusShowsASinglePoolAsPlainTraffic(t *testing.T) {
 	st := activeStatus()
-	st.Plan.TrafficLimitBytes = nil
-	st.Subscription.MainIdle = true
 	st.Subscription.Pools = []PoolUsage{{PoolID: 4, Name: "Премиум", UsedBytes: 10 << 30, TrafficLimitBytes: i64(100 << 30)}}
 	app, tg := newTestApp(t, &fakeCore{status: st})
 	app.Handle(context.Background(), tg, callback("menu:sub"))
 	m := tg.last(t).text
-	mustContain(t, m, "Премиум", "10 ГБ из 100 ГБ")
-	if strings.Contains(m, "Основной") || strings.Contains(m, "без лимита") {
-		t.Fatalf("an idle main pool leaked into the status:\n%s", m)
+	mustContain(t, m, "10 ГБ из 100 ГБ")
+	if strings.Contains(m, "Премиум") || strings.Contains(m, "без лимита") || strings.Contains(m, "Остальные") {
+		t.Fatalf("one pool over everything the plan sees must read as plain traffic:\n%s", m)
 	}
 }

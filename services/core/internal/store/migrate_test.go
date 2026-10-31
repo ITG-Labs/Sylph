@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,8 +46,8 @@ func TestApplyMigrations(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 38 {
-		t.Fatalf("tables = %d, want 38", count)
+	if count != 39 {
+		t.Fatalf("tables = %d, want 39", count)
 	}
 }
 
@@ -246,7 +249,12 @@ func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyMigrations(ctx, pool); err != nil {
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Migrate(17); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
@@ -264,11 +272,6 @@ func TestMigration005DownKeepsLimitsForQueuedPeriods(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	m, closeDB, err := newMigrator(pool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer closeDB()
 	if err := m.Migrate(4); err != nil {
 		t.Fatalf("down to 004: %v", err)
 	}
@@ -1266,4 +1269,167 @@ func TestMigration017DownAndUpAgain(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT agent_xhttp FROM nodes`).Scan(&xhttp); err != nil || xhttp {
 		t.Fatalf("agent_xhttp after up again = %v, %v", xhttp, err)
 	}
+}
+
+func TestMigration018KeepsAccessAndUsage(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(17); err != nil {
+		t.Fatalf("up to 017: %v", err)
+	}
+	inbound := `INSERT INTO node_inbounds (node_id, tag, port, protocol, transport, security, settings) SELECT id, $2, 443, 'vless', 'tcp', 'reality', '{}' FROM nodes WHERE name = $1`
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s %v: %v", q, args, err)
+		}
+	}
+	for _, n := range []string{"A", "B", "C", "D"} {
+		exec(`INSERT INTO nodes (cert_cn, name) VALUES ($1, $1)`, n)
+	}
+	for _, in := range [][2]string{{"A", "a1"}, {"A", "a2"}, {"B", "b1"}, {"B", "b2"}, {"C", "c1"}} {
+		exec(inbound, in[0], in[1])
+	}
+	exec(`INSERT INTO location_groups (name) VALUES ('gA'), ('gB')`)
+	exec(`INSERT INTO group_nodes (group_id, node_id) SELECT g.id, n.id FROM location_groups g, nodes n WHERE g.name = 'gA' AND n.name = 'A'`)
+	exec(`INSERT INTO group_inbounds (group_id, inbound_id) SELECT g.id, i.id FROM location_groups g, node_inbounds i WHERE g.name = 'gB' AND i.tag = 'b1'`)
+	plan := `INSERT INTO plans (name, price_rub, period_days, traffic_limit_bytes, location_group_id) VALUES ($1, 100, 30, $2, (SELECT id FROM location_groups WHERE name = $3))`
+	exec(plan, "p1", 1000, "gA")
+	exec(plan, "p2", nil, "gB")
+	exec(plan, "p3", 300, nil)
+	exec(plan, "p4", 500, "gA")
+	poolSQL := `INSERT INTO plan_pools (plan_id, position, name, node_id, group_id, traffic_limit_bytes) VALUES ((SELECT id FROM plans WHERE name = $1), $2, $3, (SELECT id FROM nodes WHERE name = $4), (SELECT id FROM location_groups WHERE name = $5), $6)`
+	exec(poolSQL, "p1", 0, "X", "A", nil, 100)
+	exec(poolSQL, "p2", 0, "Y", nil, "gB", 50)
+	exec(poolSQL, "p4", 0, "", nil, "gB", 40)
+	exec(poolSQL, "p4", 1, "", "C", nil, 70)
+	for i, p := range []string{"p1", "p3", "p2", "p4"} {
+		exec(`INSERT INTO users (telegram_id, sub_token) VALUES ($1, $2)`, i+1, "tok"+p)
+		exec(`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at, traffic_used_bytes, traffic_bonus_bytes)
+		      SELECT u.id, p.id, now() - interval '1 day', now() + interval '1 day', $2, $3 FROM users u, plans p WHERE u.sub_token = 'tok' || $1 AND p.name = $1`,
+			p, map[string]int{"p1": 10, "p3": 300, "p2": 7, "p4": 0}[p], map[string]int{"p1": 5}[p])
+	}
+	exec(`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes, bonus_bytes)
+	      SELECT s.id, pp.id, 3, 2 FROM subscriptions s JOIN plan_pools pp ON pp.plan_id = s.plan_id WHERE pp.name = 'X'`)
+
+	type row struct {
+		Plan, Tag string
+		Used      int64
+		Limit     *int64
+	}
+	access := func() []row {
+		t.Helper()
+		rows, err := pool.Query(ctx,
+			`SELECT p.name, i.tag, x.used_bytes, x.limit_bytes
+			 FROM plan_inbounds pi JOIN plans p ON p.id = pi.plan_id JOIN node_inbounds i ON i.id = pi.inbound_id
+			 JOIN subscriptions s ON s.plan_id = p.id
+			 JOIN period_pools x ON x.period_id = s.id AND x.pool_id IS NOT DISTINCT FROM pi.pool_id
+			 ORDER BY 1, 2`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	exhausted := func() []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE period_exhausted(s.id) ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	before, spentBefore := access(), exhausted()
+	if !slices.Equal(spentBefore, []string{"p3"}) {
+		t.Fatalf("fixture: exhausted before = %v", spentBefore)
+	}
+
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 018: %v", err)
+	}
+	if got := access(); !slices.EqualFunc(got, before, sameRow) {
+		t.Fatalf("access changed by up 018:\nbefore %v\nafter  %v", fmtRows(before), fmtRows(got))
+	}
+	if got := exhausted(); !slices.Equal(got, spentBefore) {
+		t.Fatalf("exhausted after up = %v, want %v", got, spentBefore)
+	}
+	var names []string
+	rows, err := pool.Query(ctx, `SELECT p.name || ':' || pp.position || ':' || pp.name FROM plan_pools pp JOIN plans p ON p.id = pp.plan_id ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"p1:0:Основной", "p1:1:X", "p2:0:Y", "p3:0:Основной", "p4:0:Основной", "p4:1:gB", "p4:2:C"}; !slices.Equal(names, want) {
+		t.Fatalf("pools after up = %v, want %v", names, want)
+	}
+	var p3Group string
+	if err := pool.QueryRow(ctx, `SELECT g.name FROM plans p JOIN location_groups g ON g.id = p.location_group_id WHERE p.name = 'p3'`).Scan(&p3Group); err != nil || p3Group != "Общие входы" {
+		t.Fatalf("p3 group = %q, %v", p3Group, err)
+	}
+	exec(inbound, "D", "d1")
+	var seeD1 int
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT pi.plan_id) FROM plan_inbounds pi JOIN node_inbounds i ON i.id = pi.inbound_id WHERE i.tag = 'd1'`).Scan(&seeD1); err != nil || seeD1 != 4 {
+		t.Fatalf("a new inbound on a node every plan used to see must stay visible to all 4 plans: %d, %v", seeD1, err)
+	}
+	exec(`DELETE FROM node_inbounds WHERE tag = 'd1'`)
+	exec(inbound, "B", "b3")
+	var seeB3 int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM plan_inbounds pi JOIN node_inbounds i ON i.id = pi.inbound_id WHERE i.tag = 'b3'`).Scan(&seeB3); err != nil || seeB3 != 0 {
+		t.Fatalf("a new inbound outside every group must stay hidden: seen by %d, %v", seeB3, err)
+	}
+	after := access()
+
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 018: %v", err)
+	}
+	if got := access(); !slices.EqualFunc(got, after, sameRow) {
+		t.Fatalf("access changed by down 018:\nup   %v\ndown %v", fmtRows(after), fmtRows(got))
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 018 again: %v", err)
+	}
+	if got := access(); !slices.EqualFunc(got, after, sameRow) {
+		t.Fatalf("access changed by up 018 again:\nfirst  %v\nsecond %v", fmtRows(after), fmtRows(got))
+	}
+}
+
+func sameRow[T any](a, b T) bool {
+	return fmtRows([]T{a}) == fmtRows([]T{b})
+}
+
+func fmtRows[T any](rows []T) string {
+	var b strings.Builder
+	for _, r := range rows {
+		v := reflect.ValueOf(r)
+		b.WriteString("\n  ")
+		for i := range v.NumField() {
+			f := v.Field(i)
+			if f.Kind() == reflect.Pointer {
+				if f.IsNil() {
+					b.WriteString("nil ")
+					continue
+				}
+				f = f.Elem()
+			}
+			fmt.Fprintf(&b, "%v ", f.Interface())
+		}
+	}
+	return b.String()
 }

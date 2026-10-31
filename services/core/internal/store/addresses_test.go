@@ -14,7 +14,7 @@ import (
 func mkDedicatedPlan(t *testing.T, s *Store, groupID *int64) *model.Plan {
 	t.Helper()
 	if groupID == nil {
-		groupID = testGroup(t, s)
+		groupID = sharedGroup(t, s)
 	}
 	p := &model.Plan{Name: model.NewToken(), PriceRub: 500, PeriodDays: 30, LocationGroupID: groupID, DedicatedIP: true, Visibility: model.VisibilityPrivate}
 	if err := s.CreatePlan(context.Background(), p); err != nil {
@@ -344,13 +344,17 @@ func TestUserAddressReasons(t *testing.T) {
 	report(t, s, n.ID, model.AddressReport{IP: "203.0.113.7", OK: true})
 	reason("")
 
-	limited := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, LocationGroupID: &g.ID, DedicatedIP: true, TrafficLimitBytes: new(int64(1000))}
+	limited := &model.Plan{Name: model.NewToken(), PriceRub: 100, PeriodDays: 30, LocationGroupID: &g.ID, DedicatedIP: true}
 	if err := s.CreatePlan(ctx, limited); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET plan_id = $2, traffic_used_bytes = 1000 WHERE id = $1`, first.PeriodID, limited.ID); err != nil {
+	if _, err := LimitAllForTests(ctx, s.pool, limited.ID, 1000); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET plan_id = $2 WHERE id = $1`, first.PeriodID, limited.ID); err != nil {
+		t.Fatal(err)
+	}
+	setUsed(t, s, first.PeriodID, 1000)
 	reason(AddressReasonTraffic)
 	if _, err := s.pool.Exec(ctx, `UPDATE subscriptions SET plan_id = $2, traffic_used_bytes = 0 WHERE id = $1`, first.PeriodID, right.ID); err != nil {
 		t.Fatal(err)

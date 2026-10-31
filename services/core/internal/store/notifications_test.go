@@ -45,15 +45,13 @@ func TestNotifyCandidatesTraffic(t *testing.T) {
 	setUsed(t, s, p80, 800)
 	pb := mkPeriod(t, s, bonus.ID, plan.ID, now.Add(-day), now.Add(20*day))
 	setUsed(t, s, pb, 900)
-	if _, err := s.pool.Exec(context.Background(), `UPDATE subscriptions SET traffic_bonus_bytes = 200 WHERE id = $1`, pb); err != nil {
-		t.Fatal(err)
-	}
+	setBonus(t, s, pb, 200)
 	got := candidatesByUser(t, s, now)
 	if _, ok := got[below.ID]; ok {
 		t.Fatal("79.9% is a candidate")
 	}
 	c, ok := got[at80.ID]
-	if !ok || c.PeriodID == nil || *c.PeriodID != p80 || c.UsedBytes != 800 || c.LimitBytes == nil || *c.LimitBytes != 1000 ||
+	if !ok || c.PeriodID == nil || *c.PeriodID != p80 || len(c.Pools) != 1 || c.Pools[0].Used != 800 || c.Pools[0].Limit == nil || *c.Pools[0].Limit != 1000 ||
 		c.TelegramID != 9102 || c.PeriodEnds == nil || c.PeriodStarts == nil {
 		t.Fatalf("80%% candidate = %+v (ok %v)", c, ok)
 	}
@@ -65,7 +63,7 @@ func TestNotifyCandidatesTraffic(t *testing.T) {
 func TestNotifyCandidatesUnlimitedPlanSkipsTraffic(t *testing.T) {
 	s := setupStore(t)
 	now := time.Now()
-	plan := &model.Plan{Name: "unlim", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, s)}
+	plan := &model.Plan{Name: "unlim", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, s)}
 	if err := s.CreatePlan(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +168,7 @@ func TestNotifyCandidatesTailTrial(t *testing.T) {
 	u := tgUser(t, s, 9151)
 	mkPeriod(t, s, u.ID, trial.ID, now.Add(-2*day), now.Add(20*time.Hour))
 	c, ok := candidatesByUser(t, s, now)[u.ID]
-	if !ok || !c.TailTrial || c.LimitBytes != nil {
+	if !ok || !c.TailTrial || len(c.Pools) != 0 {
 		t.Fatalf("trial = %+v (ok %v)", c, ok)
 	}
 }

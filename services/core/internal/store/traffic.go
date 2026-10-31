@@ -230,11 +230,11 @@ func (c *poolCache) add(ctx context.Context, tx pgx.Tx, periodID, planID int64, 
 			`WITH cur AS (SELECT traffic_used_bytes AS before FROM subscriptions WHERE id = $1)
 			 UPDATE subscriptions s
 			 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
-			 FROM cur, plans p
-			 WHERE s.id = $1 AND p.id = s.plan_id
-			 RETURNING cur.before, s.traffic_used_bytes, `+effectiveLimit,
-			periodID, bytes).Scan(&before, &used, &limit)
-		return before, used, limit, err
+			 FROM cur
+			 WHERE s.id = $1
+			 RETURNING cur.before, s.traffic_used_bytes`,
+			periodID, bytes).Scan(&before, &used)
+		return before, used, nil, err
 	}
 	var bonus int64
 	err = tx.QueryRow(ctx,

@@ -25,7 +25,7 @@ func TestSyncUsersEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, key, _ := svc.RegisterUser(ctx, 600)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestSyncDeltasDuplicateBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, key, _ := svc.RegisterUser(ctx, 602)
-	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: testGroup(t, svc)}
+	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, svc)}
 	if err := svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
