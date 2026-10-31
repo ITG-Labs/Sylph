@@ -96,3 +96,9 @@ export function fmtShortDay(day: string): string {
   const [, m, d] = day.split("-").map(Number)
   return `${d} ${shortMonths[m - 1]}`
 }
+
+export function fmtPlanTraffic(plan: { pools: { traffic_limit_bytes: number | null }[]; free_inbounds: number }): string {
+  const limited = plan.pools.filter((p) => p.traffic_limit_bytes !== null).map((p) => fmtBytes(p.traffic_limit_bytes))
+  const open = plan.free_inbounds > 0 || plan.pools.length === 0 || limited.length < plan.pools.length
+  return [...limited, ...(open ? ["без лимита"] : [])].join(" + ")
+}

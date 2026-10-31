@@ -50,7 +50,7 @@ export function NodePage() {
   const byInbound = (groups.data ?? []).filter((g) => !n.group_ids.includes(g.id) && g.inbound_ids.some((iid) => inbounds.data?.some((i) => i.id === iid)))
   const group =
     n.group_ids.length === 0 && byInbound.length === 0
-      ? "без группы — видна всем тарифам"
+      ? "не входит ни в одну группу — недоступна пользователям"
       : [
           ...n.group_ids.map(nameOf),
           ...byInbound.map((g) => `${g.name} (входы ${(inbounds.data ?? []).filter((i) => g.inbound_ids.includes(i.id)).map((i) => i.label || i.tag).join(", ")})`),
@@ -152,6 +152,11 @@ export function NodePage() {
                     <Badge variant="outline">
                       {kindLabels[kindOf(ib)]} · :{ib.port}
                     </Badge>
+                    {n.group_ids.length === 0 && !(groups.data ?? []).some((g) => g.inbound_ids.includes(ib.id)) && (
+                      <Badge variant="warning" title="Вход не входит ни в одну группу, поэтому ни один тариф его не видит">
+                        вне групп
+                      </Badge>
+                    )}
                     <div className="ml-auto flex gap-1">
                       <Button variant="ghost" size="icon-sm" aria-label="Изменить вход" onClick={() => setDialog({ kind: "editInbound", inbound: ib })}>
                         <Pencil />

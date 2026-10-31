@@ -32,7 +32,7 @@ import { ALPNPicker, ExtraFields, Field, ModeSelect, Segmented } from "./XHTTPFi
 export const fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "random"]
 
 function GroupChecks({ groups, value, onChange }: { groups: Group[]; value: number[]; onChange: (v: number[]) => void }) {
-  if (groups.length === 0) return <p className="text-xs text-muted-foreground">Групп пока нет — нода будет видна всем тарифам.</p>
+  if (groups.length === 0) return <p className="text-xs text-muted-foreground">Групп пока нет. Нода вне групп не видна ни одному тарифу.</p>
   return <CheckList label="Группы" items={groups.map((g) => ({ id: g.id, title: g.name }))} value={value} onChange={onChange} />
 }
 

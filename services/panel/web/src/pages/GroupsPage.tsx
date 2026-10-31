@@ -34,14 +34,15 @@ export function GroupsPage() {
     return i ? `${nodeName(i.node_id)} · ${i.label || i.tag}` : `вход ${id}`
   }
   const common = world ? world.nodes.filter((n) => world.inbounds.some((i) => i.node_id === n.id && groupsOf(world, i).length === 0)) : []
+  const outside = {
+    id: null as number | null,
+    name: "Вне групп",
+    created_at: null as string | null,
+    members: common.map((n) => n.name),
+    plans: (world?.plans ?? []).filter((p) => p.location_group_id === null).map((p) => p.name),
+  }
   const rows = [
-    {
-      id: null as number | null,
-      name: "Общие ноды",
-      created_at: null as string | null,
-      members: common.map((n) => n.name),
-      plans: (world?.plans ?? []).filter((p) => p.location_group_id === null).map((p) => p.name),
-    },
+    ...(outside.members.length > 0 || outside.plans.length > 0 ? [outside] : []),
     ...(groups ?? []).map((g) => ({
       id: g.id as number | null,
       name: g.name,
@@ -55,7 +56,7 @@ export function GroupsPage() {
     <>
       <PageHeader
         title="Группы локаций"
-        description="тариф видит состав своей группы и всё, что не входит ни в одну группу"
+        description="тариф видит только входы своей группы, входы вне групп не видит никто"
         actions={
           <Button
             onClick={() => {
@@ -86,11 +87,11 @@ export function GroupsPage() {
                   {g.id !== null && <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">{g.id === null ? "ноды, где есть входы без группы" : "состав"}</div>
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "ноды с входами, которые не видит ни один тариф" : "состав"}</div>
                   {g.members.length === 0 ? <span className="text-muted-foreground">нет</span> : g.members.join(", ")}
                 </div>
                 <div className="well rounded-xl px-3 py-2.5 text-sm">
-                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы (общие ноды видят все)" : "тарифы"}</div>
+                  <div className="text-xs text-muted-foreground">{g.id === null ? "тарифы без группы — не видят ни одного входа" : "тарифы"}</div>
                   {g.plans.length === 0 ? <span className="text-muted-foreground">нет</span> : g.plans.join(", ")}
                 </div>
               </Card>

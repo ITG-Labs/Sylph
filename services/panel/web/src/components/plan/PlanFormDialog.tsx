@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react"
 import { Plus, X } from "lucide-react"
 import { ActionDialog } from "@/components/common/ActionDialog"
-import { Button } from "@/components/ui/button"
+import { CheckList, type CheckItem } from "@/components/common/CheckList"
 import { MoveConsequences } from "@/components/group/MoveConsequences"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { core } from "@/lib/api"
 import { parseGB } from "@/lib/format"
-import { accessChanges, describeChanges, isHarsh, newOldAgentLines, poolCovers, type ImpactLine, type PlanLike, type World } from "@/lib/groups"
-import { useNodes } from "@/lib/queries"
+import { accessChanges, describeChanges, freeInbounds, inboundTitle, isHarsh, newOldAgentLines, visibleInbounds, type ImpactLine, type PlanLike, type World } from "@/lib/groups"
 import type { Group, Plan, PlanPool } from "@/lib/types"
 import { useWorld } from "@/lib/world"
 
@@ -22,84 +22,89 @@ function gbText(bytes: number | null | undefined) {
 
 interface PoolDraft {
   id: number
-  target: string
   name: string
   gb: string
+  inbounds: number[]
 }
 
-const targetOf = (p: PlanPool) => (p.node_id !== null ? `n:${p.node_id}` : `g:${p.group_id}`)
-
 function draftOf(p: PlanPool): PoolDraft {
-  return { id: p.id, target: targetOf(p), name: p.name, gb: gbText(p.traffic_limit_bytes) }
+  return { id: p.id, name: p.name, gb: gbText(p.traffic_limit_bytes), inbounds: [...p.inbound_ids].sort((a, b) => a - b) }
 }
 
 function poolBody(d: PoolDraft) {
-  const [kind, id] = d.target.split(":")
   return {
     ...(d.id ? { id: d.id } : {}),
     name: d.name.trim(),
-    node_id: kind === "n" ? Number(id) : null,
-    group_id: kind === "g" ? Number(id) : null,
     traffic_limit_bytes: d.gb.trim() === "" ? null : parseGB(d.gb),
+    inbound_ids: [...d.inbounds].sort((a, b) => a - b),
   }
 }
 
-function PoolsEditor({
-  pools,
-  onChange,
-  groups,
-  covered,
-}: {
-  pools: PoolDraft[]
-  onChange: (p: PoolDraft[]) => void
-  groups: Group[]
-  covered: (d: PoolDraft) => number | null
-}) {
-  const nodes = useNodes()
+function PoolsEditor({ pools, onChange, world, plan }: { pools: PoolDraft[]; onChange: (p: PoolDraft[]) => void; world: World | null; plan: PlanLike }) {
   const set = (i: number, patch: Partial<PoolDraft>) => onChange(pools.map((p, j) => (j === i ? { ...p, ...patch } : p)))
+  const visible = world ? visibleInbounds(world, plan) : []
+  const free = world ? freeInbounds(world, plan) : []
+  const owner = (id: number, except: number) => pools.findIndex((p, j) => j !== except && p.inbounds.includes(id))
+  const items = (i: number): CheckItem[] => {
+    if (!world) return []
+    const own = pools[i].inbounds
+    const unseen = world.inbounds.filter((x) => own.includes(x.id) && !visible.some((v) => v.id === x.id))
+    return [
+      ...visible.map((x) => {
+        const other = owner(x.id, i)
+        return { id: x.id, title: inboundTitle(world, x), disabled: other >= 0, hint: other >= 0 ? `в пуле «${pools[other].name.trim() || other + 1}»` : undefined }
+      }),
+      ...unseen.map((x) => ({ id: x.id, title: inboundTitle(world, x), hint: <span className="text-warning">тариф его не видит</span> })),
+    ]
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <Label>Отдельные пулы</Label>
-          <p className="text-xs text-muted-foreground">трафик этих нод или групп считается отдельно, остальное — в основной лимит</p>
+          <Label>Пулы трафика</Label>
+          <p className="text-xs text-muted-foreground">Трафик пула — сумма по всем его входам. Входы группы вне пулов работают без ограничения трафика.</p>
         </div>
-        <Button type="button" size="sm" variant="secondary" onClick={() => onChange([...pools, { id: 0, target: "", name: "", gb: "" }])}>
+        <Button type="button" size="sm" variant="secondary" disabled={plan.location_group_id === null} onClick={() => onChange([...pools, { id: 0, name: "", gb: "", inbounds: [] }])}>
           <Plus />
           Пул
         </Button>
       </div>
-      {pools.map((p, i) => (
-        <div key={i} className="well flex flex-col gap-2 rounded-xl p-3">
-          <div className="flex items-center gap-2">
-            <Select value={p.target} onValueChange={(v) => set(i, { target: v })}>
-              <SelectTrigger aria-label="Что считать" className="min-w-0 flex-1">
-                <SelectValue placeholder="нода или группа" />
-              </SelectTrigger>
-              <SelectContent>
-                {(nodes.data ?? []).map((n) => (
-                  <SelectItem key={`n${n.id}`} value={`n:${n.id}`}>
-                    Нода «{n.name}»
-                  </SelectItem>
-                ))}
-                {groups.map((g) => (
-                  <SelectItem key={`g${g.id}`} value={`g:${g.id}`}>
-                    Группа «{g.name}»
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button type="button" size="icon" variant="ghost" aria-label="Убрать пул" onClick={() => onChange(pools.filter((_, j) => j !== i))}>
-              <X />
-            </Button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input aria-label="Название пула" value={p.name} onChange={(e) => set(i, { name: e.target.value })} maxLength={64} placeholder="название — как у цели" />
-            <Input aria-label="Лимит пула, ГБ" inputMode="decimal" value={p.gb} onChange={(e) => set(i, { gb: e.target.value })} placeholder="ГБ, пусто — безлимит" />
-          </div>
-          {covered(p) === 0 && <p className="text-xs text-warning">Тариф не видит ни одного входа этой цели — пул ничего не посчитает.</p>}
-        </div>
-      ))}
+      {plan.location_group_id === null ? (
+        <p className="text-xs text-muted-foreground">Тариф без группы не видит ни одного входа. Выберите группу, чтобы собрать пулы из её входов.</p>
+      ) : (
+        <>
+          {pools.map((p, i) => (
+            <div key={i} className="well flex flex-col gap-2 rounded-xl p-3">
+              <div className="flex items-end gap-2">
+                <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">Название</span>
+                    <Input aria-label="Название пула" value={p.name} onChange={(e) => set(i, { name: e.target.value })} maxLength={64} placeholder="Основной" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">Лимит, ГБ</span>
+                    <Input aria-label="Лимит пула, ГБ" inputMode="decimal" value={p.gb} onChange={(e) => set(i, { gb: e.target.value })} placeholder="без лимита" />
+                  </div>
+                </div>
+                <Button type="button" size="icon" variant="ghost" aria-label="Удалить пул" onClick={() => onChange(pools.filter((_, j) => j !== i))}>
+                  <X />
+                </Button>
+              </div>
+              {items(i).length === 0 ? (
+                <p className="text-xs text-muted-foreground">В группе тарифа нет входов.</p>
+              ) : (
+                <CheckList label={`Входы пула ${p.name.trim() || i + 1}`} items={items(i)} value={p.inbounds} onChange={(ids) => set(i, { inbounds: ids })} />
+              )}
+              {p.inbounds.length === 0 && <p className="text-xs text-warning">В пуле нет входов — он ничего не учитывает.</p>}
+            </div>
+          ))}
+          {world && visible.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {free.length === 0 ? "Все входы группы распределены по пулам." : `Без ограничения трафика: ${free.map((x) => `«${inboundTitle(world, x)}»`).join(", ")}.`}
+            </p>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -132,7 +137,6 @@ export function PlanFormDialog({
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [days, setDays] = useState("")
-  const [gb, setGb] = useState("")
   const [devices, setDevices] = useState("")
   const [hwid, setHwid] = useState(false)
   const [group, setGroup] = useState("")
@@ -141,13 +145,13 @@ export function PlanFormDialog({
   const [priv, setPriv] = useState(false)
   const [onSale, setOnSale] = useState(true)
   const [dedicated, setDedicated] = useState(false)
+  const { world } = useWorld()
 
   useEffect(() => {
     if (!open) return
     setName(plan?.name ?? "")
     setPrice(plan ? String(plan.price_rub) : "")
     setDays(plan ? String(plan.period_days) : "30")
-    setGb(gbText(plan?.traffic_limit_bytes))
     setDevices(plan?.device_limit ? String(plan.device_limit) : "")
     setHwid(plan?.hwid_required ?? false)
     setGroup(plan?.location_group_id ? String(plan.location_group_id) : "none")
@@ -161,7 +165,6 @@ export function PlanFormDialog({
   const priceN = Number(price)
   const daysN = Number(days)
   const devN = devices === "" ? null : Number(devices)
-  const bytes = gb.trim() === "" ? null : parseGB(gb)
   const valid =
     name.trim() !== "" &&
     price !== "" &&
@@ -170,9 +173,8 @@ export function PlanFormDialog({
     Number.isInteger(daysN) &&
     daysN >= 1 &&
     daysN <= 3650 &&
-    (gb.trim() === "" || bytes !== null) &&
     (devN === null || (Number.isInteger(devN) && devN >= 1 && devN <= 100)) &&
-    pools.every((d) => d.target !== "" && (d.gb.trim() === "" || parseGB(d.gb) !== null))
+    pools.every((d) => d.name.trim() !== "" && (d.gb.trim() === "" || parseGB(d.gb) !== null))
   const hwidForced = devN !== null
 
   useEffect(() => {
@@ -188,7 +190,6 @@ export function PlanFormDialog({
     name: name.trim(),
     price_rub: priceN,
     period_days: daysN,
-    traffic_limit_bytes: bytes,
     device_limit: devN,
     hwid_required: hwid,
     location_group_id: groupID,
@@ -203,7 +204,6 @@ export function PlanFormDialog({
     if (full.name !== plan.name) changed.name = full.name
     if (priceN !== plan.price_rub) changed.price_rub = priceN
     if (daysN !== plan.period_days) changed.period_days = daysN
-    if (gb.trim() !== gbText(plan.traffic_limit_bytes)) changed.traffic_limit_bytes = bytes
     if (devN !== plan.device_limit) changed.device_limit = devN
     if (hwid !== plan.hwid_required) changed.hwid_required = hwid
     if (groupID !== plan.location_group_id) changed.location_group_id = groupID
@@ -214,22 +214,26 @@ export function PlanFormDialog({
     if (JSON.stringify(poolsBody) !== JSON.stringify(plan.pools.map((p) => poolBody(draftOf(p))))) changed.pools = poolsBody
   }
   const nothingChanged = !!plan && Object.keys(changed).length === 0
-  const { world } = useWorld()
   const draft: PlanLike = {
     id: plan?.id ?? -1,
     name: name.trim() || "новый тариф",
     location_group_id: groupID,
     active_users: plan?.active_users ?? 0,
-    pools: poolsBody.map((b) => ({ node_id: b.node_id, group_id: b.group_id })),
+    pools: pools.map((d) => ({ inbound_ids: d.inbounds })),
   }
   const after: World | null = world ? { ...world, plans: plan ? world.plans.map((x) => (x.id === plan.id ? draft : x)) : [...world.plans, draft] } : null
-  const covered = (d: PoolDraft) => (after && d.target !== "" ? poolCovers(after, draft, poolBody(d)).length : null)
   const moveLines: ImpactLine[] = [
     ...(plan && "location_group_id" in changed && world && after ? describeChanges(world, accessChanges(world, after)) : []),
     ...(world && after && (!plan || "location_group_id" in changed || "pools" in changed) ? newOldAgentLines(world, after) : []),
   ]
-  const limitLive = !!plan && ("traffic_limit_bytes" in changed || "pools" in changed)
+  const limitLive = !!plan && "pools" in changed
   const dedicatedLive = !!plan && "dedicated_ip" in changed
+  const pickGroup = (v: string) => {
+    setGroup(v)
+    if (!world) return
+    const seen = new Set(visibleInbounds(world, { ...draft, location_group_id: v === "none" ? null : Number(v) }).map((i) => i.id))
+    setPools(pools.map((p) => ({ ...p, inbounds: p.inbounds.filter((id) => seen.has(id)) })))
+  }
 
   return (
     <ActionDialog
@@ -239,7 +243,7 @@ export function PlanFormDialog({
       consequences={
         limitLive || dedicatedLive || moveLines.length > 0 ? (
           <>
-            {limitLive && <p>Новые лимиты действуют и на текущие периоды этого тарифа — ноды пересинкуются. Расход удалённого пула пропадёт, новый пул начнёт с нуля.</p>}
+            {limitLive && <p>Новые лимиты сразу действуют и для текущих периодов тарифа, ноды получат изменения. Расход удалённого пула будет потерян, новый пул начинается с нуля.</p>}
             {dedicatedLive && (
               <p>
                 {dedicated
@@ -264,7 +268,7 @@ export function PlanFormDialog({
         <Label htmlFor="pname">Название</Label>
         <Input id="pname" value={name} onChange={(e) => setName(e.target.value)} placeholder="Месяц" autoFocus={!plan} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="flex flex-col gap-2">
           <Label htmlFor="price">Цена, ₽</Label>
           <Input id="price" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ""))} placeholder="199" />
@@ -274,31 +278,27 @@ export function PlanFormDialog({
           <Input id="pdays" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ""))} />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="pgb">{pools.length > 0 ? "Основной лимит, ГБ" : "Трафик, ГБ"}</Label>
-          <Input id="pgb" inputMode="decimal" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="пусто — безлимит" />
-        </div>
-        <div className="flex flex-col gap-2">
           <Label htmlFor="pdev">Устройств</Label>
-          <Input id="pdev" inputMode="numeric" value={devices} onChange={(e) => setDevices(e.target.value.replace(/\D/g, ""))} placeholder="пусто — без лимита" />
+          <Input id="pdev" inputMode="numeric" value={devices} onChange={(e) => setDevices(e.target.value.replace(/\D/g, ""))} placeholder="без лимита" />
         </div>
       </div>
       <div className="flex flex-col gap-2">
         <Label>Группа</Label>
-        <Select value={group} onValueChange={setGroup}>
+        <Select value={group} onValueChange={pickGroup}>
           <SelectTrigger aria-label="Группа">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">Без группы — только то, что не в группах</SelectItem>
+            <SelectItem value="none">Без группы — тариф не видит ни одного входа</SelectItem>
             {groups.map((g) => (
               <SelectItem key={g.id} value={String(g.id)}>
-                {g.name} + всё без группы
+                {g.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
-      <PoolsEditor pools={pools} onChange={setPools} groups={groups} covered={covered} />
+      <PoolsEditor pools={pools} onChange={setPools} world={world ?? null} plan={draft} />
       <div className="flex flex-col gap-2">
         <Toggle title="Требовать HWID" hint={hwidForced ? "обязателен при лимите устройств" : "клиент без HWID получит заглушку"} checked={hwid} onChange={setHwid} disabled={hwidForced} />
         <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся кнопкой в боте новичкам, раз на аккаунт" : "только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />

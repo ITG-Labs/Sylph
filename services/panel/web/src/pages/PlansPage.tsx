@@ -8,7 +8,7 @@ import { PlanBadges } from "@/components/plan/PlanBadges"
 import { PlanFormDialog } from "@/components/plan/PlanFormDialog"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { fmtBytes, fmtRub } from "@/lib/format"
+import { fmtPlanTraffic, fmtRub } from "@/lib/format"
 import { useGroups, useInvalidate, usePlans } from "@/lib/queries"
 
 export function PlansPage() {
@@ -17,7 +17,7 @@ export function PlansPage() {
   const invalidate = useInvalidate()
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
-  const groupName = (id: number | null) => (id === null ? "общие" : (groups.data?.find((g) => g.id === id)?.name ?? `группа ${id}`))
+  const groupName = (id: number | null) => (id === null ? "без группы" : (groups.data?.find((g) => g.id === id)?.name ?? `группа ${id}`))
 
   return (
     <>
@@ -48,7 +48,7 @@ export function PlansPage() {
                   <TableHead className="text-right">Период</TableHead>
                   <TableHead className="text-right">Трафик</TableHead>
                   <TableHead className="text-right">Устройства</TableHead>
-                  <TableHead>Ноды</TableHead>
+                  <TableHead>Группа</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -63,7 +63,7 @@ export function PlansPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{fmtRub(p.price_rub)}</TableCell>
                     <TableCell className="text-right tabular-nums">{p.period_days} дн</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBytes(p.traffic_limit_bytes)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtPlanTraffic(p)}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {p.device_limit ?? "∞"}
                       {p.hwid_required && <span className="ml-1 text-xs text-muted-foreground">HWID</span>}
@@ -86,7 +86,7 @@ export function PlansPage() {
                 </div>
                 <PlanBadges plan={p} />
                 <div className="text-xs text-muted-foreground tabular-nums">
-                  {p.period_days} дн · {fmtBytes(p.traffic_limit_bytes)} · устройств {p.device_limit ?? "∞"}
+                  {p.period_days} дн · {fmtPlanTraffic(p)} · устройств {p.device_limit ?? "∞"}
                   {p.hwid_required ? " · HWID" : ""} · {groupName(p.location_group_id)}
                 </div>
               </Link>
