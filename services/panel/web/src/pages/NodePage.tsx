@@ -110,7 +110,7 @@ export function NodePage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section title="Состояние" className="xl:col-span-1">
           <KV label="Группы">{group}</KV>
-          <KV label="Подключено">{n.active_users ?? "—"}</KV>
+          <KV label="С доступом">{n.active_users ?? "—"}</KV>
           <KV label="Онлайн">{n.online_users}</KV>
           <KV label="Агент">{n.agent_version ?? "—"}</KV>
           <KV label="xray">{n.xray_version ?? "—"}</KV>
@@ -191,7 +191,7 @@ export function NodePage() {
         <NodeAddressesSection nodeId={n.id} />
       </div>
 
-      <NodeTrafficSection nodeId={n.id} inbounds={inbounds.data ?? []} />
+      <NodeTrafficSection key={n.id} nodeId={n.id} inbounds={inbounds.data ?? []} />
 
       <NodeFormDialog open={dialog?.kind === "edit"} onOpenChange={close} node={n} groups={groups.data ?? []} onDone={() => refresh()} />
       <ActionDialog

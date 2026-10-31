@@ -127,7 +127,7 @@ export function OverviewPage() {
                 <span className="text-lg text-muted-foreground"> / {o.nodes.total}</span>
               </span>
             }
-            hint={`подключено к нодам ${o.nodes.active_users}`}
+            hint={`с доступом к нодам ${o.nodes.active_users}`}
           />
         </motion.div>
         <motion.div variants={rise} className="col-span-2 xl:col-span-1">

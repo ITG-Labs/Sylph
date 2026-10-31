@@ -4,6 +4,7 @@ import {
   describeChanges,
   freeInbounds,
   newOldAgentLines,
+  plansOutsidePools,
   poolCovers,
   sees,
   ungrouped,
@@ -123,5 +124,17 @@ describe("pools", () => {
     expect(partly[0].text).toContain("«p20»")
     expect(newOldAgentLines(before, pooled(before, 20, [[22]])).map((l) => l.text).join(" ")).toContain("«p20»")
     expect(newOldAgentLines(before, pooled(before, 20, [[21, 22]]))).toEqual([])
+    const xhttpOnly: World = { ...before, inbounds: before.inbounds.map((i) => (i.id === 22 ? { ...i, transport: "xhttp" } : i)) }
+    expect(newOldAgentLines(xhttpOnly, withMembers(xhttpOnly, PREM, [], [21]))).toEqual([])
+  })
+
+  it("warn when a limited plan gains inbounds outside its pools", () => {
+    const limited: World = { ...world, plans: world.plans.map((p) => (p.id === 10 ? { ...p, pools: [{ inbound_ids: [11], traffic_limit_bytes: 100 }] } : p)) }
+    const lines = describeChanges(limited, accessChanges(limited, withMembers(limited, EU, [1, 3], [])))
+    expect(lines.some((l) => l.text.includes("не входят в его пулы") && l.text.includes("«p10»"))).toBe(true)
+    expect(plansOutsidePools(limited, 1).map((p) => p.id)).toEqual([10])
+    expect(plansOutsidePools(limited, 2)).toEqual([])
+    const unlimited: World = { ...world, plans: world.plans.map((p) => (p.id === 10 ? { ...p, pools: [{ inbound_ids: [11], traffic_limit_bytes: null }] } : p)) }
+    expect(plansOutsidePools(unlimited, 1)).toEqual([])
   })
 })

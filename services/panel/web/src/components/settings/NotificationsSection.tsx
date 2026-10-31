@@ -9,7 +9,7 @@ import type { Settings } from "@/lib/types"
 type NotifyKey = "notify_traffic" | "notify_expiry" | "notify_trial"
 
 export const notifyKinds: { key: NotifyKey; title: string; hint: string }[] = [
-  { key: "notify_traffic", title: "Трафик", hint: "при расходе 80, 95 и 100 % трафика текущего периода" },
+  { key: "notify_traffic", title: "Трафик", hint: "при расходе 80, 95 и 100 % лимита пула в текущем периоде" },
   { key: "notify_expiry", title: "Срок подписки", hint: "за 3 дня, за 1 день, за 1 час и после окончания" },
   { key: "notify_trial", title: "Пробный период", hint: "за 1 день, за 1 час и после окончания" },
 ]

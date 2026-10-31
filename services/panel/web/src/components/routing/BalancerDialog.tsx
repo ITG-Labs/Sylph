@@ -22,8 +22,8 @@ export function BalancerDialog({ open, onOpenChange, doc, balancer, onSave }: { 
   const tagErr = tagProblem(doc, tag.trim(), balancer?.tag)
   const outbounds = doc.outbounds.map((o) => o.tag)
   const prefix = picked.flatMap((t) => [
-    ...outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» совпадает с началом «${o}»: xray применит правило к обоим, переименуйте один из выходов`),
-    ...["sylph_block", "sylph_direct"].filter((o) => o.startsWith(t)).map((o) => `«${t}» совпадает с началом системного выхода ${o}: xray применит правило к обоим, переименуйте выход`),
+    ...outbounds.filter((o) => o !== t && o.startsWith(t)).map((o) => `«${t}» совпадает с началом «${o}»: балансировщик xray выбирает выходы по началу тега и включит оба; переименуйте один из выходов`),
+    ...["sylph_block", "sylph_direct"].filter((o) => o.startsWith(t)).map((o) => `«${t}» совпадает с началом системного выхода ${o}: балансировщик xray выбирает выходы по началу тега и включит оба; переименуйте выход`),
   ])
   const problem = picked.length < 2 ? "отметьте не менее двух выходов" : (prefix[0] ?? null)
 

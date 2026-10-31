@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { core } from "@/lib/api"
 import { CheckList } from "@/components/common/CheckList"
-import { accessChanges, describeChanges, isHarsh, newOldAgentLines, withNodeGroups, type ImpactLine } from "@/lib/groups"
+import { accessChanges, describeChanges, isHarsh, newOldAgentLines, plansOutsidePools, withNodeGroups, type ImpactLine } from "@/lib/groups"
 import { useWorld } from "@/lib/world"
 import type { Group, Inbound, Node } from "@/lib/types"
 import {
@@ -144,6 +144,8 @@ export function InboundFormDialog({
   inbound?: Inbound
   onDone: () => void
 }) {
+  const { world } = useWorld()
+  const unpooled = !inbound && world ? plansOutsidePools(world, nodeId) : []
   const [kind, setKind] = useState<InboundKind>("reality-tcp")
   const [tag, setTag] = useState("")
   const [label, setLabel] = useState("")
@@ -218,7 +220,7 @@ export function InboundFormDialog({
       )}
       {xrayBehind && (
         <p>
-          Версия xray на ноде ({node?.xray_version}) старше {minXrayForXHTTP}: новые поля XHTTP могут быть проигнорированы, и клиенты не подключатся. Обновите XRAY_VERSION в файле .env ноды.
+          Версия xray на ноде ({node?.xray_version}) ниже {minXrayForXHTTP}: новые поля XHTTP могут быть проигнорированы, и клиенты не подключатся. Обновите XRAY_VERSION в файле .env ноды.
         </p>
       )}
       {tls && !inbound && (
@@ -226,10 +228,16 @@ export function InboundFormDialog({
           Направьте DNS-запись домена {domain.trim() || "…"} на ноду{node?.address ? ` (${node.address})` : ""}. Сертификат Let's Encrypt нода выпустит автоматически через порт 443. При использовании CDN укажите этот домен как origin.
         </p>
       )}
+      {unpooled.length > 0 && (
+        <p>
+          Вход сразу станет доступен {unpooled.length === 1 ? "тарифу" : "тарифам"} {unpooled.map((p) => `«${p.name}»`).join(", ")}, но не войдёт в их пулы: трафик через него не будет ограничен. Добавьте вход в
+          пулы на странице тарифа.
+        </p>
+      )}
       {inbound && <p>Агент пересоберёт конфигурацию xray и перезапустит его, открытые соединения ноды прервутся. Пользователи получат новые параметры при следующем обновлении подписки.</p>}
     </>
   )
-  const hasConsequences = agentBehind || xrayBehind || (tls && !inbound) || !!inbound
+  const hasConsequences = agentBehind || xrayBehind || (tls && !inbound) || !!inbound || unpooled.length > 0
 
   return (
     <ActionDialog

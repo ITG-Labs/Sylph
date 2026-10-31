@@ -12,6 +12,7 @@ export interface NodeLike {
 
 export interface PoolLike {
   inbound_ids: number[]
+  traffic_limit_bytes?: number | null
 }
 
 export interface InboundLike {
@@ -19,6 +20,7 @@ export interface InboundLike {
   node_id: number
   tag: string
   label: string
+  transport?: string
 }
 
 export interface GroupLike {
@@ -184,6 +186,12 @@ export function describeChanges(before: World, changes: PlanChange[]): ImpactLin
             : { tone: "gain", text: `${who} ${plural(n, "получит", "получат", "получат")} ${it.text}, но в подписке это появится, только когда нода станет доступна.` },
       )
     }
+    const unpooled = limited(c.plan) && c.gained.some((i) => !(c.plan.pools ?? []).some((pool) => pool.inbound_ids.includes(i.id)))
+    if (unpooled)
+      out.push({
+        tone: "info",
+        text: `Новые входы тарифа ${q(c.plan.name)} не входят в его пулы: трафик через них не ограничен. Добавьте их в пулы на странице тарифа.`,
+      })
     if (c.orphaned) out.push({ tone: "danger", text: `В подписке тарифа ${q(c.plan.name)} не останется ни одного входа: пользователям тарифа будет не к чему подключиться.` })
   }
   if (out.length === 0) out.push({ tone: "info", text: "Доступ пользователей не изменится." })
@@ -192,6 +200,13 @@ export function describeChanges(before: World, changes: PlanChange[]): ImpactLin
 
 export function isHarsh(lines: ImpactLine[]): boolean {
   return lines.some((l) => l.tone === "danger" || l.tone === "lose")
+}
+
+const limited = (plan: PlanLike) => (plan.pools ?? []).some((pool) => pool.traffic_limit_bytes !== null && pool.traffic_limit_bytes !== undefined)
+
+export function plansOutsidePools(w: World, nodeID: number): PlanLike[] {
+  const groups = w.groups.filter((g) => g.node_ids.includes(nodeID)).map((g) => g.id)
+  return w.plans.filter((p) => p.location_group_id !== null && groups.includes(p.location_group_id) && limited(p))
 }
 
 export function poolCovers(w: World, plan: PlanLike, pool: PoolLike): InboundLike[] {
@@ -213,18 +228,25 @@ function oldAgentLines(w: World): ImpactLine[] {
   const out: ImpactLine[] = []
   for (const n of w.nodes) {
     if (n.agent_per_inbound !== false || !n.last_sync_at) continue
-    const own = w.inbounds.filter((i) => i.node_id === n.id)
+    const own = w.inbounds.filter((i) => i.node_id === n.id && (i.transport ?? "tcp") === "tcp")
     if (own.length < 2) continue
-    const hit = w.plans.filter((p) => {
-      const seen = own.filter((i) => sees(w, p, i))
-      return (seen.length > 0 && seen.length < own.length) || new Set(seen.map((i) => poolIndex(p, i))).size > 1
+    const seenBy = (p: PlanLike) => own.filter((i) => sees(w, p, i))
+    const partial = w.plans.filter((p) => {
+      const seen = seenBy(p)
+      return seen.length > 0 && seen.length < own.length
     })
-    if (hit.length === 0) continue
-    const whom = hit.length === 1 ? `тарифа ${q(hit[0].name)}` : `тарифов ${hit.map((p) => q(p.name)).join(", ")}`
-    out.push({
-      tone: "danger",
-      text: `На ноде ${q(n.name)} работает агент старой версии, а пользователи ${whom} видят на ней только часть входов или используют её в разных пулах. До обновления агента нода не будет принимать их подключения.`,
-    })
+    const split = w.plans.filter((p) => !partial.includes(p) && new Set(seenBy(p).map((i) => poolIndex(p, i))).size > 1)
+    const whom = (ps: PlanLike[]) => (ps.length === 1 ? `тарифа ${q(ps[0].name)}` : `тарифов ${ps.map((p) => q(p.name)).join(", ")}`)
+    if (partial.length > 0)
+      out.push({
+        tone: "danger",
+        text: `На ноде ${q(n.name)} работает агент старой версии, а пользователи ${whom(partial)} видят на ней только часть входов. До обновления агента нода не будет принимать их подключения.`,
+      })
+    if (split.length > 0)
+      out.push({
+        tone: "danger",
+        text: `На ноде ${q(n.name)} работает агент старой версии, а входы ноды у ${whom(split)} относятся к разным пулам. До обновления агента нода перестанет принимать подключения пользователя целиком, как только у него исчерпается любой из этих пулов.`,
+      })
   }
   return out
 }

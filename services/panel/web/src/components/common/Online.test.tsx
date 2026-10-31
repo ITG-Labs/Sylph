@@ -8,12 +8,12 @@ describe("OnlineState", () => {
   it("lists the nodes a user is on right now", () => {
     render(<OnlineState nodes={[{ id: 1, name: "Германия" }, { id: 2, name: "Финляндия" }]} lastSeen="2026-10-24T10:00:00Z" />)
     expect(screen.getByText("Германия, Финляндия")).toBeTruthy()
-    expect(screen.queryByText(/в сети/)).toBeNull()
+    expect(screen.queryByText(/был в сети/)).toBeNull()
   })
 
   it("says when the user was last seen", () => {
     render(<OnlineState nodes={[]} lastSeen={new Date(Date.now() - 2 * 3600 * 1000).toISOString()} />)
-    expect(screen.getByText("в сети 2 ч назад")).toBeTruthy()
+    expect(screen.getByText("был в сети 2 ч назад")).toBeTruthy()
   })
 
   it("tells a user who never connected", () => {

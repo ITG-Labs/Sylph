@@ -374,7 +374,7 @@ export function UserPage() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{name}</div>
                         <div className="truncate text-xs text-muted-foreground">
-                          {d.user_agent} · в сети {fmtRelative(d.last_seen)}
+                          {d.user_agent} · последняя активность {fmtRelative(d.last_seen)}
                         </div>
                       </div>
                       {!banned && (

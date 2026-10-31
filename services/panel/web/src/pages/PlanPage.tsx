@@ -99,7 +99,7 @@ export function PlanPage() {
       </div>
       <div className="mb-4 flex flex-col gap-2">
         {plan.location_group_id === null && (
-          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">Тариф не входит ни в одну группу и не видит ни одного входа.</div>
+          <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">Тариф не привязан к группе и не видит ни одного входа.</div>
         )}
         {unseen.length > 0 && (
           <div className="tint-rim rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">

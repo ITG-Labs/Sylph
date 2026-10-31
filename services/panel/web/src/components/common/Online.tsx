@@ -23,7 +23,7 @@ export function OnlineState({ nodes, lastSeen }: { nodes: NodeRef[]; lastSeen: s
   if (!lastSeen) return <span className="text-muted-foreground">не подключался</span>
   return (
     <span className="text-muted-foreground" title={fmtDateTime(lastSeen)}>
-      в сети {fmtRelative(lastSeen)}
+      был в сети {fmtRelative(lastSeen)}
     </span>
   )
 }

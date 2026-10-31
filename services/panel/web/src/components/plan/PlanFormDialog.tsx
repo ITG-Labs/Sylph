@@ -69,9 +69,10 @@ function PoolsEditor({ pools, onChange, world, plan }: { pools: PoolDraft[]; onC
           Пул
         </Button>
       </div>
-      {plan.location_group_id === null ? (
+      {plan.location_group_id === null && (
         <p className="text-xs text-muted-foreground">Тариф без группы не видит ни одного входа. Выберите группу, чтобы собрать пулы из её входов.</p>
-      ) : (
+      )}
+      {(plan.location_group_id !== null || pools.length > 0) && (
         <>
           {pools.map((p, i) => (
             <div key={i} className="well flex flex-col gap-2 rounded-xl p-3">
@@ -228,12 +229,6 @@ export function PlanFormDialog({
   ]
   const limitLive = !!plan && "pools" in changed
   const dedicatedLive = !!plan && "dedicated_ip" in changed
-  const pickGroup = (v: string) => {
-    setGroup(v)
-    if (!world) return
-    const seen = new Set(visibleInbounds(world, { ...draft, location_group_id: v === "none" ? null : Number(v) }).map((i) => i.id))
-    setPools(pools.map((p) => ({ ...p, inbounds: p.inbounds.filter((id) => seen.has(id)) })))
-  }
 
   return (
     <ActionDialog
@@ -284,7 +279,7 @@ export function PlanFormDialog({
       </div>
       <div className="flex flex-col gap-2">
         <Label>Группа</Label>
-        <Select value={group} onValueChange={pickGroup}>
+        <Select value={group} onValueChange={setGroup}>
           <SelectTrigger aria-label="Группа">
             <SelectValue />
           </SelectTrigger>
