@@ -22,6 +22,7 @@ type InboundStats struct {
 	NodeName string `json:"node_name"`
 	Tag      string `json:"tag"`
 	Label    string `json:"label"`
+	Visible  int    `json:"node_visible_inbounds"`
 	Today    int64  `json:"today"`
 	Days7    int64  `json:"days_7"`
 	Days30   int64  `json:"days_30"`
@@ -55,9 +56,10 @@ func (s *Store) addDaily(ctx context.Context, tx pgx.Tx, userID, nodeID, periodI
 
 func (s *Store) UserStats(ctx context.Context, userID int64) (UserStats, error) {
 	out := UserStats{Nodes: []NodeStats{}, Inbounds: []InboundStats{}}
+	var planID int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT id FROM subscriptions WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
-		 ORDER BY starts_at DESC, id DESC LIMIT 1`, userID).Scan(&out.PeriodID)
+		`SELECT id, plan_id FROM subscriptions WHERE user_id = $1 AND NOT canceled AND starts_at <= now() AND expires_at > now()
+		 ORDER BY starts_at DESC, id DESC LIMIT 1`, userID).Scan(&out.PeriodID, &planID)
 	if err != nil && err != pgx.ErrNoRows {
 		return out, err
 	}
@@ -70,13 +72,14 @@ func (s *Store) UserStats(ctx context.Context, userID int64) (UserStats, error) 
 		 t AS (SELECT node_id, inbound_tag, day, period_id, bytes_up::numeric + bytes_down AS b FROM traffic_daily, today
 		       WHERE user_id = $1 AND (day > today.d - 30 OR (period_id = $3 AND $3 <> 0)))
 		 SELECT t.node_id, n.name, t.inbound_tag, COALESCE(i.label, ''),
+		   (SELECT count(*) FROM plan_inbounds pi WHERE pi.plan_id = $4 AND pi.node_id = t.node_id)::int,
 		   LEAST(COALESCE(sum(t.b) FILTER (WHERE t.day = today.d), 0), 9223372036854775807)::bigint,
 		   LEAST(COALESCE(sum(t.b) FILTER (WHERE t.day > today.d - 7), 0), 9223372036854775807)::bigint,
 		   LEAST(COALESCE(sum(t.b) FILTER (WHERE t.day > today.d - 30), 0), 9223372036854775807)::bigint,
 		   LEAST(COALESCE(sum(t.b) FILTER (WHERE t.period_id = $3 AND $3 <> 0), 0), 9223372036854775807)::bigint
 		 FROM t JOIN nodes n ON n.id = t.node_id
 		 LEFT JOIN node_inbounds i ON i.node_id = t.node_id AND i.tag = t.inbound_tag, today
-		 GROUP BY t.node_id, n.name, t.inbound_tag, i.label ORDER BY t.node_id, t.inbound_tag`, userID, s.statsTZ, period)
+		 GROUP BY t.node_id, n.name, t.inbound_tag, i.label ORDER BY t.node_id, t.inbound_tag`, userID, s.statsTZ, period, planID)
 	if err != nil {
 		return out, err
 	}
@@ -84,7 +87,7 @@ func (s *Store) UserStats(ctx context.Context, userID int64) (UserStats, error) 
 	out.Inbounds = []InboundStats{}
 	for rows.Next() {
 		var in InboundStats
-		if err := rows.Scan(&in.NodeID, &in.NodeName, &in.Tag, &in.Label, &in.Today, &in.Days7, &in.Days30, &in.Period); err != nil {
+		if err := rows.Scan(&in.NodeID, &in.NodeName, &in.Tag, &in.Label, &in.Visible, &in.Today, &in.Days7, &in.Days30, &in.Period); err != nil {
 			return out, err
 		}
 		out.Inbounds = append(out.Inbounds, in)
