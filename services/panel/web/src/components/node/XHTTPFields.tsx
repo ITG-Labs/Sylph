@@ -59,7 +59,7 @@ function ExtraInput({ field, value, onChange }: { field: ExtraField; value: stri
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={byDefault}>как в xray ({field.placeholder})</SelectItem>
+            <SelectItem value={byDefault}>по умолчанию xray ({field.placeholder})</SelectItem>
             {field.options.map((o) => (
               <SelectItem key={o} value={o}>
                 {o}
@@ -74,7 +74,7 @@ function ExtraInput({ field, value, onChange }: { field: ExtraField; value: stri
     return (
       <div className="sm:col-span-2">
         <Field id={id} label={field.label} hint={field.hint}>
-          <Textarea id={id} value={String(value)} onChange={(e) => onChange(e.target.value)} rows={2} className="font-mono" placeholder="X-Requested-With: XMLHttpRequest" />
+          <Textarea id={id} value={String(value)} onChange={(e) => onChange(e.target.value)} rows={2} className="font-mono" placeholder="X-Example: value" />
         </Field>
       </div>
     )

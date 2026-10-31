@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import type { PaymentsPage as PaymentsPageData } from "@/lib/types"
 
 const statuses = [
-  ["pending", "Ждут оплаты"],
+  ["pending", "Ожидают оплаты"],
   ["succeeded", "Оплачены"],
   ["mismatch", "Расхождение"],
   ["rejected", "Отклонены"],
@@ -48,7 +48,7 @@ export function PaymentsPage() {
 
   return (
     <>
-      <PageHeader title="Платежи" description="свежие первыми; зависшие — ждут оплаты дольше суток, крон их уже не проверяет" />
+      <PageHeader title="Платежи" description="сначала новые; зависшие — ожидают оплаты дольше суток, cron их больше не проверяет" />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={status} onValueChange={(v) => set("status", v)}>
@@ -80,7 +80,7 @@ export function PaymentsPage() {
         </Button>
         {userId && (
           <Button variant="secondary" className="h-10" onClick={() => set("user_id", null)}>
-            юзер № {userId}
+            пользователь № {userId}
             <X />
           </Button>
         )}
@@ -91,7 +91,7 @@ export function PaymentsPage() {
       ) : list.isError ? (
         <LoadError error={list.error} onRetry={() => list.refetch()} />
       ) : rows.length === 0 ? (
-        <Empty>{stuck ? "Зависших платежей нет" : "Платежей не нашлось"}</Empty>
+        <Empty>{stuck ? "Зависших платежей нет" : "Платежи не найдены"}</Empty>
       ) : (
         <>
           <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
@@ -99,7 +99,7 @@ export function PaymentsPage() {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Платёж</TableHead>
-                  <TableHead>Юзер</TableHead>
+                  <TableHead>Пользователь</TableHead>
                   <TableHead>Тариф</TableHead>
                   <TableHead className="text-right">Сумма</TableHead>
                   <TableHead>Статус</TableHead>

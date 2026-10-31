@@ -14,13 +14,13 @@ export function NodeOnlineSection({ nodeId }: { nodeId: number }) {
     refetchInterval: 30_000,
   })
   return (
-    <Section title="Онлайн сейчас" description={online.data ? `${online.data.length} — у кого прямо сейчас открыто соединение через эту ноду` : "у кого прямо сейчас открыто соединение"}>
+    <Section title="Онлайн сейчас" description={online.data ? `${online.data.length} — пользователи с активным соединением через эту ноду` : "пользователи с активным соединением"}>
       {online.isPending ? (
         <LoadingBlock rows={1} />
       ) : online.isError ? (
         <LoadError error={online.error} onRetry={() => online.refetch()} />
       ) : online.data.length === 0 ? (
-        <Empty>Сейчас никого</Empty>
+        <Empty>Активных соединений нет</Empty>
       ) : (
         <ul className="well flex flex-col divide-y divide-hairline rounded-xl">
           {online.data.map((u) => (

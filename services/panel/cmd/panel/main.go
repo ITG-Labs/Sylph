@@ -66,7 +66,7 @@ func newAdmin(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Запись для файла админов (SYLPH_PANEL_ADMINS_FILE):\n%s\n\nПароль: %s\nTOTP: %s\n", b, password, uri)
+	fmt.Fprintf(out, "Запись для файла администраторов (SYLPH_PANEL_ADMINS_FILE):\n%s\n\nПароль: %s\nTOTP: %s\n", b, password, uri)
 	return nil
 }
 

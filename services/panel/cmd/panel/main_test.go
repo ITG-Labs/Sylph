@@ -35,7 +35,7 @@ func TestNewAdminHumanOutputUnchanged(t *testing.T) {
 	if err := newAdmin([]string{"--name", "owner"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(out.String(), "Запись для файла админов") {
+	if !strings.HasPrefix(out.String(), "Запись для файла администраторов") {
 		t.Fatalf("output = %q", out.String())
 	}
 }

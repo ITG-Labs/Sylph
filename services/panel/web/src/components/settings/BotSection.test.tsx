@@ -71,7 +71,7 @@ describe("BotSection", () => {
     patch.mockResolvedValue({})
     renderSection()
     fireEvent.click(screen.getByRole("switch", { name: "Пользовательское соглашение" }))
-    expect(screen.getByText("без ссылки соглашение не включить")).toBeTruthy()
+    expect(screen.getByText("для включения соглашения нужна ссылка")).toBeTruthy()
     expect((saveButtons()[0] as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText("Ссылка на полный текст"), { target: { value: " https://telegra.ph/terms " } })
     fireEvent.click(saveButtons()[0])
@@ -84,11 +84,11 @@ describe("BotSection", () => {
   it("asks before bumping the terms version", async () => {
     post.mockResolvedValue({})
     renderSection({ terms_enabled: true, terms_url: "https://telegra.ph/terms" })
-    fireEvent.click(screen.getByRole("button", { name: /Попросить принять заново/ }))
+    fireEvent.click(screen.getByRole("button", { name: /Запросить повторное принятие/ }))
     const dialog = await screen.findByRole("dialog")
     expect(dialog.textContent).toContain("станет 4")
-    expect(dialog.textContent).toContain("уже принимал")
-    fireEvent.click(screen.getByRole("button", { name: "Поднять версию" }))
+    expect(dialog.textContent).toContain("принявших соглашение ранее")
+    fireEvent.click(screen.getByRole("button", { name: "Повысить версию" }))
     await waitFor(() => expect(post).toHaveBeenCalledWith("/v1/admin/settings/terms/bump", {}))
   })
 
@@ -98,7 +98,7 @@ describe("BotSection", () => {
     fireEvent.change(screen.getByLabelText("Канал"), { target: { value: "nora" } })
     expect(screen.getByText(/@имя публичного канала/)).toBeTruthy()
     fireEvent.change(screen.getByLabelText("Канал"), { target: { value: "-1001234567890" } })
-    expect(screen.getByText("у канала без @имени нужна ссылка-приглашение")).toBeTruthy()
+    expect(screen.getByText("для канала без @имени нужна ссылка-приглашение")).toBeTruthy()
     fireEvent.change(screen.getByLabelText("Ссылка «Подписаться»"), { target: { value: "https://t.me/+Invite" } })
     expect((saveButtons()[1] as HTMLButtonElement).disabled).toBe(false)
   })
@@ -108,8 +108,8 @@ describe("BotSection", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Подписка на канал" }))
     fireEvent.click(saveButtons()[1])
     const dialog = await screen.findByRole("dialog")
-    expect(dialog.textContent).toContain("и платящих")
-    expect(dialog.textContent).toContain("пускает всех")
+    expect(dialog.textContent).toContain("включая подписчиков с оплатой")
+    expect(dialog.textContent).toContain("открывает меню всем")
   })
 
   it("edits, reorders and removes help buttons", async () => {

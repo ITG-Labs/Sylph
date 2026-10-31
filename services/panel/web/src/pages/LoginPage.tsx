@@ -66,7 +66,7 @@ export function LoginPage() {
         >
           <div>
             <h1 className="text-2xl font-bold tracking-[-0.025em]">Вход</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Имя, пароль и код из аутентификатора</p>
+            <p className="mt-1 text-sm text-muted-foreground">Введите имя, пароль и одноразовый код из приложения-аутентификатора</p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="name">Имя</Label>
@@ -77,7 +77,7 @@ export function LoginPage() {
             <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="code">Код</Label>
+            <Label htmlFor="code">Одноразовый код</Label>
             <Input
               id="code"
               inputMode="numeric"

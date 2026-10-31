@@ -1,5 +1,5 @@
 const actions: Record<string, Record<string, string>> = {
-  user: { ban: "забанил юзера", unban: "разбанил юзера", extend: "продлил подписку", traffic: "докинул трафик", plan: "сменил тариф юзеру" },
+  user: { ban: "заблокировал пользователя", unban: "разблокировал пользователя", extend: "продлил подписку", traffic: "добавил трафик", plan: "сменил тариф пользователя" },
   users: { rotate: "сменил ссылку подписки", reset: "отвязал все устройства", devices: "отвязал устройство" },
   subscription: { close: "закрыл период" },
   payment: { recheck: "перепроверил платёж", apply: "провёл платёж", reject: "отклонил платёж", refund: "отметил возврат" },
@@ -7,15 +7,15 @@ const actions: Record<string, Record<string, string>> = {
   plan: { create: "создал тариф", update: "изменил тариф" },
   plan_access: { grant: "открыл доступ к тарифу", revoke: "отозвал доступ к тарифу" },
   invite: { create: "создал приглашение", revoke: "отозвал приглашение" },
-  node: { create: "завёл ноду", update: "изменил ноду" },
+  node: { create: "добавил ноду", update: "изменил ноду" },
   inbound: { create: "создал вход", update: "изменил вход", delete: "удалил вход" },
   group: { create: "создал группу", update: "переименовал группу", delete: "удалил группу", members: "изменил состав группы" },
-  settings: { update: "изменил настройки", terms_bump: "попросил принять соглашение заново" },
+  settings: { update: "изменил настройки", terms_bump: "запросил повторное принятие соглашения" },
 }
 
 const entities: Record<string, string> = {
-  user: "юзер",
-  users: "юзер",
+  user: "пользователь",
+  users: "пользователь",
   subscription: "период",
   payment: "платёж",
   payments: "платёж",
@@ -29,8 +29,8 @@ const entities: Record<string, string> = {
 }
 
 export const auditEntities = [
-  ["user", "Юзеры: бан, продление, трафик, тариф"],
-  ["users", "Юзеры: ссылка и устройства"],
+  ["user", "Пользователи: блокировка, продление, трафик, тариф"],
+  ["users", "Пользователи: ссылка и устройства"],
   ["subscription", "Периоды"],
   ["payment", "Платежи"],
   ["payments", "Ручная выдача"],

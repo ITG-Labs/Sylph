@@ -39,7 +39,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="Аудит" description="каждое успешное изменение из панели: кто, когда и что прислал (без секретов)" />
+      <PageHeader title="Аудит" description="все успешные изменения из панели: кто, когда и какие данные отправил (без секретов)" />
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Select
           value={entity}
@@ -62,7 +62,7 @@ export function AuditPage() {
             ))}
           </SelectContent>
         </Select>
-        <Input className="h-10 sm:w-48" placeholder="id сущности" value={entityId} onChange={(e) => setEntityId(e.target.value)} />
+        <Input className="h-10 sm:w-48" placeholder="ID объекта" value={entityId} onChange={(e) => setEntityId(e.target.value)} />
       </div>
 
       {list.isPending ? (

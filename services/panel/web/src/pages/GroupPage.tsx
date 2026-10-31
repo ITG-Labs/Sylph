@@ -104,7 +104,7 @@ export function GroupPage() {
       hint: "вся нода",
     }
     const whole = pickedNodes.includes(n.id)
-    return [head, ...own.map((i) => ({ id: -i.id, title: i.label || i.tag, hint: whole ? "входит с нодой" : "только этот вход", indent: true, disabled: whole }))]
+    return [head, ...own.map((i) => ({ id: -i.id, title: i.label || i.tag, hint: whole ? "входит вместе с нодой" : "только этот вход", indent: true, disabled: whole }))]
   })
   const sameMembers =
     pickedNodes.length === g.node_ids.length &&
@@ -128,7 +128,7 @@ export function GroupPage() {
       </Link>
       <PageHeader
         title={g.name}
-        description={`создана ${fmtDate(g.created_at)} · тарифы группы видят её состав и всё, что не входит ни в одну группу`}
+        description={`создана ${fmtDate(g.created_at)} · тарифы группы видят только её состав`}
         actions={
           <>
             <Button variant="secondary" onClick={() => open({ kind: "rename" })}>
@@ -146,7 +146,7 @@ export function GroupPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Section
           title="Состав"
-          description="ноды целиком и отдельные входы; видны только тарифам этой группы и других групп, где они есть"
+          description="ноды целиком и отдельные входы; доступны тарифам этой группы и других групп, в которые они входят"
           action={
             <Button size="sm" onClick={() => open({ kind: "members" })}>
               <ListChecks />
@@ -155,7 +155,7 @@ export function GroupPage() {
           }
         >
           {memberCount === 0 ? (
-            <Empty>Пусто — тарифы группы видят только то, что не входит ни в одну группу</Empty>
+            <Empty>Состав пуст: тарифы группы не видят ни одного входа</Empty>
           ) : (
             <div className="flex flex-col gap-2">
               {g.node_ids.map((nid) => {
@@ -193,7 +193,7 @@ export function GroupPage() {
           }
         >
           {gPlans.length === 0 ? (
-            <Empty>Тарифов нет — состав группы сейчас никому не виден</Empty>
+            <Empty>Группа не используется тарифами, её состав никому не доступен</Empty>
           ) : (
             <div className="flex flex-col gap-2">
               {gPlans.map((p) => (
@@ -203,7 +203,7 @@ export function GroupPage() {
                       {p.name}
                     </Link>
                     <div className="text-xs text-muted-foreground tabular-nums">
-                      {p.active_users ?? 0} {plural(p.active_users ?? 0, "юзер", "юзера", "юзеров")} сейчас · {fmtRub(p.price_rub)}
+                      {p.active_users ?? 0} {plural(p.active_users ?? 0, "пользователь", "пользователя", "пользователей")} сейчас · {fmtRub(p.price_rub)}
                     </div>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => open({ kind: "removePlan", plan: p })}>
@@ -239,15 +239,15 @@ export function GroupPage() {
       <ActionDialog
         open={dialog?.kind === "delete"}
         onOpenChange={close}
-        title={removable ? `Удалить группу «${g.name}»` : "Группу пока не удалить"}
+        title={removable ? `Удалить группу «${g.name}»` : "Группу нельзя удалить"}
         consequences={
           removable ? (
-            <p>Группа пустая и нигде не используется — юзеров это не коснётся.</p>
+            <p>Группа пуста и не используется, пользователи не затронуты.</p>
           ) : (
             <>
-              <p>Удалить можно только неиспользуемую группу. Сначала:</p>
-              {memberCount > 0 && <p>очисти состав;</p>}
-              {gPlans.length > 0 && <p>перенеси в другие группы тарифы {quoted(gPlans.map((p) => p.name))}.</p>}
+              <p>Удалить можно только неиспользуемую группу. Сначала необходимо:</p>
+              {memberCount > 0 && <p>очистить состав;</p>}
+              {gPlans.length > 0 && <p>перенести в другие группы тарифы {quoted(gPlans.map((p) => p.name))}.</p>}
             </>
           )
         }
@@ -266,7 +266,7 @@ export function GroupPage() {
         open={dialog?.kind === "members"}
         onOpenChange={close}
         title={`Состав «${g.name}»`}
-        description="Отметь ноду целиком или только нужные входы. Нода или вход могут быть в нескольких группах сразу"
+        description="Отметьте ноды целиком или отдельные входы. Нода или вход могут входить в несколько групп."
         consequences={consequences}
         consequencesBelow
         destructive={isHarsh(lines)}
@@ -285,7 +285,7 @@ export function GroupPage() {
         open={dialog?.kind === "addPlan"}
         onOpenChange={close}
         title={`Перенести тариф в «${g.name}»`}
-        description="У тарифа одна группа или ни одной — выбранный перенесётся сюда"
+        description="У тарифа может быть только одна группа; выбранный тариф будет перенесён в эту группу"
         consequences={consequences}
         consequencesBelow
         destructive={isHarsh(lines)}
@@ -310,7 +310,7 @@ export function GroupPage() {
               <>
                 <span className="min-w-0 truncate font-medium">
                   {p.name}
-                  <span className="font-normal text-muted-foreground tabular-nums"> · {p.active_users} {plural(p.active_users, "юзер", "юзера", "юзеров")}</span>
+                  <span className="font-normal text-muted-foreground tabular-nums"> · {p.active_users} {plural(p.active_users, "пользователь", "пользователя", "пользователей")}</span>
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">{where(p.location_group_id) ? `в «${where(p.location_group_id)}»` : "без группы"}</span>
               </>

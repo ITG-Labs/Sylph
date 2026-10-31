@@ -121,7 +121,7 @@ export function inboundTitle(w: Pick<World, "nodes">, i: InboundLike): string {
 }
 
 const q = (s: string) => `«${s}»`
-const usersCount = (n: number) => `${n} ${plural(n, "юзер", "юзера", "юзеров")}`
+const usersCount = (n: number) => `${n} ${plural(n, "пользователь", "пользователя", "пользователей")}`
 
 interface Items {
   text: string
@@ -141,11 +141,11 @@ function items(w: World, list: InboundLike[]): Items {
     const why = node ? hiddenReason(node) : null
     if (all.every((x) => list.some((l) => l.id === x.id))) {
       done.add(i.node_id)
-      nodes.push(why === null ? q(node?.name ?? `нода ${i.node_id}`) : `${q(node?.name ?? "")} (${why} — в подписке её нет)`)
+      nodes.push(why === null ? q(node?.name ?? `нода ${i.node_id}`) : `${q(node?.name ?? "")} (${why}, в подписку не попадает)`)
       continue
     }
     const name = `${node?.name ?? `нода ${i.node_id}`} · ${i.label || i.tag}`
-    inbounds.push(why === null ? q(name) : `${q(name)} (нода ${why} — в подписке его нет)`)
+    inbounds.push(why === null ? q(name) : `${q(name)} (нода ${why}, в подписку не попадает)`)
   }
   const parts: string[] = []
   if (nodes.length > 0) parts.push(`${nodes.length === 1 ? "ноду" : "ноды"} ${nodes.join(", ")}`)
@@ -166,8 +166,8 @@ export function describeChanges(before: World, changes: PlanChange[]): ImpactLin
     const who = `${usersCount(n)} тарифа ${q(c.plan.name)}`
     if (c.lost.length > 0) {
       const it = items(before, c.lost)
-      const stops = `${it.pronoun} ${it.many ? "перестанут" : "перестанет"} ${plural(n, "его", "их", "их")} пускать в течение минуты`
-      const fromApp = it.live ? `, а из приложения ${it.many ? "пропадут" : "пропадёт"} при следующем обновлении подписки` : ""
+      const stops = `${it.pronoun} ${it.many ? "перестанут" : "перестанет"} принимать ${plural(n, "его", "их", "их")} подключения в течение минуты`
+      const fromApp = it.live ? `, а из клиентского приложения ${it.many ? "исчезнут" : "исчезнет"} при следующем обновлении подписки` : ""
       out.push(
         n === 0
           ? { tone: "info", text: `Тариф ${q(c.plan.name)} перестанет видеть ${it.text}. Сейчас на нём никого нет.` }
@@ -184,9 +184,9 @@ export function describeChanges(before: World, changes: PlanChange[]): ImpactLin
             : { tone: "gain", text: `${who} ${plural(n, "получит", "получат", "получат")} ${it.text}, но в подписке это появится, только когда нода станет доступна.` },
       )
     }
-    if (c.orphaned) out.push({ tone: "danger", text: `У тарифа ${q(c.plan.name)} в подписке не останется ни одного входа — его юзерам станет не к чему подключиться.` })
+    if (c.orphaned) out.push({ tone: "danger", text: `В подписке тарифа ${q(c.plan.name)} не останется ни одного входа: пользователям тарифа будет не к чему подключиться.` })
   }
-  if (out.length === 0) out.push({ tone: "info", text: "Доступы юзеров не меняются." })
+  if (out.length === 0) out.push({ tone: "info", text: "Доступ пользователей не изменится." })
   return out
 }
 
@@ -223,7 +223,7 @@ function oldAgentLines(w: World): ImpactLine[] {
     const whom = hit.length === 1 ? `тарифа ${q(hit[0].name)}` : `тарифов ${hit.map((p) => q(p.name)).join(", ")}`
     out.push({
       tone: "danger",
-      text: `На ноде ${q(n.name)} агент старой версии: юзеры ${whom} видят на ней только часть входов или делят её между пулами — пока агент не обновят, нода не будет их пускать вовсе.`,
+      text: `На ноде ${q(n.name)} работает агент старой версии, а пользователи ${whom} видят на ней только часть входов или используют её в разных пулах. До обновления агента нода не будет принимать их подключения.`,
     })
   }
   return out

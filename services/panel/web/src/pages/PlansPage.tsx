@@ -23,7 +23,7 @@ export function PlansPage() {
     <>
       <PageHeader
         title="Тарифы"
-        description="удалять нельзя — на них ссылаются подписки; ненужный снимают с продажи"
+        description="тарифы нельзя удалить, так как на них ссылаются подписки; неиспользуемый тариф можно снять с продажи"
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />

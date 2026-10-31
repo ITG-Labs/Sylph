@@ -46,7 +46,7 @@ describe("holderLabel", () => {
     expect(holderLabel({ ...holder, telegram_username: "vasya", telegram_name: "Вася", telegram_id: 5 })).toBe("@vasya")
     expect(holderLabel({ ...holder, telegram_name: "Вася", telegram_id: 5 })).toBe("Вася")
     expect(holderLabel({ ...holder, telegram_id: 5 })).toBe("5")
-    expect(holderLabel(holder)).toBe("юзер № 9")
+    expect(holderLabel(holder)).toBe("пользователь № 9")
   })
 })
 
@@ -65,7 +65,7 @@ describe("deletable and statusOf", () => {
     expect(deletable(addr(1, 1))).toBe(false)
     expect(deletable(addr(1, 1, { status: "missing" }))).toBe(true)
     expect(deletable(addr(1, 1, { stale: true }))).toBe(true)
-    expect(statusOf(addr(1, 1, { stale: true })).label).toBe("нода молчит")
+    expect(statusOf(addr(1, 1, { stale: true })).label).toBe("нода не на связи")
     expect(statusOf(addr(1, 1, { status: "error" })).label).toBe("ошибка")
   })
 })

@@ -108,16 +108,16 @@ describe("node readiness", () => {
   })
   it("tells whether the certificate is there", () => {
     const now = new Date("2026-10-31T10:00:00Z")
-    expect(certLine({ tls_status: null }, "a.ru", now)).toEqual({ ok: false, text: "агент ещё не проверял" })
+    expect(certLine({ tls_status: null }, "a.ru", now)).toEqual({ ok: false, text: "агент ещё не проверял сертификат" })
     expect(certLine({ tls_status: { "a.ru": { not_after: "2027-01-28T10:00:00Z" } } }, "a.ru", now)).toEqual({ ok: true, text: "выпущен, до 28.01.2027" })
-    expect(certLine({ tls_status: { "a.ru": { error: "no certificate" } } }, "a.ru", now)).toEqual({ ok: false, text: "нет серта: no certificate" })
+    expect(certLine({ tls_status: { "a.ru": { error: "no certificate" } } }, "a.ru", now)).toEqual({ ok: false, text: "сертификата нет: no certificate" })
   })
   it("warns about a certificate that runs out or already did", () => {
     const now = new Date("2026-10-31T10:00:00Z")
-    expect(certLine({ tls_status: { "a.ru": { not_after: "2026-11-10T10:00:00Z" } } }, "a.ru", now)).toEqual({ ok: false, text: "истекает 10.11.2026 — продление не прошло?" })
+    expect(certLine({ tls_status: { "a.ru": { not_after: "2026-11-10T10:00:00Z" } } }, "a.ru", now)).toEqual({ ok: false, text: "истекает 10.11.2026, продление не выполнено" })
     expect(certLine({ tls_status: { "a.ru": { not_after: "2026-10-01T10:00:00Z", error: "certificate expired at 2026-10-01T10:00:00Z" } } }, "a.ru", now)).toEqual({
       ok: false,
-      text: "нет серта: certificate expired at 2026-10-01T10:00:00Z",
+      text: "сертификата нет: certificate expired at 2026-10-01T10:00:00Z",
     })
   })
 })

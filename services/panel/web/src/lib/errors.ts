@@ -12,35 +12,35 @@ export class ApiError extends Error {
 }
 
 const byField: Record<string, string> = {
-  user_id: "Юзер забанен — сначала разбань",
-  subscription: "У юзера нет активного периода",
-  bytes: "Тариф без лимита — докидывать трафик некуда",
-  status: "Платёж уже в другом статусе — обнови страницу",
-  source: "Ручной платёж в ЮKassa не перепроверить",
-  id: "Период уже закрыт или закончился",
-  trial: "Пробный тариф в продаже уже есть — сначала сними старый",
-  name: "Такое имя уже занято",
-  "reality.server_names": "Такой SNI уже есть у другого входа этой ноды",
-  tag: "Такой тег уже есть у этой ноды",
-  cert_cn: "Нода с таким CN уже заведена",
-  payment_id: "Такой id платежа уже занят",
-  group: "В группе ещё есть ноды или тарифы — сначала перенеси их",
+  user_id: "Пользователь заблокирован. Сначала разблокируйте его.",
+  subscription: "У пользователя нет активного периода.",
+  bytes: "У выбранного пула нет лимита трафика.",
+  status: "Статус платежа уже изменился. Обновите страницу.",
+  source: "Ручной платёж нельзя перепроверить в ЮKassa.",
+  id: "Период уже закрыт или закончился.",
+  trial: "В продаже уже есть пробный тариф. Сначала снимите его с продажи.",
+  name: "Это имя уже занято.",
+  "reality.server_names": "Этот SNI уже используется другим входом этой ноды.",
+  tag: "Этот тег уже используется на этой ноде.",
+  cert_cn: "Нода с этим CN уже добавлена.",
+  payment_id: "Этот идентификатор платежа уже занят.",
+  group: "Группа используется нодами или тарифами. Сначала уберите их из группы.",
 }
 
 const byCode: Record<string, string> = {
-  provider_unavailable: "ЮKassa не ответила — попробуй позже",
-  payments_disabled: "ЮKassa в ядре не настроена",
-  core_unavailable: "Ядро не отвечает",
-  core_rejected: "Ядро отклонило серт панели (отозван?)",
-  not_found: "Не найдено",
-  too_many_attempts: "Слишком много попыток — подожди 15 минут",
-  busy: "Панель сейчас перегружена входами — попробуй через минуту",
-  bad_credentials: "Неверное имя, пароль или код",
-  unauthorized: "Сессия закончилась — войди заново",
-  csrf: "Запрос отклонён защитой от подделки — обнови страницу",
-  too_large: "Слишком большой запрос",
-  banned: "Юзер забанен",
-  internal: "Ошибка ядра — смотри логи",
+  provider_unavailable: "ЮKassa не отвечает. Повторите попытку позже.",
+  payments_disabled: "Приём платежей через ЮKassa не настроен в ядре.",
+  core_unavailable: "Ядро не отвечает.",
+  core_rejected: "Ядро отклонило сертификат панели. Проверьте, не отозван ли он.",
+  not_found: "Не найдено.",
+  too_many_attempts: "Слишком много попыток входа. Повторите через 15 минут.",
+  busy: "Панель перегружена попытками входа. Повторите через минуту.",
+  bad_credentials: "Неверное имя, пароль или код.",
+  unauthorized: "Сеанс завершён. Войдите снова.",
+  csrf: "Запрос отклонён защитой от подделки запросов. Обновите страницу.",
+  too_large: "Слишком большой запрос.",
+  banned: "Пользователь заблокирован.",
+  internal: "Внутренняя ошибка ядра. Подробности — в журнале ядра.",
 }
 
 const fieldLabels: Record<string, string> = {
@@ -67,11 +67,13 @@ const fieldLabels: Record<string, string> = {
   label: "Подпись",
   port: "Порт",
   address: "Адрес",
-  cert_cn: "CN серта",
+  cert_cn: "CN сертификата",
   name: "Имя",
   price_rub: "Цена",
   period_days: "Срок",
-  traffic_limit_bytes: "Лимит трафика",
+  pools: "Пулы",
+  pool_id: "Пул",
+  inbound: "Вход",
   device_limit: "Лимит устройств",
   hwid_required: "HWID",
   max_uses: "Сколько раз",
@@ -95,7 +97,7 @@ const fieldLabels: Record<string, string> = {
 
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 409 && err.field === "status" && err.message.includes("still waiting")) return "Платёж моложе суток — юзер ещё может оплатить, отклонять рано"
+    if (err.status === 409 && err.field === "status" && err.message.includes("still waiting")) return "С момента создания платежа не прошло суток: пользователь ещё может его оплатить."
     if (err.status === 409 && byField[err.field]) return byField[err.field]
     if (byCode[err.code]) return byCode[err.code]
     if (err.field) return `${fieldLabels[err.field] ?? err.field}: ${err.message}`

@@ -37,7 +37,7 @@ export function RoutingPage() {
     <>
       <PageHeader
         title="Маршрутизация"
-        description="профиль решает, куда уходит трафик юзеров ноды: напрямую, в блок, через прокси или другую ноду"
+        description="профиль определяет, куда направляется трафик пользователей ноды: напрямую, в блокировку, через прокси или другую ноду"
         actions={
           <Button
             onClick={() => {
@@ -55,7 +55,7 @@ export function RoutingPage() {
       ) : profiles.isError ? (
         <LoadError error={profiles.error} onRetry={() => profiles.refetch()} />
       ) : profiles.data.length === 0 ? (
-        <Empty>Профилей нет — ноды выпускают трафик напрямую</Empty>
+        <Empty>Профилей нет; ноды направляют трафик напрямую</Empty>
       ) : (
         <>
           <div className="glass-thin hidden overflow-hidden rounded-2xl md:block">
@@ -63,7 +63,7 @@ export function RoutingPage() {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Профиль</TableHead>
-                  <TableHead>Что внутри</TableHead>
+                  <TableHead>Состав</TableHead>
                   <TableHead className="text-right">Ноды</TableHead>
                   <TableHead>Изменён</TableHead>
                   <TableHead />
@@ -123,7 +123,7 @@ export function RoutingPage() {
         open={creating}
         onOpenChange={setCreating}
         title="Новый профиль"
-        description="начнётся с выходов «напрямую» и «блок»; нодам его назначают на их странице"
+        description="профиль создаётся с выходами «напрямую» и «блокировка»; назначается нодам на их странице"
         confirmLabel="Создать"
         canConfirm={name.trim() !== ""}
         success="Профиль создан"
@@ -134,7 +134,7 @@ export function RoutingPage() {
         }}
       >
         <Field id="pf-name" label="Название">
-          <Input id="pf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Европа через Нидерланды" maxLength={64} autoFocus />
+          <Input id="pf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Основной профиль" maxLength={64} autoFocus />
         </Field>
       </ActionDialog>
     </>

@@ -76,20 +76,20 @@ export function NodeFormDialog({
     <ActionDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={node ? `Изменить ноду «${node.name}»` : "Завести ноду"}
-      description={node ? `CN серта: ${node.cert_cn} — не меняется` : "Серт ноды выпускается у тебя: make cert NAME=<CN> TYPE=client ROLE=node"}
+      title={node ? `Изменить ноду «${node.name}»` : "Добавить ноду"}
+      description={node ? `CN сертификата: ${node.cert_cn} (не изменяется)` : "Сертификат ноды выпускается командой sylph certs bundle на компьютере с CA"}
       consequences={
         disabling || moveLines.length > 0 ? (
           <>
-            {disabling && <p>Выключенная нода пропадёт из подписок со следующим обновлением, её юзеры переключатся на другие ноды.</p>}
+            {disabling && <p>Выключенная нода исчезнет из подписок при следующем обновлении, пользователи переключатся на другие ноды.</p>}
             <MoveConsequences lines={moveLines} />
           </>
         ) : undefined
       }
       destructive={disabling || isHarsh(moveLines)}
-      confirmLabel={node ? "Сохранить" : "Завести"}
+      confirmLabel={node ? "Сохранить" : "Добавить"}
       canConfirm={!!ok}
-      success={node ? "Нода сохранена" : "Нода заведена"}
+      success={node ? "Нода сохранена" : "Нода добавлена"}
       onConfirm={async () => {
         const n = node
           ? await core.patch<Node>(`/v1/admin/nodes/${node.id}`, { name: name.trim(), address: address.trim(), group_ids: groupIDs, enabled })
@@ -98,23 +98,23 @@ export function NodeFormDialog({
       }}
     >
       {!node && (
-        <Field id="cn" label="CN серта ноды" hint="латиница, цифры, точка, дефис, подчёркивание — как в серте">
-          <Input id="cn" value={cn} onChange={(e) => setCn(e.target.value)} placeholder="node-de-1" autoFocus />
+        <Field id="cn" label="CN сертификата ноды" hint="латинские буквы, цифры, точка, дефис и подчёркивание; должен совпадать с сертификатом">
+          <Input id="cn" value={cn} onChange={(e) => setCn(e.target.value)} placeholder="node-1" autoFocus />
         </Field>
       )}
-      <Field id="name" label="Имя" hint="его видят юзеры в клиенте">
-        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Германия" />
+      <Field id="name" label="Имя" hint="отображается у пользователей в клиенте">
+        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Нода 1" />
       </Field>
-      <Field id="address" label="Адрес" hint="домен или IP, на который ходят клиенты">
-        <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="de1.example.com" />
+      <Field id="address" label="Адрес" hint="домен или IP-адрес, к которому подключаются клиенты">
+        <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="node1.example.com" />
       </Field>
-      <Field label="Группы" hint="нода целиком; без групп её видят все тарифы. Отдельные входы раскладываются по группам на экране группы">
+      <Field label="Группы" hint="нода добавляется в группы целиком; нода вне групп недоступна тарифам. Отдельные входы добавляются в группы на странице группы">
         <GroupChecks groups={groups} value={groupIDs} onChange={setGroupIDs} />
       </Field>
       <div className="well flex items-center justify-between gap-3 rounded-xl p-3">
         <div>
           <div className="text-sm font-medium">Включена</div>
-          <div className="text-xs text-muted-foreground">выключенная не попадает в подписки</div>
+          <div className="text-xs text-muted-foreground">выключенная нода не попадает в подписки</div>
         </div>
         <Switch checked={enabled} onCheckedChange={setEnabled} />
       </div>
@@ -212,21 +212,21 @@ export function InboundFormDialog({
       {agentBehind && (
         <p className="font-medium">
           {inbound
-            ? "Агент этой ноды ещё не знает XHTTP — вход сохранится, но заработает после обновления агента (sylph update на ноде)."
-            : "Агент этой ноды ещё не знает XHTTP — сначала обнови агента (sylph update на ноде)."}
+            ? "Агент этой ноды не поддерживает XHTTP: вход сохранится, но начнёт работать после обновления агента (sylph update на ноде)."
+            : "Агент этой ноды не поддерживает XHTTP. Обновите агента (sylph update на ноде)."}
         </p>
       )}
       {xrayBehind && (
         <p>
-          xray на ноде {node?.xray_version} старее {minXrayForXHTTP} — новые поля XHTTP он может молча пропустить, и клиенты не подключатся. Подними XRAY_VERSION в .env ноды.
+          Версия xray на ноде ({node?.xray_version}) старше {minXrayForXHTTP}: новые поля XHTTP могут быть проигнорированы, и клиенты не подключатся. Обновите XRAY_VERSION в файле .env ноды.
         </p>
       )}
       {tls && !inbound && (
         <p>
-          Направь DNS домена {domain.trim() || "…"} на ноду{node?.address ? ` (${node.address})` : ""}. Серт Let's Encrypt нода выпустит сама через 443. Для CDN укажи этот домен как origin.
+          Направьте DNS-запись домена {domain.trim() || "…"} на ноду{node?.address ? ` (${node.address})` : ""}. Сертификат Let's Encrypt нода выпустит автоматически через порт 443. При использовании CDN укажите этот домен как origin.
         </p>
       )}
-      {inbound && <p>Агент пересоберёт конфиг xray и перезапустит его — открытые соединения ноды оборвутся. Юзеры получат новые параметры со следующим обновлением подписки.</p>}
+      {inbound && <p>Агент пересоберёт конфигурацию xray и перезапустит его, открытые соединения ноды прервутся. Пользователи получат новые параметры при следующем обновлении подписки.</p>}
     </>
   )
   const hasConsequences = agentBehind || xrayBehind || (tls && !inbound) || !!inbound
@@ -270,10 +270,10 @@ export function InboundFormDialog({
     >
       {!inbound && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Транспорт" hint="как идут данные: TCP напрямую или XHTTP поверх HTTP">
+          <Field label="Транспорт" hint="способ передачи данных: TCP напрямую или XHTTP поверх HTTP">
             <Segmented label="Транспорт" value={transportOf(kind)} options={transports} onChange={(t) => pickKind(kindFrom(t, securityOf(kind)))} />
           </Field>
-          <Field label="Шифрование" hint={transportOf(kind) === "tcp" ? "для TCP — только REALITY" : "REALITY — без домена, TLS — свой домен и можно CDN"}>
+          <Field label="Шифрование" hint={transportOf(kind) === "tcp" ? "для TCP доступен только REALITY" : "REALITY не требует домена; TLS использует домен ноды и допускает CDN"}>
             <Segmented
               label="Шифрование"
               value={securityOf(kind)}
@@ -284,26 +284,26 @@ export function InboundFormDialog({
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="tag" label="Тег" hint="a-z, 0-9, дефис; уникален на ноде">
+        <Field id="tag" label="Тег" hint="a-z, 0-9 и дефис; уникален в пределах ноды">
           <Input id="tag" value={tag} onChange={(e) => setTag(e.target.value)} />
         </Field>
-        <Field id="label" label="Подпись для юзера" hint="«Германия · CDN», если входов несколько">
+        <Field id="label" label="Подпись для пользователя" hint="добавляется к имени ноды в клиенте, если у ноды несколько входов">
           <Input id="label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={tls ? "CDN" : "REALITY"} />
         </Field>
       </div>
       {reality && (
         <>
-          <Field id="dest" label="Под какой сайт маскируемся (dest)" hint="host:port настоящего сайта; не localhost, не внутренние адреса и не наши ноды">
-            <Input id="dest" value={dest} onChange={(e) => setDest(e.target.value)} placeholder="www.microsoft.com:443" />
+          <Field id="dest" label="Сайт для маскировки (dest)" hint="host:port реального сайта; не допускаются localhost, внутренние адреса и адреса нод">
+            <Input id="dest" value={dest} onChange={(e) => setDest(e.target.value)} placeholder="www.example.com:443" />
           </Field>
-          <Field id="sni" label="SNI (server names)" hint="по одному в строке; уникальны среди входов ноды">
-            <Textarea id="sni" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="www.microsoft.com" rows={2} />
+          <Field id="sni" label="SNI (server names)" hint="по одному в строке; не повторяются среди входов ноды">
+            <Textarea id="sni" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="www.example.com" rows={2} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="sids" label="shortId" hint={inbound ? "hex, 2–16 знаков; пусто — оставить как есть" : "hex, 2–16 знаков; пусто — ядро сгенерирует"}>
+            <Field id="sids" label="shortId" hint={inbound ? "hex, от 2 до 16 символов; если не заполнено, значение не изменится" : "hex, от 2 до 16 символов; если не заполнено, значение сгенерирует ядро"}>
               <Textarea id="sids" value={sids} onChange={(e) => setSids(e.target.value)} rows={2} className="font-mono" />
             </Field>
-            <Field label="Отпечаток браузера" hint="везде работает только chrome">
+            <Field label="Отпечаток TLS-клиента" hint="отпечаток uTLS, который клиент передаёт при подключении">
               <FingerprintSelect value={fp} onChange={setFp} />
             </Field>
           </div>
@@ -311,10 +311,10 @@ export function InboundFormDialog({
       )}
       {tls && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="domain" label="Домен ноды" hint="на него смотрит DNS и origin в CDN; на него нода выпускает серт">
-            <Input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="static.example.ru" />
+          <Field id="domain" label="Домен ноды" hint="домен, указывающий на ноду; используется как origin в CDN, на него нода выпускает сертификат">
+            <Input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="node.example.com" />
           </Field>
-          <Field id="decoy" label="Маскировка" hint="сайт, который видят на чужих путях и ошибках; пусто — простая заглушка">
+          <Field id="decoy" label="Маскировка" hint="сайт, который отдаётся на неизвестных путях и при ошибках; если не заполнено, используется встроенная заглушка">
             <Input id="decoy" value={decoy} onChange={(e) => setDecoy(e.target.value)} placeholder="https://example.com" />
           </Field>
         </div>
@@ -323,14 +323,14 @@ export function InboundFormDialog({
         <>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="sm:col-span-3">
-              <Field id="path" label="Путь" hint="одинаковый у сервера и клиента; у входов на одном домене пути не пересекаются">
-                <Input id="path" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/api/v2/catalog/sync.json" className="font-mono" />
+              <Field id="path" label="Путь" hint="совпадает у сервера и клиента; пути входов на одном домене не должны пересекаться">
+                <Input id="path" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/example" className="font-mono" />
               </Field>
             </div>
-            <Field id="mode" label="mode сервера" hint="auto принимает всё">
+            <Field id="mode" label="mode сервера" hint="auto принимает все режимы">
               <ModeSelect id="mode" value={mode} onChange={setMode} />
             </Field>
-            <Field id="client-mode" label="mode клиента" hint="через CDN обычно packet-up">
+            <Field id="client-mode" label="mode клиента" hint="режим, который используют клиенты">
               <ModeSelect id="client-mode" value={clientMode} onChange={setClientMode} />
             </Field>
           </div>
@@ -341,31 +341,31 @@ export function InboundFormDialog({
         <div className="well flex flex-col gap-4 rounded-xl p-3">
           <div>
             <div className="text-sm font-medium">Как подключаются клиенты</div>
-            <div className="text-xs text-muted-foreground">для CDN — IP или домен edge и домен ресурса CDN; без CDN оставь пустым</div>
+            <div className="text-xs text-muted-foreground">при использовании CDN укажите адрес edge-сервера и домен ресурса CDN; без CDN оставьте поля пустыми</div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="address" label="Адрес" hint="пусто — домен ноды">
-              <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="185.31.114.248" className="font-mono" />
+            <Field id="address" label="Адрес" hint="если не заполнено, используется домен ноды">
+              <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="203.0.113.10" className="font-mono" />
             </Field>
             <Field id="client-port" label="Порт">
               <Input id="client-port" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className="font-mono" />
             </Field>
-            <Field id="client-sni" label="SNI" hint="пусто — адрес, если он домен, иначе домен ноды">
-              <Input id="client-sni" value={clientSNI} onChange={(e) => setClientSNI(e.target.value)} placeholder="xxx.cdn.example.ru" className="font-mono" />
+            <Field id="client-sni" label="SNI" hint="если не заполнено, используется адрес (если это домен) или домен ноды">
+              <Input id="client-sni" value={clientSNI} onChange={(e) => setClientSNI(e.target.value)} placeholder="cdn.example.net" className="font-mono" />
             </Field>
-            <Field id="client-host" label="Host" hint="пусто — как SNI">
+            <Field id="client-host" label="Host" hint="если не заполнено, совпадает с SNI">
               <Input id="client-host" value={host} onChange={(e) => setHost(e.target.value)} className="font-mono" />
             </Field>
-            <Field label="ALPN" hint="ничего не выбрано — как решит клиент; h3 — только через CDN">
+            <Field label="ALPN" hint="если не выбрано, протокол определяет клиент; h3 доступен только через CDN">
               <ALPNPicker value={alpn} onChange={setAlpn} />
             </Field>
-            <Field label="Отпечаток браузера">
+            <Field label="Отпечаток TLS-клиента">
               <FingerprintSelect value={tlsFp} onChange={setTlsFp} />
             </Field>
           </div>
         </div>
       )}
-      {problems.length > 0 && <p className="text-xs text-destructive">Проверь поля: {problems.join(", ")} — нужны целые числа, диапазон пишется как 100-1000</p>}
+      {problems.length > 0 && <p className="text-xs text-destructive">Проверьте поля: {problems.join(", ")}. Допускаются целые числа; диапазон указывается в формате 100-1000.</p>}
     </ActionDialog>
   )
 }

@@ -54,7 +54,7 @@ describe("routing", () => {
 
   it("checks tags like the core", () => {
     const d = doc()
-    expect(tagProblem(d, "nl")).toBe("такой тег уже есть")
+    expect(tagProblem(d, "nl")).toBe("этот тег уже используется")
     expect(tagProblem(d, "nl", "nl")).toBeNull()
     expect(tagProblem(d, "sylph-x")).toContain("sylph")
     expect(tagProblem(d, "Bad Tag")).not.toBeNull()
@@ -107,10 +107,10 @@ describe("routing", () => {
 
   it("explains core errors in place", () => {
     const d = doc()
-    expect(describeRoutingError(new ApiError(400, "invalid", "doc.outbounds[2].proxy.address", "must be a public hostname or IP"), d)).toBe("Выход nl, адрес: нужен публичный домен или IP")
-    expect(describeRoutingError(new ApiError(400, "invalid", "doc.rules[0].domain", `"ru:x" is not a geo source of domains`), d)).toContain("Правило 1 «Торренты», домены: нет такого источника доменов")
-    expect(describeRoutingError(new ApiError(400, "invalid", "doc.balancers[0].outbounds", "needs at least two outbounds"), d)).toBe("Балансировщик best, выходы: нужно хотя бы два выхода")
-    expect(describeRoutingError(new ApiError(409, "conflict", "revision", "the profile was changed by someone else: reload it"), d)).toContain("обнови страницу")
+    expect(describeRoutingError(new ApiError(400, "invalid", "doc.outbounds[2].proxy.address", "must be a public hostname or IP"), d)).toBe("Выход nl, адрес: укажите публичный домен или IP-адрес")
+    expect(describeRoutingError(new ApiError(400, "invalid", "doc.rules[0].domain", `"ru:x" is not a geo source of domains`), d)).toContain("Правило 1 «Торренты», домены: источник доменов не найден")
+    expect(describeRoutingError(new ApiError(400, "invalid", "doc.balancers[0].outbounds", "needs at least two outbounds"), d)).toBe("Балансировщик best, выходы: нужно не менее двух выходов")
+    expect(describeRoutingError(new ApiError(409, "conflict", "revision", "the profile was changed by someone else: reload it"), d)).toContain("Обновите страницу")
     expect(describeRoutingError(new ApiError(400, "invalid", "doc.balancers[0].outbounds", `tag "s" is the beginning of the system outbound "sylph_block": xray would pick it too, rename the outbound`), d)).toContain("системного выхода")
     expect(describeRoutingError(new ApiError(400, "invalid", "doc.outbounds[3].raw", `write "PROTOCOL" in lowercase: xray reads keys in any case`), d)).toContain("строчными")
     expect(describeRoutingError(new ApiError(400, "invalid", "name", "x"), d)).toBeNull()

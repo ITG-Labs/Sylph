@@ -22,7 +22,7 @@ describe("certState", () => {
 describe("serviceTitle", () => {
   it("names roles in Russian and shows a non-default CN", () => {
     expect(serviceTitle("bot", "bot")).toBe("Бот")
-    expect(serviceTitle("cron", "cron")).toBe("Крон")
+    expect(serviceTitle("cron", "cron")).toBe("Cron")
     expect(serviceTitle("subs", "subs-2")).toBe("subs (subs-2)")
     expect(serviceTitle("monitor", "monitor")).toBe("Монитор")
   })

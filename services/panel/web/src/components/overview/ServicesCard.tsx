@@ -37,7 +37,7 @@ export function ServicesCard({ services, coreInfo }: { services: ServiceInfo[]; 
     <Card className="mt-4">
       <CardHeader>
         <CardTitle>Сервисы</CardTitle>
-        <CardDescription>пульс раз в минуту · молчит дольше 3 минут — алерт</CardDescription>
+        <CardDescription>сигнал раз в минуту; при отсутствии сигнала дольше 3 минут монитор отправит уведомление</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-hairline">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-3 text-sm">
@@ -46,10 +46,10 @@ export function ServicesCard({ services, coreInfo }: { services: ServiceInfo[]; 
             Ядро
           </div>
           <span className="text-muted-foreground tabular-nums">{coreInfo.version || "—"}</span>
-          <CertLine label="серт до" notAfter={coreInfo.cert_not_after} />
+          <CertLine label="сертификат до" notAfter={coreInfo.cert_not_after} />
           <CertLine label="CA до" notAfter={coreInfo.ca_not_after} />
         </div>
-        {services.length === 0 && <div className="py-4 text-sm text-muted-foreground">Сервисы ещё не присылали пульс</div>}
+        {services.length === 0 && <div className="py-4 text-sm text-muted-foreground">Сервисы ещё не присылали сигнал</div>}
         {services.map((s) => (
           <div key={s.cert_cn} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-3 text-sm">
             <div className="flex min-w-36 items-center gap-2 font-medium">
@@ -59,22 +59,22 @@ export function ServicesCard({ services, coreInfo }: { services: ServiceInfo[]; 
             {s.alive ? (
               <Badge variant="success">
                 <CircleCheck />
-                жив
+                работает
               </Badge>
             ) : (
               <Badge variant="destructive">
                 <CircleX />
-                молчит
+                нет сигнала
               </Badge>
             )}
             <span className="text-muted-foreground tabular-nums">{s.version || "—"}</span>
             <span className="text-muted-foreground">
-              {s.alive ? `работает ${fmtUptime(s.uptime_sec)}` : `последний пульс ${fmtRelative(s.last_seen)}`}
+              {s.alive ? `работает ${fmtUptime(s.uptime_sec)}` : `последний сигнал ${fmtRelative(s.last_seen)}`}
             </span>
-            <CertLine label="серт до" notAfter={s.cert_not_after} />
+            <CertLine label="сертификат до" notAfter={s.cert_not_after} />
             {!s.alive && (
               <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setForget(s)}>
-                <Trash2 /> забыть
+                <Trash2 /> удалить
               </Button>
             )}
           </div>
@@ -83,15 +83,15 @@ export function ServicesCard({ services, coreInfo }: { services: ServiceInfo[]; 
       <ActionDialog
         open={forget !== null}
         onOpenChange={(open) => !open && setForget(null)}
-        title={forget ? `Забыть «${serviceTitle(forget.role, forget.cert_cn)}»?` : ""}
+        title={forget ? `Удалить «${serviceTitle(forget.role, forget.cert_cn)}» из списка?` : ""}
         consequences={
           <>
-            <span>Сервис пропадёт из этого списка, и монитор перестанет присылать алерт, что он молчит.</span>
-            <span>Если сервис снова пришлёт пульс, он появится сам.</span>
+            <span>Сервис исчезнет из списка, и монитор перестанет уведомлять об отсутствии сигнала от него.</span>
+            <span>Если сервис снова пришлёт сигнал, он автоматически вернётся в список.</span>
           </>
         }
-        confirmLabel="Забыть"
-        success="Сервис забыт"
+        confirmLabel="Удалить"
+        success="Сервис удалён из списка"
         onConfirm={async () => {
           if (!forget) return
           await core.del(`/v1/admin/services/${encodeURIComponent(forget.cert_cn)}`)

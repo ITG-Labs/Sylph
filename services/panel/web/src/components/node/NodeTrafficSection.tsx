@@ -55,7 +55,7 @@ export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbou
     ) : undefined
 
   return (
-    <Section title="Трафик" description="вверх + вниз, сутки по Москве" className="mt-4" action={picker}>
+    <Section title="Трафик" description="входящий и исходящий, сутки по московскому времени" className="mt-4" action={picker}>
       {stats.isPending ? (
         <LoadingBlock rows={2} />
       ) : stats.isError ? (
@@ -84,10 +84,10 @@ export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbou
           </div>
           <div className="flex min-w-0 flex-col gap-2">
             <div className="text-sm font-medium">
-              Больше всех <span className="font-normal text-muted-foreground">{w.top}</span>
+              Наибольший трафик <span className="font-normal text-muted-foreground">{w.top}</span>
             </div>
             {stats.data.top[win].length === 0 ? (
-              <Empty>Никого</Empty>
+              <Empty>Нет данных</Empty>
             ) : (
               <ol className="flex flex-col">
                 {stats.data.top[win].map((u, i) => {

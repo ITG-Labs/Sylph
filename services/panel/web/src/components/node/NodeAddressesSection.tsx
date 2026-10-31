@@ -19,25 +19,25 @@ export function NodeAddressesSection({ nodeId }: { nodeId: number }) {
   const list = addresses.data?.filter((a) => a.node_id === nodeId) ?? []
 
   return (
-    <Section title="Дополнительные IP" description="для выделенных адресов юзеров; добавляются на самой ноде командой sudo ./sylph ip add <IPv4>">
+    <Section title="Дополнительные IP" description="для выделенных адресов пользователей; добавляются на ноде командой sudo ./sylph ip add <IPv4>">
       {addresses.isPending ? (
         <LoadingBlock rows={1} />
       ) : addresses.isError ? (
         <LoadError error={addresses.error} />
       ) : list.length === 0 ? (
-        <Empty>Доп. адресов нет — нода сообщит их сама, когда их подключат</Empty>
+        <Empty>Дополнительных адресов нет. Нода сообщит о них автоматически после подключения.</Empty>
       ) : (
         <div className="flex flex-col gap-2">
           {list.some((a) => a.no_direct_warning) && (
             <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
-              <span>Профиль маршрутизации ноды никуда не выпускает трафик напрямую — выделенные адреса на ней не используются, сайты видят адреса прокси и каскадов.</span>
+              <span>Профиль маршрутизации ноды не направляет трафик напрямую, поэтому выделенные адреса на ней не используются: сайты видят адреса прокси и каскадов.</span>
             </div>
           )}
           {list.some((a) => a.balancer_warning) && (
             <div className="tint-rim flex gap-3 rounded-xl border border-warning/25 bg-warning/[0.07] p-3 text-sm">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
-              <span>В профиле маршрутизации ноды часть трафика уходит в балансировщик с прямым выходом — эта часть у владельцев адресов пойдёт через общий адрес ноды.</span>
+              <span>В профиле маршрутизации ноды часть трафика направляется в балансировщик с прямым выходом; у владельцев выделенных адресов эта часть трафика пойдёт через общий адрес ноды.</span>
             </div>
           )}
           <ul className="flex flex-col gap-2">
@@ -81,9 +81,9 @@ export function NodeAddressesSection({ nodeId }: { nodeId: number }) {
         description={deleting ? deleting.ip : undefined}
         consequences={
           deleting?.assignment ? (
-            <p>Адрес закреплён за {holderLabel(deleting.assignment)} — привязка удалится вместе с ним.</p>
+            <p>Адрес закреплён за: {holderLabel(deleting.assignment)}. Привязка будет удалена вместе с адресом.</p>
           ) : (
-            <p>Нода этот адрес не сообщает или давно молчит; запись просто уберётся из списка. Если нода вернётся с этим адресом, он появится снова.</p>
+            <p>Нода не сообщает об этом адресе или давно не выходила на связь; запись будет удалена из списка. Если нода снова сообщит об адресе, он вернётся в список.</p>
           )
         }
         destructive={!!deleting?.assignment}

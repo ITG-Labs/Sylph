@@ -243,12 +243,12 @@ export function PlanFormDialog({
       consequences={
         limitLive || dedicatedLive || moveLines.length > 0 ? (
           <>
-            {limitLive && <p>Новые лимиты сразу действуют и для текущих периодов тарифа, ноды получат изменения. Расход удалённого пула будет потерян, новый пул начинается с нуля.</p>}
+            {limitLive && <p>Новые лимиты сразу применяются к текущим периодам тарифа. Расход удалённого пула не сохраняется, новый пул начинается с нуля.</p>}
             {dedicatedLive && (
               <p>
                 {dedicated
-                  ? "Юзеры тарифа с закреплённым адресом начнут выходить через него — ноды с такими адресами перезапустят xray."
-                  : "Закреплённые адреса юзеров тарифа перестанут работать, их трафик пойдёт через общие адреса — ноды с такими адресами перезапустят xray."}
+                  ? "Трафик пользователей тарифа с закреплённым адресом пойдёт через этот адрес. Ноды с такими адресами перезапустят xray."
+                  : "Закреплённые адреса пользователей тарифа перестанут использоваться, их трафик пойдёт через общие адреса. Ноды с такими адресами перезапустят xray."}
               </p>
             )}
             <MoveConsequences lines={moveLines} />
@@ -300,13 +300,13 @@ export function PlanFormDialog({
       </div>
       <PoolsEditor pools={pools} onChange={setPools} world={world ?? null} plan={draft} />
       <div className="flex flex-col gap-2">
-        <Toggle title="Требовать HWID" hint={hwidForced ? "обязателен при лимите устройств" : "клиент без HWID получит заглушку"} checked={hwid} onChange={setHwid} disabled={hwidForced} />
-        <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся кнопкой в боте новичкам, раз на аккаунт" : "только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />
-        <Toggle title="Приватный" hint="виден только по приглашению или доступу по Telegram ID" checked={priv} onChange={setPriv} />
-        <Toggle title="В продаже" hint="снятый не покупается, но текущие могут продлить" checked={onSale} onChange={setOnSale} />
+        <Toggle title="Требовать HWID" hint={hwidForced ? "обязателен при лимите устройств" : "клиентам, которые не передают HWID, выдаётся заглушка"} checked={hwid} onChange={setHwid} disabled={hwidForced} />
+        <Toggle title="Пробный" hint={priceN === 0 ? "выдаётся новым пользователям через бота, один раз на аккаунт" : "доступно только для тарифа за 0 ₽"} checked={trial} onChange={setTrial} disabled={priceN !== 0} />
+        <Toggle title="Приватный" hint="доступен только по приглашению или по Telegram ID" checked={priv} onChange={setPriv} />
+        <Toggle title="В продаже" hint="тариф, снятый с продажи, нельзя купить, но текущие подписчики могут его продлить" checked={onSale} onChange={setOnSale} />
         <Toggle
           title="Выделенный IP"
-          hint="юзер выходит через закреплённый за ним адрес на той ноде, где адрес есть; на остальных — через общие"
+          hint="на ноде с закреплённым за пользователем адресом трафик идёт через этот адрес, на остальных нодах — через общие"
           checked={dedicated}
           onChange={setDedicated}
         />

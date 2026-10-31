@@ -13,11 +13,11 @@ import type { Node } from "@/lib/types"
 import { Field } from "./parts"
 
 const kinds: { value: OutboundKind; hint: string }[] = [
-  { value: "direct", hint: "в интернет прямо с ноды" },
-  { value: "block", hint: "соединение сбрасывается" },
-  { value: "proxy", hint: "через чужой прокси: VLESS, Trojan, Shadowsocks, SOCKS5, HTTP" },
-  { value: "cascade", hint: "через другую нашу ноду — ядро само выдаст ей служебный ключ" },
-  { value: "raw", hint: "outbound xray как есть — для WARP и прочего, чего нет в формах" },
+  { value: "direct", hint: "трафик выходит в интернет напрямую с ноды" },
+  { value: "block", hint: "соединение разрывается" },
+  { value: "proxy", hint: "через внешний прокси-сервер: VLESS, Trojan, Shadowsocks, SOCKS5, HTTP" },
+  { value: "cascade", hint: "через другую ноду панели; ядро автоматически выдаст ей служебный ключ" },
+  { value: "raw", hint: "outbound xray в исходном виде, например для WARP и других вариантов, которых нет в формах" },
 ]
 
 const blankProxy = (): ProxySpec => ({ protocol: "vless", address: "", port: 443, security: "reality", flow: "xtls-rprx-vision", fingerprint: "chrome" })
@@ -64,21 +64,21 @@ function cleanProxy(p: ProxySpec): ProxySpec {
 }
 
 function proxyMissing(p: ProxySpec, hasSecret: boolean): string | null {
-  if (!p.address.trim()) return "нужен адрес"
+  if (!p.address.trim()) return "укажите адрес"
   const port = Number(p.port)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return "порт 1–65535"
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return "порт от 1 до 65535"
   const secret = (v?: string) => hasSecret || !!v?.trim()
   switch (p.protocol) {
     case "vless":
-      if (!secret(p.uuid)) return "нужен UUID"
-      if (p.security === "reality" && (!p.public_key?.trim() || !p.sni?.trim())) return "для REALITY нужны SNI и публичный ключ"
+      if (!secret(p.uuid)) return "укажите UUID"
+      if (p.security === "reality" && (!p.public_key?.trim() || !p.sni?.trim())) return "для REALITY укажите SNI и публичный ключ"
       return null
     case "trojan":
-      return secret(p.password) ? null : "нужен пароль"
+      return secret(p.password) ? null : "укажите пароль"
     case "shadowsocks":
-      return !p.method ? "выбери метод" : secret(p.password) ? null : "нужен пароль"
+      return !p.method ? "выберите метод" : secret(p.password) ? null : "укажите пароль"
     default:
-      if (!!p.username?.trim() !== secret(p.password)) return "логин и пароль — оба или никакого"
+      if (!!p.username?.trim() !== secret(p.password)) return "укажите и логин, и пароль или не указывайте ни того, ни другого"
       return null
   }
 }
@@ -133,21 +133,21 @@ export function OutboundDialog({
   if (kind === "raw") {
     try {
       rawObj = JSON.parse(raw)
-      if (!rawObj || typeof rawObj !== "object" || Array.isArray(rawObj)) rawErr = "нужен JSON-объект"
-      else if (typeof (rawObj as { protocol?: unknown }).protocol !== "string") rawErr = "в объекте нужен protocol"
+      if (!rawObj || typeof rawObj !== "object" || Array.isArray(rawObj)) rawErr = "требуется JSON-объект"
+      else if (typeof (rawObj as { protocol?: unknown }).protocol !== "string") rawErr = "в объекте должно быть поле protocol"
     } catch {
-      rawErr = raw.trim() ? "JSON не разбирается" : "вставь outbound xray"
+      rawErr = raw.trim() ? "некорректный JSON" : "вставьте outbound xray"
     }
   }
   const missing =
     kind === "proxy"
       ? moved && !proxy.uuid?.trim() && !proxy.password?.trim()
-        ? `параметры или тег выхода поменялись — введи ${proxy.protocol === "vless" ? "UUID" : "пароль"} заново, старый к другим параметрам не подставляется`
+        ? `параметры или тег выхода изменились: введите ${proxy.protocol === "vless" ? "UUID" : "пароль"} заново, сохранённое значение не переносится`
         : proxyMissing(proxy, hasSecret)
       : kind === "cascade" && !nodeId
-        ? "выбери ноду"
+        ? "выберите ноду"
         : kind === "raw"
-          ? (rawErr ?? (rawRenamed ? "у переименованного выхода замени *** настоящими значениями — старые секреты подставляются только к тому же тегу" : null))
+          ? (rawErr ?? (rawRenamed ? "у переименованного выхода замените *** реальными значениями: сохранённые секреты подставляются только для того же тега" : null))
           : null
   const candidates = nodes.filter((n) => !profileNodes.includes(n.id))
 
@@ -168,7 +168,7 @@ export function OutboundDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={outbound ? `Выход ${outbound.tag}` : "Новый выход"}
-      description="куда уходит трафик, который на него направили правила"
+      description="направление для трафика, отправленного в этот выход правилами"
       consequencesBelow
       consequences={missing ? <p>{missing}</p> : undefined}
       confirmLabel={outbound ? "Готово" : "Добавить"}
@@ -187,10 +187,10 @@ export function OutboundDialog({
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="ob-tag" label="Тег" error={tag.trim() ? tagErr : null} hint="на него ссылаются правила">
+        <Field id="ob-tag" label="Тег" error={tag.trim() ? tagErr : null} hint="используется в правилах">
           <Input id="ob-tag" value={tag} onChange={(e) => setTag(e.target.value)} />
         </Field>
-        <Field label="Вид" hint={kinds.find((k) => k.value === kind)?.hint}>
+        <Field label="Тип" hint={kinds.find((k) => k.value === kind)?.hint}>
           <Select value={kind} onValueChange={(v) => setKind(v as OutboundKind)}>
             <SelectTrigger>
               <SelectValue />
@@ -207,7 +207,7 @@ export function OutboundDialog({
       </div>
 
       {kind === "direct" && (
-        <Field label="Адреса назначения" hint="какие IP брать, когда сайт отдаёт и IPv4, и IPv6">
+        <Field label="Адреса назначения" hint="какие адреса использовать, если сайт доступен по IPv4 и IPv6">
           <Select value={ip} onValueChange={setIp}>
             <SelectTrigger>
               <SelectValue />
@@ -233,7 +233,7 @@ export function OutboundDialog({
                 Разобрать
               </Button>
             </div>
-            <p className={linkError ? "text-xs text-[oklch(0.82_0.12_22)]" : "text-xs text-muted-foreground"}>{linkError || "вставь ссылку — форма заполнится сама"}</p>
+            <p className={linkError ? "text-xs text-[oklch(0.82_0.12_22)]" : "text-xs text-muted-foreground"}>{linkError || "вставьте ссылку, и форма заполнится автоматически"}</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
             <Field label="Протокол">
@@ -254,17 +254,17 @@ export function OutboundDialog({
               <Input id="px-port" inputMode="numeric" value={String(proxy.port || "")} onChange={(e) => set({ port: Number(e.target.value.replace(/\D/g, "")) })} />
             </Field>
           </div>
-          <Field id="px-address" label="Адрес" hint="публичный домен или IP; внутренние адреса ядро не пропустит">
+          <Field id="px-address" label="Адрес" hint="публичный домен или IP-адрес; внутренние адреса не допускаются">
             <Input id="px-address" value={proxy.address} onChange={(e) => set({ address: e.target.value })} placeholder="nl.example.com" />
           </Field>
 
           {proxy.protocol === "vless" && (
             <>
-              <Field id="px-uuid" label="UUID" hint={hasSecret ? "сохранён — оставь пустым; если поменяешь в выходе что-то ещё, введи заново" : undefined}>
+              <Field id="px-uuid" label="UUID" hint={hasSecret ? "значение сохранено, оставьте поле пустым; при изменении других параметров выхода введите его заново" : undefined}>
                 <Input id="px-uuid" value={proxy.uuid ?? ""} onChange={(e) => set({ uuid: e.target.value })} placeholder={hasSecret ? "••••••••" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"} className="font-mono text-xs" />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Защита">
+                <Field label="Шифрование">
                   <Select value={proxy.security || "reality"} onValueChange={(v) => set({ security: v })}>
                     <SelectTrigger>
                       <SelectValue />
@@ -281,7 +281,7 @@ export function OutboundDialog({
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field id="px-sni" label="SNI" hint={proxy.security === "reality" ? "обязателен" : "пусто — по адресу"}>
+                <Field id="px-sni" label="SNI" hint={proxy.security === "reality" ? "обязательно" : "если не заполнено, используется адрес"}>
                   <Input id="px-sni" value={proxy.sni ?? ""} onChange={(e) => set({ sni: e.target.value })} />
                 </Field>
                 <Field label="Отпечаток">
@@ -305,7 +305,7 @@ export function OutboundDialog({
             <>
               <SecretField hasSecret={hasSecret} value={proxy.password ?? ""} onChange={(v) => set({ password: v })} />
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field id="px-sni" label="SNI" hint="пусто — по адресу">
+                <Field id="px-sni" label="SNI" hint="если не заполнено, используется адрес">
                   <Input id="px-sni" value={proxy.sni ?? ""} onChange={(e) => set({ sni: e.target.value })} />
                 </Field>
                 <Field label="Отпечаток">
@@ -320,7 +320,7 @@ export function OutboundDialog({
               <Field label="Метод">
                 <Select value={proxy.method ?? ""} onValueChange={(v) => set({ method: v })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="выбери" />
+                    <SelectValue placeholder="Выберите" />
                   </SelectTrigger>
                   <SelectContent>
                     {ssMethods.map((m) => (
@@ -358,10 +358,10 @@ export function OutboundDialog({
       )}
 
       {kind === "cascade" && (
-        <Field label="Нода-выход" hint="трафик пойдёт на неё по VLESS + REALITY служебным ключом и выйдет в интернет там; ноды этого профиля сюда не попадают — каскад на себя нельзя">
+        <Field label="Нода-выход" hint="трафик передаётся на эту ноду по VLESS + REALITY со служебным ключом и выходит в интернет с неё; ноды с этим профилем недоступны для выбора">
           <Select value={nodeId} onValueChange={setNodeId}>
             <SelectTrigger>
-              <SelectValue placeholder="выбери ноду" />
+              <SelectValue placeholder="Выберите ноду" />
             </SelectTrigger>
             <SelectContent>
               {candidates.map((n) => (
@@ -376,7 +376,7 @@ export function OutboundDialog({
       )}
 
       {kind === "raw" && (
-        <Field id="ob-raw" label="outbound xray" hint="тег подставится сам; секреты показаны как *** — не трогай их, и они сохранятся, а изменённый выход требует ввести их заново">
+        <Field id="ob-raw" label="outbound xray" hint="тег подставляется автоматически; секреты показаны как *** и сохраняются, если их не изменять; при изменении выхода их нужно ввести заново">
           <Textarea id="ob-raw" value={raw} onChange={(e) => setRaw(e.target.value)} rows={10} className="font-mono text-xs" placeholder={'{\n  "protocol": "wireguard",\n  "settings": { … }\n}'} />
         </Field>
       )}
@@ -403,7 +403,7 @@ function FingerprintSelect({ value, onChange }: { value: string; onChange: (v: s
 
 function SecretField({ hasSecret, value, onChange, optional }: { hasSecret: boolean; value: string; onChange: (v: string) => void; optional?: boolean }) {
   return (
-    <Field id="px-pass" label="Пароль" hint={hasSecret ? "сохранён — оставь пустым; если поменяешь в выходе что-то ещё, введи заново" : optional ? "вместе с логином" : undefined}>
+    <Field id="px-pass" label="Пароль" hint={hasSecret ? "значение сохранено, оставьте поле пустым; при изменении других параметров выхода введите его заново" : optional ? "указывается вместе с логином" : undefined}>
       <Input id="px-pass" type="password" value={value} onChange={(e) => onChange(e.target.value)} placeholder={hasSecret ? "••••••••" : undefined} autoComplete="new-password" />
     </Field>
   )

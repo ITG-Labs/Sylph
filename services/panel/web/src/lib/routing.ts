@@ -94,11 +94,11 @@ export interface GeoStatus {
 export const tagPattern = /^[a-z0-9-]{1,32}$/
 export const sourcePattern = /^[a-z0-9-]{1,32}$/
 export const directIPs = [
-  { value: "auto", label: "как пришло" },
+  { value: "auto", label: "без изменений" },
   { value: "ipv4", label: "только IPv4" },
   { value: "ipv6", label: "только IPv6" },
-  { value: "prefer_ipv4", label: "сначала IPv4" },
-  { value: "prefer_ipv6", label: "сначала IPv6" },
+  { value: "prefer_ipv4", label: "предпочитать IPv4" },
+  { value: "prefer_ipv6", label: "предпочитать IPv6" },
 ]
 export const ssMethods = [
   "2022-blake3-aes-128-gcm",
@@ -118,16 +118,16 @@ export const sniffProtocols = [
   { value: "bittorrent", label: "BitTorrent" },
 ]
 export const strategies: { value: Strategy; label: string; hint: string }[] = [
-  { value: "random", label: "Случайно", hint: "каждое соединение — на случайный выход" },
-  { value: "roundRobin", label: "По кругу", hint: "выходы по очереди" },
-  { value: "leastPing", label: "Самый быстрый", hint: "xray меряет задержку и шлёт в самый быстрый живой" },
+  { value: "random", label: "Случайно", hint: "каждое соединение направляется на случайный выход" },
+  { value: "roundRobin", label: "По кругу", hint: "выходы используются по очереди" },
+  { value: "leastPing", label: "Наименьшая задержка", hint: "xray измеряет задержку и выбирает доступный выход с наименьшей задержкой" },
 ]
 export const kindLabels: Record<OutboundKind, string> = {
   direct: "Напрямую",
-  block: "Блок",
+  block: "Блокировка",
   proxy: "Прокси",
   cascade: "Каскад",
-  raw: "Сырой JSON",
+  raw: "JSON xray",
 }
 export const protocolLabels: Record<string, string> = {
   vless: "VLESS",
@@ -207,9 +207,9 @@ export function freeTag(doc: RoutingDoc, base: string): string {
 }
 
 export function tagProblem(doc: RoutingDoc, tag: string, own?: string): string | null {
-  if (!tagPattern.test(tag)) return "1–32 знака: a-z, 0-9 и дефис"
-  if (tag.startsWith("sylph")) return "теги на sylph заняты системой"
-  if (tag !== own && (doc.outbounds.some((o) => o.tag === tag) || doc.balancers.some((b) => b.tag === tag))) return "такой тег уже есть"
+  if (!tagPattern.test(tag)) return "от 1 до 32 символов: a-z, 0-9 и дефис"
+  if (tag.startsWith("sylph")) return "теги, начинающиеся с sylph, зарезервированы системой"
+  if (tag !== own && (doc.outbounds.some((o) => o.tag === tag) || doc.balancers.some((b) => b.tag === tag))) return "этот тег уже используется"
   return null
 }
 
@@ -218,7 +218,7 @@ export function outboundSummary(o: Outbound, nodeName: (id: number) => string): 
     case "direct":
       return directIPs.find((x) => x.value === (o.direct?.ip ?? "auto"))?.label ?? ""
     case "block":
-      return "соединение сбрасывается"
+      return "соединение разрывается"
     case "proxy":
       return o.proxy ? `${protocolLabels[o.proxy.protocol] ?? o.proxy.protocol}${o.proxy.security ? ` + ${o.proxy.security.toUpperCase()}` : ""} · ${o.proxy.address}:${o.proxy.port}` : ""
     case "cascade":
@@ -265,23 +265,23 @@ function firstOf(doc: RoutingDoc, kind: OutboundKind): string {
 export const ruleTemplates: RuleTemplate[] = [
   {
     id: "torrents",
-    label: "Блок торрентов",
-    hint: "BitTorrent → блок; торренты с VPN — частая причина абуз",
+    label: "Блокировка торрентов",
+    hint: "трафик BitTorrent блокируется",
     rules: (doc) => [{ name: "Торренты", protocol: ["bittorrent"], to: firstOf(doc, "block") }],
   },
   {
     id: "ads",
-    label: "Блок рекламы",
-    hint: "домены рекламы и трекеров из geosite:category-ads-all → блок",
+    label: "Блокировка рекламы",
+    hint: "домены рекламы и трекеров из geosite:category-ads-all блокируются",
     rules: (doc) => [{ name: "Реклама", domain: ["geosite:category-ads-all"], to: firstOf(doc, "block") }],
   },
   {
     id: "ru-direct",
-    label: "РФ-сайты напрямую",
-    hint: "geosite:category-ru и geoip:ru → напрямую; два правила, потому что условия одного правила должны совпасть все сразу",
+    label: "Российские сайты напрямую",
+    hint: "домены geosite:category-ru и адреса geoip:ru направляются напрямую; создаются два правила, так как все условия одного правила должны выполняться одновременно",
     rules: (doc) => [
-      { name: "РФ-сайты по доменам", domain: ["geosite:category-ru"], to: firstOf(doc, "direct") },
-      { name: "РФ-сайты по IP", ip: ["geoip:ru"], to: firstOf(doc, "direct") },
+      { name: "Российские сайты по доменам", domain: ["geosite:category-ru"], to: firstOf(doc, "direct") },
+      { name: "Российские сайты по IP", ip: ["geoip:ru"], to: firstOf(doc, "direct") },
     ],
   },
 ]
@@ -290,12 +290,12 @@ export function docProblems(doc: RoutingDoc): string[] {
   const out: string[] = []
   if (doc.outbounds.length === 0) out.push("Нужен хотя бы один выход")
   const all = targets(doc).map((t) => t.value)
-  if (!doc.default || !all.includes(doc.default)) out.push("Выбери, куда идёт весь остальной трафик")
+  if (!doc.default || !all.includes(doc.default)) out.push("Выберите направление для остального трафика")
   doc.rules.forEach((r, i) => {
-    if (!all.includes(r.to)) out.push(`Правило ${i + 1}: выбери, куда отправлять`)
+    if (!all.includes(r.to)) out.push(`Правило ${i + 1}: выберите направление`)
   })
   for (const b of doc.balancers) {
-    if (b.outbounds.filter((t) => doc.outbounds.some((o) => o.tag === t)).length < 2) out.push(`Балансировщику ${b.tag} нужно хотя бы два выхода`)
+    if (b.outbounds.filter((t) => doc.outbounds.some((o) => o.tag === t)).length < 2) out.push(`Балансировщику ${b.tag} нужно не менее двух выходов`)
   }
   return out
 }
@@ -321,46 +321,46 @@ const problems: Record<string, string> = {
   no_address: "у ноды нет адреса",
   private_address: "у ноды внутренний адрес",
   no_inbound: "у ноды нет входа REALITY",
-  no_link: "служебный ключ ещё не выдан — появится после сохранения",
+  no_link: "служебный ключ ещё не выдан, он появится после сохранения",
 }
 
 export function warningText(w: ProfileWarning, nodeName: (id: number) => string): string {
-  return `Выход ${w.outbound} → «${nodeName(w.node_id)}»: ${problems[w.problem] ?? w.problem} — пока трафик туда блокируется`
+  return `Выход ${w.outbound} → «${nodeName(w.node_id)}»: ${problems[w.problem] ?? w.problem}. До устранения проблемы трафик в этот выход блокируется.`
 }
 
 const messages: [RegExp, string][] = [
-  [/must be a public hostname or IP/, "нужен публичный домен или IP"],
-  [/must be a hostname/, "нужен домен"],
-  [/must be 1-65535/, "порт 1–65535"],
-  [/must be a UUID/, "нужен UUID"],
-  [/must be 32 bytes in unpadded base64url/, "публичный ключ — 43 знака base64url"],
-  [/must be hex of even length up to 16/, "shortId — hex чётной длины до 16 знаков"],
-  [/is required together with password/, "нужен вместе с паролем"],
-  [/is required together with username/, "нужен вместе с логином"],
-  [/^is required$/, "обязательно"],
-  [/secrets are hidden as \*\*\*/, "секреты скрыты звёздочками — введи их заново или не меняй выход"],
-  [/must be the tag of an outbound or a balancer/, "нужен тег выхода или балансировщика"],
-  [/rules by plan must come after all other rules/, "правила по тарифу должны идти после всех остальных"],
-  [/a rule by plan has no other conditions/, "у правила по тарифу не бывает других условий"],
+  [/must be a public hostname or IP/, "укажите публичный домен или IP-адрес"],
+  [/must be a hostname/, "укажите домен"],
+  [/must be 1-65535/, "порт от 1 до 65535"],
+  [/must be a UUID/, "укажите UUID"],
+  [/must be 32 bytes in unpadded base64url/, "публичный ключ — 43 символа base64url"],
+  [/must be hex of even length up to 16/, "shortId — hex чётной длины, не более 16 символов"],
+  [/is required together with password/, "указывается вместе с паролем"],
+  [/is required together with username/, "указывается вместе с логином"],
+  [/^is required$/, "обязательное поле"],
+  [/secrets are hidden as \*\*\*/, "секреты скрыты звёздочками: введите их заново или не изменяйте выход"],
+  [/must be the tag of an outbound or a balancer/, "укажите тег выхода или балансировщика"],
+  [/rules by plan must come after all other rules/, "правила по тарифам должны располагаться после всех остальных"],
+  [/a rule by plan has no other conditions/, "правило по тарифу не может содержать других условий"],
   [/needs at least one condition/, "нужно хотя бы одно условие"],
-  [/needs at least two outbounds/, "нужно хотя бы два выхода"],
-  [/is the beginning of the system outbound/, "тег — начало системного выхода, xray захватит и его; переименуй выход"],
-  [/is the beginning of .*xray would pick both/, "один тег — начало другого, xray возьмёт оба; переименуй один"],
-  [/in lowercase: xray reads keys in any case/, "ключи protocol и tag пиши строчными — xray читает ключи без учёта регистра"],
-  [/tags starting with sylph are reserved/, "теги на sylph заняты системой"],
-  [/is used twice/, "тег повторяется"],
-  [/must be a public https URL/, "нужна публичная ссылка https"],
+  [/needs at least two outbounds/, "нужно не менее двух выходов"],
+  [/is the beginning of the system outbound/, "тег совпадает с началом тега системного выхода, xray применит правило к обоим; переименуйте выход"],
+  [/is the beginning of .*xray would pick both/, "один тег совпадает с началом другого, xray применит правило к обоим; переименуйте один из выходов"],
+  [/in lowercase: xray reads keys in any case/, "ключи protocol и tag указываются строчными буквами: xray читает ключи без учёта регистра"],
+  [/tags starting with sylph are reserved/, "теги, начинающиеся с sylph, зарезервированы системой"],
+  [/is used twice/, "тег используется повторно"],
+  [/must be a public https URL/, "укажите публичную ссылку https"],
   [/must be a duration from 10s to 1h/, "интервал от 10s до 1h"],
-  [/the profile was changed by someone else/, "профиль уже поменял кто-то другой — обнови страницу"],
-  [/cannot cascade to itself/, "нода не может каскадить сама на себя"],
-  [/profile is used by nodes/, "профиль назначен нодам — сначала переключи их"],
-  [/routing profiles refer to this (name|source)/, "на источник ссылаются профили маршрутизации — сначала поправь их"],
-  [/routing profiles use this source as/, "профили используют источник с другим типом — сначала поправь их"],
-  [/is not a geo source of domains/, "нет такого источника доменов — заведи его в «Настройки» → «Geo-базы»"],
-  [/is not a geo source of IPs/, "нет такого источника IP — заведи его в «Настройки» → «Geo-базы»"],
-  [/plan \d+ not found/, "такого тарифа нет"],
-  [/^node not found$/, "такой ноды нет"],
-  [/this node uses the profile itself/, "эта нода сама на этом профиле — каскад на себя нельзя"],
+  [/the profile was changed by someone else/, "профиль был изменён другим администратором. Обновите страницу."],
+  [/cannot cascade to itself/, "нода не может использовать саму себя в каскаде"],
+  [/profile is used by nodes/, "профиль назначен нодам; сначала назначьте им другой профиль"],
+  [/routing profiles refer to this (name|source)/, "источник используется в профилях маршрутизации; сначала измените их"],
+  [/routing profiles use this source as/, "профили используют источник с другим типом; сначала измените их"],
+  [/is not a geo source of domains/, "источник доменов не найден; добавьте его в разделе «Настройки» → «Geo-базы»"],
+  [/is not a geo source of IPs/, "источник IP-адресов не найден; добавьте его в разделе «Настройки» → «Geo-базы»"],
+  [/plan \d+ not found/, "тариф не найден"],
+  [/^node not found$/, "нода не найдена"],
+  [/this node uses the profile itself/, "этот профиль назначен самой ноде, каскад на себя невозможен"],
 ]
 
 export function translateRouting(msg: string): string {
@@ -380,7 +380,7 @@ const fieldNames: Record<string, string> = {
   password: "пароль",
   username: "логин",
   method: "метод",
-  security: "защита",
+  security: "шифрование",
   flow: "flow",
   sni: "SNI",
   fingerprint: "отпечаток",

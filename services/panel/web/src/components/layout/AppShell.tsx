@@ -13,7 +13,7 @@ import { Logo } from "./Logo"
 
 const nav = [
   { to: "/", label: "Сводка", icon: LayoutDashboard, end: true },
-  { to: "/users", label: "Юзеры", icon: Users },
+  { to: "/users", label: "Пользователи", icon: Users },
   { to: "/payments", label: "Платежи", icon: CreditCard },
   { to: "/nodes", label: "Ноды", icon: Server },
   { to: "/routing", label: "Маршрутизация", icon: Route },
@@ -91,7 +91,7 @@ function UserBlock({ name, onLogout }: { name: string; onLogout: () => void }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>
-        <div className="text-xs text-muted-foreground">админ</div>
+        <div className="text-xs text-muted-foreground">администратор</div>
       </div>
       <Button variant="ghost" size="icon-sm" onClick={onLogout} title="Выйти" aria-label="Выйти">
         <LogOut />

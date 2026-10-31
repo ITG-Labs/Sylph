@@ -25,7 +25,7 @@ const maxButtons = 6
 
 const markupHint = (
   <>
-    можно &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;a href="https://…"&gt;ссылка&lt;/a&gt;, &lt;code&gt;, &lt;blockquote&gt;, &lt;tg-spoiler&gt;; знаки &lt; и &amp; — как &amp;lt; и &amp;amp;
+    допускаются &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;a href="https://…"&gt;ссылка&lt;/a&gt;, &lt;code&gt;, &lt;blockquote&gt;, &lt;tg-spoiler&gt;; символы &lt; и &amp; записываются как &amp;lt; и &amp;amp;
   </>
 )
 
@@ -79,15 +79,15 @@ function TermsCard({ s, save, bump }: { s: Settings; save: (title: string, patch
   if (enabled !== s.terms_enabled) patch.terms_enabled = enabled
   if (text !== s.terms_text) patch.terms_text = text
   if (u !== s.terms_url) patch.terms_url = u
-  const urlErr = u !== "" && !httpsLink(u) ? "нужна ссылка https://…" : enabled && u === "" ? "без ссылки соглашение не включить" : null
-  const textErr = text.length > maxGate ? `не больше ${maxGate} знаков` : null
+  const urlErr = u !== "" && !httpsLink(u) ? "укажите ссылку вида https://…" : enabled && u === "" ? "для включения соглашения нужна ссылка" : null
+  const textErr = text.length > maxGate ? `не более ${maxGate} символов` : null
 
   return (
-    <Card title="Пользовательское соглашение" hint="перед меню бот просит принять соглашение" enabled={enabled} onEnabled={setEnabled}>
-      <Field id="terms-url" label="Ссылка на полный текст" error={urlErr} hint="telegra.ph, свой сайт — открывается кнопкой «Открыть соглашение»">
+    <Card title="Пользовательское соглашение" hint="бот запрашивает принятие соглашения перед показом меню" enabled={enabled} onEnabled={setEnabled}>
+      <Field id="terms-url" label="Ссылка на полный текст" error={urlErr} hint="например, страница telegra.ph или собственного сайта; открывается кнопкой «Открыть соглашение»">
         <Input id="terms-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://telegra.ph/…" inputMode="url" />
       </Field>
-      <Field id="terms-text" label="Текст на экране" error={textErr} hint={<>пусто — стандартный текст; {markupHint}</>}>
+      <Field id="terms-text" label="Текст на экране" error={textErr} hint={<>если не заполнено, используется стандартный текст; {markupHint}</>}>
         <Textarea id="terms-text" value={text} onChange={(e) => setText(e.target.value)} rows={3} />
       </Field>
       <Actions
@@ -103,11 +103,11 @@ function TermsCard({ s, save, bump }: { s: Settings; save: (title: string, patch
             "Сохранить соглашение",
             patch,
             enabled && !s.terms_enabled ? (
-              <p>Все, кто ещё не принимал версию {s.terms_version}, увидят соглашение при следующем действии в боте — в течение минуты. VPN и предупреждения работают как раньше.</p>
+              <p>Пользователи, ещё не принявшие версию {s.terms_version}, увидят соглашение при следующем действии в боте (в течение минуты). VPN и уведомления продолжат работать.</p>
             ) : !enabled && s.terms_enabled ? (
-              <p>Бот перестанет спрашивать соглашение. Кто уже принял — это останется записано.</p>
+              <p>Бот перестанет запрашивать соглашение. Записи о принятии сохранятся.</p>
             ) : (
-              <p>Бот покажет новый текст и ссылку в течение минуты. Тем, кто уже принял, принимать заново не нужно — для этого есть «Попросить принять заново».</p>
+              <p>Бот покажет новый текст и ссылку в течение минуты. Пользователям, уже принявшим соглашение, повторно принимать его не нужно; для повторного запроса используйте «Запросить повторное принятие».</p>
             ),
           )
         }
@@ -115,7 +115,7 @@ function TermsCard({ s, save, bump }: { s: Settings; save: (title: string, patch
           <div className="flex flex-wrap items-center gap-x-2">
             <span className="text-xs text-muted-foreground">версия {s.terms_version}</span>
             <Button type="button" variant="ghost" size="sm" onClick={bump}>
-              Попросить принять заново
+              Запросить повторное принятие
             </Button>
           </div>
         }
@@ -143,21 +143,21 @@ function ChannelCard({ s, save }: { s: Settings; save: (title: string, patch: Pa
   if (c !== s.channel_chat) patch.channel_chat = c
   if (u !== s.channel_url) patch.channel_url = u
   if (text !== s.channel_text) patch.channel_text = text
-  const chatErr = c !== "" && !chatPattern.test(c) ? "@имя публичного канала или его ID вида -1001234567890" : enabled && c === "" ? "без канала проверку не включить" : null
-  const urlErr = u !== "" && !channelLink(u) ? "нужна ссылка https://t.me/…" : enabled && u === "" && c.startsWith("-100") ? "у канала без @имени нужна ссылка-приглашение" : null
-  const textErr = text.length > maxGate ? `не больше ${maxGate} знаков` : null
+  const chatErr = c !== "" && !chatPattern.test(c) ? "@имя публичного канала или его ID вида -1001234567890" : enabled && c === "" ? "для включения проверки укажите канал" : null
+  const urlErr = u !== "" && !channelLink(u) ? "укажите ссылку вида https://t.me/…" : enabled && u === "" && c.startsWith("-100") ? "для канала без @имени нужна ссылка-приглашение" : null
+  const textErr = text.length > maxGate ? `не более ${maxGate} символов` : null
 
   return (
-    <Card title="Подписка на канал" hint="пока юзер не подписан, бот показывает только «Подпишись»" enabled={enabled} onEnabled={setEnabled}>
+    <Card title="Подписка на канал" hint="пока пользователь не подписан на канал, бот показывает только экран подписки" enabled={enabled} onEnabled={setEnabled}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="channel-chat" label="Канал" error={chatErr} hint="бот должен быть админом этого канала">
+        <Field id="channel-chat" label="Канал" error={chatErr} hint="бот должен быть администратором канала">
           <Input id="channel-chat" value={chat} onChange={(e) => setChat(e.target.value)} placeholder="@my_channel" className="font-mono" />
         </Field>
-        <Field id="channel-url" label="Ссылка «Подписаться»" error={urlErr} hint="для @имени подставится сама">
+        <Field id="channel-url" label="Ссылка «Подписаться»" error={urlErr} hint="для канала с @именем подставляется автоматически">
           <Input id="channel-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://t.me/…" inputMode="url" />
         </Field>
       </div>
-      <Field id="channel-text" label="Текст на экране" error={textErr} hint={<>пусто — стандартный текст; {markupHint}</>}>
+      <Field id="channel-text" label="Текст на экране" error={textErr} hint={<>если не заполнено, используется стандартный текст; {markupHint}</>}>
         <Textarea id="channel-text" value={text} onChange={(e) => setText(e.target.value)} rows={2} />
       </Field>
       <Actions
@@ -175,13 +175,13 @@ function ChannelCard({ s, save }: { s: Settings; save: (title: string, patch: Pa
             patch,
             enabled && !s.channel_enabled ? (
               <>
-                <p>В течение минуты бот перестанет пускать в меню тех, кто не подписан на канал, — и новичков, и платящих. VPN, ссылка подписки и предупреждения работают как раньше.</p>
-                <p>Если бот не админ канала или Telegram не ответил — бот пускает всех и пишет ошибку в лог.</p>
+                <p>В течение минуты бот перестанет открывать меню пользователям, не подписанным на канал, включая подписчиков с оплатой. VPN, ссылка подписки и уведомления продолжат работать.</p>
+                <p>Если бот не является администратором канала или Telegram не отвечает, бот открывает меню всем и записывает ошибку в журнал.</p>
               </>
             ) : !enabled && s.channel_enabled ? (
-              <p>Бот перестанет проверять подписку и пустит в меню всех.</p>
+              <p>Бот перестанет проверять подписку и будет открывать меню всем пользователям.</p>
             ) : (
-              <p>Бот начнёт проверять подписку на новый канал в течение минуты; уже проверенных перепроверит не позже чем через 10 минут.</p>
+              <p>Бот начнёт проверять подписку на новый канал в течение минуты; ранее проверенные пользователи будут перепроверены не позже чем через 10 минут.</p>
             ),
           )
         }
@@ -205,8 +205,8 @@ function HelpCard({ s, save }: { s: Settings; save: (title: string, patch: Patch
   if (enabled !== s.help_enabled) patch.help_enabled = enabled
   if (text !== s.help_text) patch.help_text = text
   if (JSON.stringify(cleaned) !== JSON.stringify(s.help_buttons)) patch.help_buttons = cleaned
-  const textErr = text.length > maxHelp ? `не больше ${maxHelp} знаков` : enabled && text.trim() === "" ? "без текста помощь не включить" : null
-  const buttonErr = cleaned.some((b) => b.label === "" || b.label.length > 32) ? "у каждой кнопки — подпись до 32 знаков" : cleaned.some((b) => !buttonLink(b.url)) ? "ссылка кнопки — https://… или tg://…" : null
+  const textErr = text.length > maxHelp ? `не более ${maxHelp} символов` : enabled && text.trim() === "" ? "для включения помощи нужен текст" : null
+  const buttonErr = cleaned.some((b) => b.label === "" || b.label.length > 32) ? "у каждой кнопки должна быть подпись длиной до 32 символов" : cleaned.some((b) => !buttonLink(b.url)) ? "ссылка кнопки должна начинаться с https:// или tg://" : null
   const move = (i: number, to: number) => setButtons((list) => {
     const next = [...list]
     const [b] = next.splice(i, 1)
@@ -215,7 +215,7 @@ function HelpCard({ s, save }: { s: Settings; save: (title: string, patch: Patch
   })
 
   return (
-    <Card title="Помощь" hint="кнопка «Помощь» в меню и на экранах соглашения и канала" enabled={enabled} onEnabled={setEnabled}>
+    <Card title="Помощь" hint="кнопка «Помощь» в меню и на экранах соглашения и подписки на канал" enabled={enabled} onEnabled={setEnabled}>
       <Field id="help-text" label="Текст" error={textErr} hint={markupHint}>
         <Textarea id="help-text" value={text} onChange={(e) => setText(e.target.value)} rows={5} />
       </Field>
@@ -238,7 +238,7 @@ function HelpCard({ s, save }: { s: Settings; save: (title: string, patch: Patch
             </div>
           </div>
         ))}
-        {buttonErr ? <p className="text-xs text-[oklch(0.82_0.12_22)]">{buttonErr}</p> : <p className="text-xs text-muted-foreground">до {maxButtons} кнопок-ссылок под текстом: поддержка, инструкции, канал</p>}
+        {buttonErr ? <p className="text-xs text-[oklch(0.82_0.12_22)]">{buttonErr}</p> : <p className="text-xs text-muted-foreground">до {maxButtons} кнопок-ссылок под текстом, например на поддержку, инструкции или канал</p>}
         <div>
           <Button type="button" variant="ghost" size="sm" disabled={buttons.length >= maxButtons} onClick={() => setButtons((list) => [...list, { label: "", url: "" }])}>
             <Plus />
@@ -261,7 +261,7 @@ function HelpCard({ s, save }: { s: Settings; save: (title: string, patch: Patch
             enabled && !s.help_enabled ? (
               <p>Кнопка «Помощь» появится в меню бота в течение минуты.</p>
             ) : !enabled && s.help_enabled ? (
-              <p>Кнопка «Помощь» пропадёт из меню в течение минуты.</p>
+              <p>Кнопка «Помощь» исчезнет из меню в течение минуты.</p>
             ) : (
               <p>Бот покажет новый текст и кнопки в течение минуты.</p>
             ),
@@ -279,12 +279,12 @@ export function BotSection({ settings }: { settings: Settings }) {
 
   return (
     <>
-      <Section title="Бот" description="что бот показывает до меню и в помощи" className="max-w-3xl">
+      <Section title="Бот" description="экраны бота перед меню и раздел помощи" className="max-w-3xl">
         <div className="flex flex-col gap-3">
           <TermsCard s={settings} save={(title, patch, consequences) => setPending({ title, patch, consequences })} bump={() => setBump(true)} />
           <ChannelCard s={settings} save={(title, patch, consequences) => setPending({ title, patch, consequences })} />
           <HelpCard s={settings} save={(title, patch, consequences) => setPending({ title, patch, consequences })} />
-          <p className="text-xs text-muted-foreground">Порядок для юзера: соглашение → канал → меню. Код из ссылки-приглашения сработает после обоих экранов. Кнопку «Проверить оплату» экраны не перекрывают.</p>
+          <p className="text-xs text-muted-foreground">Порядок экранов: соглашение → подписка на канал → меню. Код из ссылки-приглашения применяется после обоих экранов. Кнопка «Проверить оплату» доступна всегда.</p>
         </div>
       </Section>
 
@@ -304,14 +304,14 @@ export function BotSection({ settings }: { settings: Settings }) {
       <ActionDialog
         open={bump}
         onOpenChange={setBump}
-        title="Попросить принять соглашение заново"
+        title="Запросить повторное принятие соглашения"
         consequences={
           <p>
-            Версия соглашения станет {settings.terms_version + 1}. {settings.terms_enabled ? "Все юзеры, включая тех, кто уже принимал, увидят соглашение при следующем действии в боте и не попадут в меню, пока не примут." : "Соглашение сейчас выключено — новую версию юзеры увидят, когда ты его включишь."}
+            Версия соглашения станет {settings.terms_version + 1}. {settings.terms_enabled ? "Все пользователи, включая принявших соглашение ранее, увидят его при следующем действии в боте и не получат доступ к меню, пока не примут его." : "Соглашение сейчас выключено: пользователи увидят новую версию после его включения."}
           </p>
         }
-        confirmLabel="Поднять версию"
-        success="Версия соглашения поднята"
+        confirmLabel="Повысить версию"
+        success="Версия соглашения повышена"
         onConfirm={async () => {
           await core.post("/v1/admin/settings/terms/bump", {})
           await invalidate(["settings"], ["audit"])
