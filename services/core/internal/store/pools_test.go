@@ -208,6 +208,14 @@ func TestPlanPoolsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPlanWithoutPoolsListsAnEmptySet(t *testing.T) {
+	s := setupStore(t)
+	p := mkPlan(t, s)
+	if p.Pools == nil {
+		t.Fatal("a created plan without pools must carry an empty list, not null")
+	}
+}
+
 func TestPlanPoolsMustNotOverlap(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()

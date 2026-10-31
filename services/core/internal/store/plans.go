@@ -86,6 +86,9 @@ func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 }
 
 func writePools(ctx context.Context, tx pgx.Tx, p *model.Plan) error {
+	if p.Pools == nil {
+		p.Pools = []model.PlanPool{}
+	}
 	rows, err := tx.Query(ctx, `SELECT id FROM plan_pools WHERE plan_id = $1 FOR NO KEY UPDATE`, p.ID)
 	if err != nil {
 		return err
