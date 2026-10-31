@@ -55,7 +55,7 @@ func TestNodeTrafficWindowsDailyAndTop(t *testing.T) {
 	insertDaily(t, s, b.ID, n.ID, 0, 3, 50, 0)
 	insertDaily(t, s, b.ID, other.ID, 0, 0, 7777, 7777)
 
-	st, err := s.NodeTraffic(ctx, n.ID)
+	st, err := s.NodeTraffic(ctx, n.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestNodeTrafficTopIsTenHeaviest(t *testing.T) {
 		ids = append(ids, u.ID)
 		insertDaily(t, s, u.ID, n.ID, 0, 0, int64(100+i%3), 0)
 	}
-	st, err := s.NodeTraffic(ctx, n.ID)
+	st, err := s.NodeTraffic(ctx, n.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestNodeTrafficEmptyAndSaturated(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 	n := deltaNode(t, s)
-	st, err := s.NodeTraffic(ctx, n.ID)
+	st, err := s.NodeTraffic(ctx, n.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestNodeTrafficEmptyAndSaturated(t *testing.T) {
 	u, v := tgUser(t, s, 6001), tgUser(t, s, 6002)
 	insertDaily(t, s, u.ID, n.ID, 0, 0, math.MaxInt64, math.MaxInt64)
 	insertDaily(t, s, v.ID, n.ID, 0, 1, math.MaxInt64, 0)
-	st, err = s.NodeTraffic(ctx, n.ID)
+	st, err = s.NodeTraffic(ctx, n.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestNodeTrafficDaysFollowTheStatsZone(t *testing.T) {
 			u.ID, n.ID, zone); err != nil {
 			t.Fatal(err)
 		}
-		st, err := s.NodeTraffic(ctx, n.ID)
+		st, err := s.NodeTraffic(ctx, n.ID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,5 +164,60 @@ func TestNodeTrafficDaysFollowTheStatsZone(t *testing.T) {
 		if today := time.Now().In(loc).Format(time.DateOnly); st.Daily[29].Day != today || st.Today.Up != 5 || len(st.Top.Today) != 1 {
 			t.Fatalf("%s: last day %s (want %s), today %+v, top %+v", zone, st.Daily[29].Day, today, st.Today, st.Top.Today)
 		}
+	}
+}
+
+func insertTagged(t *testing.T, s *Store, userID, nodeID int64, tag string, ago int, up, down int64) {
+	t.Helper()
+	if _, err := s.pool.Exec(context.Background(),
+		`INSERT INTO traffic_daily (user_id, node_id, inbound_tag, day, bytes_up, bytes_down)
+		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'Europe/Moscow')::date - $4::int, $5, $6)`,
+		userID, nodeID, tag, ago, up, down); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNodeTrafficByInbound(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	n := deltaNode(t, s)
+	mkInbound(t, s, n.ID, "cdn")
+	a, b := tgUser(t, s, 4101), tgUser(t, s, 4102)
+	insertTagged(t, s, a.ID, n.ID, "main", 0, 10, 1)
+	insertTagged(t, s, a.ID, n.ID, "cdn", 0, 0, 7)
+	insertTagged(t, s, b.ID, n.ID, "cdn", 2, 20, 0)
+	insertTagged(t, s, b.ID, n.ID, "", 1, 3, 0)
+	insertTagged(t, s, b.ID, n.ID, "cdn", 40, 999, 0)
+
+	all, err := s.NodeTraffic(ctx, n.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Days30 != (UpDown{Up: 33, Down: 8}) {
+		t.Fatalf("all inbounds = %+v", all.Days30)
+	}
+	if len(all.Inbounds) != 3 || all.Inbounds[0] != (NodeInboundTotals{Tag: "", Days30: UpDown{Up: 3}}) ||
+		all.Inbounds[1] != (NodeInboundTotals{Tag: "cdn", Label: "REALITY", Days30: UpDown{Up: 20, Down: 7}}) ||
+		all.Inbounds[2] != (NodeInboundTotals{Tag: "main", Label: "REALITY", Days30: UpDown{Up: 10, Down: 1}}) {
+		t.Fatalf("inbound totals = %+v", all.Inbounds)
+	}
+	cdn := "cdn"
+	st, err := s.NodeTraffic(ctx, n.ID, &cdn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Today != (UpDown{Down: 7}) || st.Days30 != (UpDown{Up: 20, Down: 7}) || st.Daily[27].UpDown != (UpDown{Up: 20}) {
+		t.Fatalf("cdn windows = %+v %+v, daily %+v", st.Today, st.Days30, st.Daily[27])
+	}
+	if got := topIDs(st.Top.Days30); !sameIDs(got, []int64{b.ID, a.ID}) || st.Top.Days30[0].Bytes != 20 || st.Top.Days30[1].Bytes != 7 {
+		t.Fatalf("cdn top = %+v", st.Top.Days30)
+	}
+	if len(st.Inbounds) != 3 {
+		t.Fatalf("the inbound list must not depend on the filter: %+v", st.Inbounds)
+	}
+	legacy := ""
+	st, err = s.NodeTraffic(ctx, n.ID, &legacy)
+	if err != nil || st.Days30 != (UpDown{Up: 3}) || !sameIDs(topIDs(st.Top.Days30), []int64{b.ID}) {
+		t.Fatalf("traffic without an inbound = %+v, %v", st, err)
 	}
 }

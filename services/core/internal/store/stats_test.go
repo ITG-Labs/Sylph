@@ -167,3 +167,41 @@ func TestCleanupDailyStats(t *testing.T) {
 		t.Fatalf("deleted %d, left %d", deleted, left)
 	}
 }
+
+func TestDailyStatsSplitByInbound(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, k := userWithKey(t, s)
+	p := mkPlan(t, s)
+	pay(t, s, u.ID, p.ID, time.Now().UTC())
+	n := deltaNode(t, s)
+	mkInbound(t, s, n.ID, "cdn")
+	record(t, s, n.ID, "b-1",
+		model.TrafficDelta{KeyUUID: k, Inbound: "main", BytesUp: 60, BytesDown: 40},
+		model.TrafficDelta{KeyUUID: k, Inbound: "cdn", BytesDown: 50},
+		model.TrafficDelta{KeyUUID: k, BytesUp: 5},
+		model.TrafficDelta{KeyUUID: k, Inbound: "ghost", BytesUp: 7})
+	record(t, s, n.ID, "b-2", model.TrafficDelta{KeyUUID: k, Inbound: "cdn", BytesUp: 1})
+	st, err := s.UserStats(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		tag, label string
+		today      int64
+	}
+	var got []row
+	for _, in := range st.Inbounds {
+		if in.NodeID != n.ID || in.NodeName != n.Name || in.Period != in.Today || in.Days30 != in.Today {
+			t.Fatalf("inbound row = %+v", in)
+		}
+		got = append(got, row{in.Tag, in.Label, in.Today})
+	}
+	want := []row{{"", "", 12}, {"cdn", "REALITY", 51}, {"main", "REALITY", 100}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("inbounds = %+v, want %+v (an unknown tag folds into the untagged row)", got, want)
+	}
+	if len(st.Nodes) != 1 || st.Nodes[0].Today != 163 || st.Nodes[0].Period != 163 {
+		t.Fatalf("node totals must stay the sum of inbounds: %+v", st.Nodes)
+	}
+}

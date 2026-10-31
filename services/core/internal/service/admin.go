@@ -272,11 +272,14 @@ func (s *Service) ListPlans(ctx context.Context) ([]store.PlanRow, error) {
 	return s.store.ListAdminPlans(ctx)
 }
 
-func (s *Service) NodeTraffic(ctx context.Context, nodeID int64) (store.NodeTraffic, error) {
+func (s *Service) NodeTraffic(ctx context.Context, nodeID int64, tag *string) (store.NodeTraffic, error) {
 	if _, err := s.store.GetNode(ctx, nodeID); err != nil {
 		return store.NodeTraffic{}, err
 	}
-	return s.store.NodeTraffic(ctx, nodeID)
+	if tag != nil && len(*tag) > 64 {
+		return store.NodeTraffic{}, fieldErr("inbound", "must be at most 64 characters")
+	}
+	return s.store.NodeTraffic(ctx, nodeID, tag)
 }
 
 func validateNode(n *model.Node) error {

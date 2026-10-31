@@ -1433,3 +1433,45 @@ func fmtRows[T any](rows []T) string {
 	}
 	return b.String()
 }
+
+func TestMigration019DownFoldsInbounds(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(19); err != nil {
+		t.Fatalf("up to 019: %v", err)
+	}
+	for _, q := range []string{
+		`INSERT INTO nodes (cert_cn, name) VALUES ('n1', 'n1')`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO traffic_daily (user_id, node_id, day, period_id, inbound_tag, bytes_up, bytes_down) SELECT u.id, n.id, current_date, 0, t, 10, 1 FROM users u, nodes n, unnest(ARRAY['', 'main', 'cdn']) t`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 019: %v", err)
+	}
+	var rows, up, down int64
+	if err := pool.QueryRow(ctx, `SELECT count(*), sum(bytes_up), sum(bytes_down) FROM traffic_daily`).Scan(&rows, &up, &down); err != nil || rows != 1 || up != 30 || down != 3 {
+		t.Fatalf("after down: rows %d, up %d, down %d, %v", rows, up, down, err)
+	}
+	if columnExists(t, pool, "traffic_daily", "inbound_tag") {
+		t.Fatal("down 019 left the column")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 019 again: %v", err)
+	}
+	var tag string
+	if err := pool.QueryRow(ctx, `SELECT inbound_tag FROM traffic_daily`).Scan(&tag); err != nil || tag != "" {
+		t.Fatalf("old rows after up = %q, %v", tag, err)
+	}
+}

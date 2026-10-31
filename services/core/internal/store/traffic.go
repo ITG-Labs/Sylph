@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"maps"
 	"math"
 	"slices"
 
@@ -43,6 +44,10 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	if err != nil {
 		return BatchResult{}, err
 	}
+	tags, err := nodeTags(ctx, tx, nodeID)
+	if err != nil {
+		return BatchResult{}, err
+	}
 	totals := map[int64]*userTotal{}
 	for _, d := range deltas {
 		owner, ok := owners[d.KeyUUID]
@@ -51,11 +56,15 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 			userID = &owner
 			t := totals[owner]
 			if t == nil {
-				t = &userTotal{byInbound: map[string]int64{}}
+				t = &userTotal{byInbound: map[string]int64{}, daily: map[string]UpDown{}}
 				totals[owner] = t
 			}
-			t.up, t.down = satAdd(t.up, d.BytesUp), satAdd(t.down, d.BytesDown)
 			t.byInbound[d.Inbound] = satAdd(t.byInbound[d.Inbound], satAdd(d.BytesUp, d.BytesDown))
+			tag := d.Inbound
+			if !tags[tag] {
+				tag = ""
+			}
+			t.daily[tag] = t.daily[tag].plus(UpDown{Up: d.BytesUp, Down: d.BytesDown})
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO traffic_deltas (node_id, key_uuid, user_id, bytes_up, bytes_down) VALUES ($1, $2, $3, $4, $5)`,
@@ -80,8 +89,10 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return BatchResult{}, err
 		}
-		if err := s.addDaily(ctx, tx, id, nodeID, periodID, t.up, t.down); err != nil {
-			return BatchResult{}, err
+		for _, tag := range slices.Sorted(maps.Keys(t.daily)) {
+			if err := s.addDaily(ctx, tx, id, nodeID, periodID, tag, t.daily[tag]); err != nil {
+				return BatchResult{}, err
+			}
 		}
 		if periodID == 0 {
 			continue
@@ -122,8 +133,24 @@ func lockActivePeriod(ctx context.Context, tx pgx.Tx, userID int64) (periodID, p
 }
 
 type userTotal struct {
-	up, down  int64
 	byInbound map[string]int64
+	daily     map[string]UpDown
+}
+
+func nodeTags(ctx context.Context, tx pgx.Tx, nodeID int64) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `SELECT tag FROM node_inbounds WHERE node_id = $1`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	list, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(list))
+	for _, tag := range list {
+		out[tag] = true
+	}
+	return out, nil
 }
 
 type poolTotal struct {

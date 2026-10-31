@@ -274,7 +274,12 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	st, err := s.svc.NodeTraffic(r.Context(), id)
+	var tag *string
+	if q := r.URL.Query(); q.Has("inbound") {
+		v := q.Get("inbound")
+		tag = &v
+	}
+	st, err := s.svc.NodeTraffic(r.Context(), id, tag)
 	if err != nil {
 		s.writeServiceError(w, err, "node")
 		return

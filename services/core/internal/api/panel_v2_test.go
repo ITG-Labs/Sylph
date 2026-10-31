@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
@@ -137,6 +138,30 @@ func TestAdminNodeStats(t *testing.T) {
 			t.Fatalf("top %s missing: %s", k, r.body)
 		}
 	}
+	if !strings.Contains(string(r.body), `"inbounds":[]`) {
+		t.Fatalf("inbound totals missing: %s", r.body)
+	}
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO users (telegram_id, sub_token) VALUES (77, 'tok77');
+		 INSERT INTO traffic_daily (user_id, node_id, day, inbound_tag, bytes_up) SELECT u.id, `+fmt.Sprint(nodeID)+`, (now() AT TIME ZONE 'Europe/Moscow')::date, t, b
+		 FROM users u, (VALUES ('main', 5), ('cdn', 9)) v(t, b)`); err != nil {
+		t.Fatal(err)
+	}
+	r = e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/nodes/%d/stats?inbound=cdn", nodeID), nil)
+	mustStatus(t, r, http.StatusOK)
+	var cdn struct {
+		Today struct {
+			Up int64 `json:"up"`
+		} `json:"today"`
+		Inbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"inbounds"`
+	}
+	r.decode(t, &cdn)
+	if cdn.Today.Up != 9 || len(cdn.Inbounds) != 2 {
+		t.Fatalf("filtered stats = %s", r.body)
+	}
+	mustField(t, e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/nodes/%d/stats?inbound=%s", nodeID, strings.Repeat("x", 65)), nil), http.StatusBadRequest, "bad_request", "inbound")
 }
 
 func TestAdminSettingsReachTheSubscription(t *testing.T) {
