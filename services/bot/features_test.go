@@ -126,12 +126,13 @@ func TestStatsByInboundNamedLikeTheSubscription(t *testing.T) {
 		{NodeID: 1, NodeName: "Германия", Tag: "main", Label: "REALITY", Period: 3 << 30},
 		{NodeID: 1, NodeName: "Германия", Tag: "cdn", Label: "", Period: 2 << 30},
 		{NodeID: 1, NodeName: "Германия", Tag: "", Period: 1 << 20},
-		{NodeID: 2, NodeName: "Финляндия", Tag: "main", Label: "REALITY", Period: 1 << 30},
+		{NodeID: 2, NodeName: "Финляндия", Tag: "main", Label: "REALITY", Visible: 1, Period: 1 << 30},
+		{NodeID: 3, NodeName: "США", Tag: "main", Label: "REALITY", Visible: 2, Period: 1 << 29},
 	}}
 	app, tg := newTestApp(t, &fakeCore{status: activeStatus(), stats: st})
 	app.Handle(context.Background(), tg, callback("stats:period"))
 	m := tg.last(t).text
-	mustContain(t, m, "Германия · REALITY", "3 ГБ", "Германия · cdn", "2 ГБ", "Финляндия\n", "Всего")
+	mustContain(t, m, "Германия · REALITY", "3 ГБ", "Германия · cdn", "2 ГБ", "Финляндия\n", "США · REALITY", "Всего")
 	if strings.Contains(m, "Финляндия · ") {
 		t.Fatalf("a node with one inbound must read as the node:\n%s", m)
 	}

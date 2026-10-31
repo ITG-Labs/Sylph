@@ -123,6 +123,7 @@ type InboundStats struct {
 	NodeName string `json:"node_name"`
 	Tag      string `json:"tag"`
 	Label    string `json:"label"`
+	Visible  int    `json:"node_visible_inbounds"`
 	Today    int64  `json:"today"`
 	Days7    int64  `json:"days_7"`
 	Days30   int64  `json:"days_30"`
