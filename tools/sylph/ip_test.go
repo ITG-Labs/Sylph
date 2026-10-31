@@ -202,7 +202,7 @@ func TestEgressChecks(t *testing.T) {
 	if err := egressChecks(ctx, u, "203.0.113.7", false); err != nil || calls != 3 {
 		t.Fatalf("checks with a slow hoster = %v after %d probes", err, calls)
 	}
-	if err := egressChecks(ctx, u, "203.0.113.9", false); err == nil || !strings.Contains(err.Error(), "нет на интерфейсах") {
+	if err := egressChecks(ctx, u, "203.0.113.9", false); err == nil || !strings.Contains(err.Error(), "отсутствует на интерфейсах") {
 		t.Fatalf("address not on the host: %v", err)
 	}
 	if err := egressChecks(ctx, u, "203.0.113.2", false); err == nil || !strings.Contains(err.Error(), "основной адрес") {
@@ -223,7 +223,7 @@ func TestEgressChecks(t *testing.T) {
 	}
 	for _, v := range [][2]string{{"28.0.4", "5.6.1"}, {"29.9.2", "2.35.1"}} {
 		dockerVersions = func(context.Context) (string, string, error) { return v[0], v[1], nil }
-		if err := egressChecks(ctx, u, "203.0.113.7", true); err == nil || !strings.Contains(err.Error(), "старый") {
+		if err := egressChecks(ctx, u, "203.0.113.7", true); err == nil || !strings.Contains(err.Error(), "устарела") {
 			t.Fatalf("docker %s, compose %s accepted: %v", v[0], v[1], err)
 		}
 	}

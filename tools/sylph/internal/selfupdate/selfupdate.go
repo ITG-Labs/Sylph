@@ -25,7 +25,7 @@ const (
 	Sums  = "SHA256SUMS"
 )
 
-var ErrChecksum = errors.New("SHA256 скачанного бинаря не сходится с SHA256SUMS релиза")
+var ErrChecksum = errors.New("SHA256 загруженного файла не совпадает с SHA256SUMS релиза")
 
 var releaseTag = regexp.MustCompile(`^v([0-9]+\.[0-9]+\.[0-9]+)$`)
 
@@ -42,10 +42,10 @@ func New(version string) *Client {
 		HTTP: &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if req.URL.Scheme != "https" {
-					return fmt.Errorf("редирект на %s: только https", req.URL.Scheme)
+					return fmt.Errorf("перенаправление на %s: допускается только https", req.URL.Scheme)
 				}
 				if len(via) >= 10 {
-					return errors.New("слишком много редиректов")
+					return errors.New("слишком много перенаправлений")
 				}
 				return nil
 			},
@@ -90,7 +90,7 @@ func (c *Client) Latest(ctx context.Context) (string, error) {
 	}
 	m := releaseTag.FindStringSubmatch(body.Tag)
 	if m == nil {
-		return "", fmt.Errorf("последний релиз с непонятным тегом %q", body.Tag)
+		return "", fmt.Errorf("у последнего релиза некорректный тег %q", body.Tag)
 	}
 	return m[1], nil
 }
@@ -118,7 +118,7 @@ func (c *Client) Fetch(ctx context.Context, version string, dir string) (string,
 	switch {
 	case err != nil:
 	case n > c.MaxSize:
-		err = fmt.Errorf("бинарь больше %d МиБ", c.MaxSize>>20)
+		err = fmt.Errorf("размер файла превышает %d МиБ", c.MaxSize>>20)
 	case hex.EncodeToString(h.Sum(nil)) != want:
 		err = ErrChecksum
 	}
@@ -152,14 +152,14 @@ func (c *Client) checksum(ctx context.Context, url string) (string, error) {
 			continue
 		}
 		if b, err := hex.DecodeString(sum); err != nil || len(b) != sha256.Size {
-			return "", fmt.Errorf("%s: битая строка для %s", Sums, Asset)
+			return "", fmt.Errorf("%s: повреждена строка для %s", Sums, Asset)
 		}
 		return strings.ToLower(sum), nil
 	}
 	if err := sc.Err(); err != nil {
 		return "", err
 	}
-	return "", fmt.Errorf("в %s релиза нет %s", Sums, Asset)
+	return "", fmt.Errorf("в %s релиза отсутствует %s", Sums, Asset)
 }
 
 func Install(ctx context.Context, tmp string, exe string, version string) error {
@@ -167,10 +167,10 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 	defer cancel()
 	out, err := exec.CommandContext(ctx, tmp, "version").Output()
 	if err == nil && !bytes.HasPrefix(out, []byte("sylph "+version+" ")) {
-		err = fmt.Errorf("новый бинарь назвался %q, а ждали %s", strings.TrimSpace(string(out)), version)
+		err = fmt.Errorf("новый файл сообщил версию %q, ожидалась %s", strings.TrimSpace(string(out)), version)
 	}
 	if err == nil && filepath.Dir(tmp) != filepath.Dir(exe) {
-		err = errors.New("новый бинарь лежит не рядом со старым: подмена не будет атомарной")
+		err = errors.New("новый файл находится не в каталоге текущего: замена не будет атомарной")
 	}
 	if err == nil {
 		err = sameOwnerAndMode(tmp, exe)
@@ -180,7 +180,7 @@ func Install(ctx context.Context, tmp string, exe string, version string) error 
 	}
 	if err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("новый бинарь не встал: %w", err)
+		return fmt.Errorf("не удалось установить новый файл: %w", err)
 	}
 	return nil
 }

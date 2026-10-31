@@ -19,25 +19,25 @@ import (
 
 const usage = `sylph — установка и обслуживание ролей Sylph
 
-На машине роли (от root):
-  sudo ./sylph install [роль]   мастер: настройки, серты, запуск, ожидание здоровья
-  sudo ./sylph update           обновить sylph до свежего релиза и роли машины до него
-  sudo ./sylph status           здоровье ролей машины
-  sudo ./sylph start [роль]     запустить роль и дождаться здоровья
+На сервере роли (от root):
+  sudo ./sylph install [роль]   мастер установки: настройки, сертификаты, запуск, проверка состояния
+  sudo ./sylph update           обновить sylph и роли сервера до последнего релиза
+  sudo ./sylph status           состояние ролей сервера
+  sudo ./sylph start [роль]     запустить роль и дождаться готовности
   sudo ./sylph stop [роль]      остановить роль
-  sudo ./sylph ip [list]        доп. IP ноды для выделенных адресов
-  sudo ./sylph ip add <IPv4>    подключить доп. IP к ноде (ip remove — отключить)
-  sudo ./sylph                  всё то же в интерактивном режиме
+  sudo ./sylph ip [list]        дополнительные IP ноды для выделенных адресов
+  sudo ./sylph ip add <IPv4>    подключить дополнительный IP к ноде (ip remove — отключить)
+  sudo ./sylph                  интерактивный режим
 
-На своём компьютере, рядом с CA (не на сервере):
-  ./sylph certs bundle <роль>   пакет сертов роли (первый запуск создаст CA)
-  ./sylph certs list            серты CA и их сроки
-  ./sylph certs revoke <имя>    отозвать серт
+На компьютере с CA (не на сервере):
+  ./sylph certs bundle <роль>   пакет сертификатов роли (при первом запуске создаётся CA)
+  ./sylph certs list            сертификаты CA и сроки их действия
+  ./sylph certs revoke <имя>    отозвать сертификат
 
   ./sylph version               версия бинаря и образов
 
 Роли: core, panel, bot, subs, node, monitor.
-Подробности по флагам: sylph <команда> -h`
+Справка по флагам: sylph <команда> -h`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -123,14 +123,14 @@ var tagPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 func imageVersion(override string) (string, error) {
 	if override != "" {
 		if !tagPattern.MatchString(override) {
-			return "", fmt.Errorf("--version %q: не похоже на тег образа", override)
+			return "", fmt.Errorf("--version %q: некорректный тег образа", override)
 		}
 		return override, nil
 	}
 	v := version.Version
 	switch {
 	case v == "" || v == "dev":
-		return "", errors.New("это локальная сборка без версии: укажи тег образов через --version (например 0.1.0)")
+		return "", errors.New("это локальная сборка без версии: укажите тег образов через --version (например, 0.1.0)")
 	case strings.HasPrefix(v, "edge-"):
 		return "sha-" + strings.TrimPrefix(v, "edge-"), nil
 	}

@@ -31,17 +31,17 @@ type shellCommand struct {
 }
 
 var shellCommands = []shellCommand{
-	{"install", "[роль]", "поставить или перенастроить роль", false},
-	{"update", "", "обновить sylph до свежего релиза и роли машины до него", false},
-	{"status", "", "подробно о ролях машины", false},
-	{"start", "[роль]", "запустить роль и дождаться здоровья", false},
+	{"install", "[роль]", "установить или перенастроить роль", false},
+	{"update", "", "обновить sylph и роли сервера до последнего релиза", false},
+	{"status", "", "подробное состояние ролей сервера", false},
+	{"start", "[роль]", "запустить роль и дождаться готовности", false},
 	{"stop", "[роль]", "остановить роль", false},
-	{"ip", "[list|add|remove] <IPv4>", "доп. IP ноды для выделенных адресов", false},
-	{"bundle", "<роль>", "пакет сертов роли — на своём компьютере, рядом с CA", true},
-	{"certs", "", "серты CA и их сроки", true},
-	{"revoke", "<имя>", "отозвать серт", true},
+	{"ip", "[list|add|remove] <IPv4>", "дополнительные IP ноды для выделенных адресов", false},
+	{"bundle", "<роль>", "пакет сертификатов роли (на компьютере с CA)", true},
+	{"certs", "", "сертификаты CA и сроки их действия", true},
+	{"revoke", "<имя>", "отозвать сертификат", true},
 	{"clear", "", "очистить вывод", false},
-	{"help", "", "что тут можно", false},
+	{"help", "", "список команд", false},
 	{"exit", "", "выйти", false},
 }
 
@@ -146,7 +146,7 @@ func runShell(ctx context.Context, term *ui.UI) int {
 	}
 	in := textinput.New()
 	in.Prompt = ui.Colored(ui.Accent, "› ")
-	in.Placeholder = "набери / — команды"
+	in.Placeholder = "введите / для списка команд"
 	m := &shell{
 		ctx:    ctx,
 		root:   os.Geteuid() == 0,
@@ -160,10 +160,10 @@ func runShell(ctx context.Context, term *ui.UI) int {
 	m.sink = &shellSink{}
 	m.u = &ui.UI{Out: term.Out, TTY: true, Dark: term.Dark, Sink: m.sink}
 	m.log = []string{
-		ui.Dimmed("  набери / — список команд: /install, /status, /update … · PgUp/PgDn — прокрутка"),
+		ui.Dimmed("  введите / для списка команд: /install, /status, /update … · PgUp/PgDn — прокрутка"),
 	}
 	if !m.root {
-		m.log = append(m.log, ui.Dimmed("  без sudo доступны серты (/bundle, /certs, /revoke); роли машины — sudo ./sylph"))
+		m.log = append(m.log, ui.Dimmed("  без sudo доступны сертификаты (/bundle, /certs, /revoke); для работы с ролями сервера запустите sudo ./sylph"))
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithoutSignalHandler())
 	m.sink.p = p
@@ -172,7 +172,7 @@ func runShell(ctx context.Context, term *ui.UI) int {
 		m.cancel()
 	}
 	if m.restart != nil {
-		term.Info("sylph обновился — дальше обновление идёт в обычном режиме, потом снова sudo ./sylph")
+		term.Info("sylph обновлён: обновление продолжится в обычном режиме, затем снова запустите sudo ./sylph")
 		return m.restart.run(term)
 	}
 	if err != nil && !errors.Is(err, tea.ErrProgramKilled) && !errors.Is(err, context.Canceled) {
@@ -319,7 +319,7 @@ func (m *shell) key(msg tea.KeyPressMsg) tea.Cmd {
 	if m.busy {
 		if k == "ctrl+c" && m.cancel != nil {
 			m.cancel()
-			m.log = append(m.log, ui.Dimmed("  отменяю…"))
+			m.log = append(m.log, ui.Dimmed("  отмена…"))
 		}
 		return nil
 	}
@@ -480,7 +480,7 @@ func (m *shell) execute(line string) tea.Cmd {
 		return nil
 	case "bundle", "certs", "revoke":
 		if m.root {
-			m.log = append(m.log, ui.StepLine(line, "", errors.New("серты — только на своём компьютере и без sudo: ключ CA не должен жить на сервере")))
+			m.log = append(m.log, ui.StepLine(line, "", errors.New("сертификаты выпускаются только на компьютере с CA и без sudo: ключ CA не должен храниться на сервере")))
 			return nil
 		}
 	}
@@ -495,7 +495,7 @@ func (m *shell) execute(line string) tea.Cmd {
 		}
 	case "install", "update", "status", "start", "stop", "version", "ip":
 	default:
-		m.log = append(m.log, ui.StepLine(line, "", fmt.Errorf("нет такой команды — набери /help")))
+		m.log = append(m.log, ui.StepLine(line, "", fmt.Errorf("неизвестная команда, введите /help")))
 		return nil
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
@@ -536,11 +536,11 @@ func helpLines(commands []shellCommand, root bool) []string {
 		lines = append(lines, fmt.Sprintf("  %-18s %s", label, ui.Dimmed(c.desc)))
 	}
 	if root {
-		lines = append(lines, ui.Dimmed("  серты (/bundle, /certs, /revoke) — на своём компьютере: sylph без sudo"))
+		lines = append(lines, ui.Dimmed("  сертификаты (/bundle, /certs, /revoke) выпускаются на компьютере с CA: sylph без sudo"))
 	}
 	return append(lines,
-		ui.Dimmed("  флаги — как у отдельных команд: /install panel --dir /srv/panel, /bundle node --name node-de-1"),
-		ui.Dimmed("  Tab — дополнить, ↑↓ — выбор и история, Esc — спрятать подсказки, Ctrl+C — отменить или выйти"),
+		ui.Dimmed("  флаги такие же, как у отдельных команд: /install panel --dir /srv/panel, /bundle node --name node-1"),
+		ui.Dimmed("  Tab — дополнение, ↑↓ — выбор и история, Esc — скрыть подсказки, Ctrl+C — отмена или выход"),
 	)
 }
 
@@ -602,7 +602,7 @@ func machineHeader(ctx context.Context, now time.Time) headerMsg {
 		return headerMsg{lines: []string{ui.Colored(ui.Red, err.Error())}}
 	}
 	if len(roles) == 0 {
-		return headerMsg{lines: []string{ui.Dimmed("ролей на машине нет — /install")}}
+		return headerMsg{lines: []string{ui.Dimmed("ролей на сервере нет — /install")}}
 	}
 	var msg headerMsg
 	for _, in := range roles {
@@ -646,7 +646,7 @@ func roleLine(ctx context.Context, in installed, now time.Time) string {
 	}
 	line := name + ui.Colored(ui.Green, "● "+count) + version
 	if until, ok := earliestCert(in.Dir); ok {
-		line += ui.Dimmed(" · серт до ") + certColor(until, now)
+		line += ui.Dimmed(" · сертификат до ") + certColor(until, now)
 	}
 	return line
 }
@@ -702,13 +702,13 @@ func caHeader(dir string, now time.Time) []string {
 		return []string{ui.Colored(ui.Red, "CA "+shown+": "+err.Error())}
 	}
 	if !ok {
-		return []string{ui.Dimmed("CA " + shown + " ещё нет — его создаст первый /bundle <роль>")}
+		return []string{ui.Dimmed("CA " + shown + " ещё не создан; он будет создан при первом /bundle <роль>")}
 	}
 	infos, err := castore.List(dir)
 	if err != nil {
 		return []string{ui.Colored(ui.Red, "CA "+shown+": "+err.Error())}
 	}
-	line := "CA " + shown + ui.Dimmed(fmt.Sprintf(" · сертов: %d", len(infos)))
+	line := "CA " + shown + ui.Dimmed(fmt.Sprintf(" · сертификатов: %d", len(infos)))
 	if len(infos) > 0 {
 		first := infos[0].NotAfter
 		for _, ci := range infos[1:] {
@@ -754,7 +754,7 @@ func (m *shell) headerView() string {
 	case len(m.header) > 0:
 		body += "\n" + strings.Join(m.header, "\n")
 	default:
-		body += "\n" + ui.Dimmed("смотрю, что на машине…")
+		body += "\n" + ui.Dimmed("проверка сервера…")
 	}
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ui.Accent).Padding(0, 1).Width(max(m.width, 20)).Render(body)
 }
@@ -765,7 +765,7 @@ func (m *shell) bottomView() string {
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ui.Dim).Padding(0, 1).Width(max(m.width, 20))
 	if m.busy {
-		return box.Render(ui.Dimmed("выполняю "+m.running+" …")) + "\n" + ui.Dimmed("  ctrl+c — отменить · PgUp/PgDn — прокрутка")
+		return box.Render(ui.Dimmed("выполняется "+m.running+" …")) + "\n" + ui.Dimmed("  ctrl+c — отмена · PgUp/PgDn — прокрутка")
 	}
 	body := m.input.View()
 	sugg := m.suggestions()
@@ -789,7 +789,7 @@ func (m *shell) bottomView() string {
 	}
 	hint := "  / команды · ↑↓ история · PgUp/PgDn прокрутка · ctrl+c выход"
 	if len(sugg) > 0 {
-		hint = "  enter — выполнить · tab — дополнить · ↑↓ выбор · esc — спрятать"
+		hint = "  enter — выполнить · tab — дополнить · ↑↓ выбор · esc — скрыть"
 	}
 	return box.Render(body) + "\n" + ui.Dimmed(hint)
 }

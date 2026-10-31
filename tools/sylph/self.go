@@ -33,7 +33,7 @@ type restartRequest struct {
 	from string
 }
 
-func (r *restartRequest) Error() string { return "sylph обновился: нужен перезапуск новой версией" }
+func (r *restartRequest) Error() string { return "sylph обновлён: требуется перезапуск новой версии" }
 
 func (r *restartRequest) run(u *ui.UI) int {
 	env := []string{envSelfUpdated + "=" + r.from}
@@ -43,7 +43,7 @@ func (r *restartRequest) run(u *ui.UI) int {
 		}
 	}
 	err := execve(r.exe, append([]string{r.exe}, r.args...), env)
-	u.Fail("новый sylph на месте, но сам не запустился: " + err.Error() + " — запусти sudo ./sylph update ещё раз")
+	u.Fail("новая версия sylph установлена, но не запустилась: " + err.Error() + ". Запустите sudo ./sylph update повторно")
 	return 1
 }
 
@@ -54,25 +54,25 @@ func selfUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	cur := version.Version
 	if _, ok := semver(cur); !ok {
-		u.Info("сборка " + cur + " сама себя не обновляет — это умеют только релизы")
+		u.Info("сборка " + cur + " не поддерживает самообновление: оно доступно только для релизов")
 		return nil
 	}
 	c := releases()
 	var latest string
 	if _, err := u.Step(ctx, "Новый sylph", func(ctx context.Context, set func(string)) (string, error) {
-		set("спрашиваю GitHub")
+		set("запрос к GitHub")
 		v, err := c.Latest(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
-			return "", ui.WarnError{Msg: "не смог проверить (" + err.Error() + "), обновляю до " + cur}
+			return "", ui.WarnError{Msg: "не удалось проверить (" + err.Error() + "), обновление до " + cur}
 		}
 		if !older(cur, v) {
-			return "нет, " + cur + " — последний", nil
+			return "не требуется, " + cur + " — последняя версия", nil
 		}
 		latest = v
-		return "вышел " + v, nil
+		return "доступна " + v, nil
 	}); err != nil && !ui.IsWarn(err) {
 		return err
 	}
@@ -81,23 +81,23 @@ func selfUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	exe, err := executable()
 	if err != nil {
-		u.Warn("не нашёл свой бинарь (" + err.Error() + "): себя не обновляю, роли — до " + cur)
+		u.Warn("не удалось найти исполняемый файл sylph (" + err.Error() + "): sylph не обновляется, роли обновляются до " + cur)
 		return nil
 	}
 	if _, err := u.Step(ctx, "sylph "+latest, func(ctx context.Context, set func(string)) (string, error) {
-		set("качаю")
+		set("загрузка")
 		tmp, err := c.Fetch(ctx, latest, filepath.Dir(exe))
 		if err != nil {
 			return "", err
 		}
-		set("проверяю и подменяю")
+		set("проверка и замена")
 		if err := selfupdate.Install(ctx, tmp, exe, latest); err != nil {
 			return "", err
 		}
-		return "SHA256 сошёлся · " + exe, nil
+		return "SHA256 совпадает · " + exe, nil
 	}); err != nil {
 		if !errors.Is(err, context.Canceled) {
-			u.Info("роли можно обновить и без нового sylph: sudo ./sylph update --no-self")
+			u.Info("роли можно обновить без обновления sylph: sudo ./sylph update --no-self")
 		}
 		return shown(err)
 	}

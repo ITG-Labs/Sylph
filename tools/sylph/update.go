@@ -20,10 +20,10 @@ import (
 
 func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "update", "sudo ./sylph update [флаги]")
-	dir := fs.String("dir", "", "обновить только роль из этой папки")
-	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
-	ver := fs.String("version", "", "тег образов вместо версии бинаря (sylph тогда себя не обновляет)")
-	noSelf := fs.Bool("no-self", false, "не качать новый sylph: обновить роли до версии этого бинаря")
+	dir := fs.String("dir", "", "обновить только роль из этого каталога")
+	yes := fs.Bool("yes", false, "не запрашивать подтверждение")
+	ver := fs.String("version", "", "тег образов вместо версии sylph (в этом случае sylph не обновляется)")
+	noSelf := fs.Bool("no-self", false, "не загружать новый sylph: обновить роли до версии текущего sylph")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
@@ -35,7 +35,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		return err
 	}
 	if !u.TTY && !*yes {
-		return errors.New("без терминала обновляю только с --yes")
+		return errors.New("без терминала обновление выполняется только с флагом --yes")
 	}
 	u.Banner("обновление", "sylph "+version.Version)
 	if *ver == "" && !*noSelf {
@@ -56,7 +56,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		return err
 	}
 	if len(roles) == 0 {
-		return errors.New("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
+		return errors.New("роли sylph на сервере не найдены (поиск через docker compose ls); укажите каталог роли через --dir")
 	}
 
 	var todo []installed
@@ -67,7 +67,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		mark := cur + " → " + target
 		switch {
 		case cur == target && in.Env.Get(role.KeyCaddyVersion) == pinnedCaddy(in.Role) && runningAt(ctx, in.Dir, target, pinnedCaddy(in.Role)):
-			mark = cur + ui.Dimmed(" (уже)")
+			mark = cur + ui.Dimmed(" (текущая)")
 		case older(target, cur):
 			mark += ui.Colored(ui.Yellow, " (понижение)")
 			downgrade = true
@@ -102,14 +102,14 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	for _, in := range roles {
 		rows = append(rows, [2]string{in.Role.Name, marks[in.Dir] + ui.Dimmed("  "+in.Dir)})
 	}
-	u.Section("Роли на машине")
-	u.Box("Обновление", ui.KV(rows)+"\n\n"+ui.Dimmed("порядок по машинам: ядро → ноды → панель → бот и subs → монитор"), ui.Accent)
+	u.Section("Роли на сервере")
+	u.Box("Обновление", ui.KV(rows)+"\n\n"+ui.Dimmed("рекомендуемый порядок обновления серверов: ядро → ноды → панель → бот и subs → монитор"), ui.Accent)
 	if len(todo) == 0 {
-		u.OK("всё уже на " + target)
+		u.OK("все роли уже на версии " + target)
 		return nil
 	}
 	if downgrade {
-		u.Warn("понижение версии: миграции базы ядра назад не откатываются")
+		u.Warn("понижение версии: миграции базы данных ядра не откатываются")
 	}
 	cut := false
 	for _, p := range plans {
@@ -119,11 +119,11 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		}
 	}
 	if u.TTY && !*yes {
-		desc := "свежие compose-файлы, новая версия в .env, up, ожидание здоровья"
+		desc := "обновление compose-файлов, новая версия в .env, запуск и проверка состояния"
 		if cut {
-			desc = "⚠️ оборвутся подключения клиентов на ноде · " + desc
+			desc = "⚠️ подключения клиентов на ноде будут прерваны · " + desc
 		}
-		ok, err := wizardFor(u).Confirm("Обновляем?", desc, true)
+		ok, err := wizardFor(u).Confirm("Выполнить обновление?", desc, true)
 		if err != nil {
 			return err
 		}
@@ -139,7 +139,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		}
 	}
 	u.Line("")
-	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nоткат — бинарём прежней версии: `sudo ./sylph update --no-self` (у 0.2.x флага нет — просто `update`)", ui.Green)
+	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nдля отката используйте sylph предыдущей версии: `sudo ./sylph update --no-self` (в 0.2.x флага нет, используйте `update`)", ui.Green)
 	return nil
 }
 
@@ -160,9 +160,9 @@ func (p *rolePlan) cleanup() {
 func (p *rolePlan) impact() string {
 	switch {
 	case p.planErr != nil:
-		return "перезапуск неизвестен"
+		return "необходимость перезапуска неизвестна"
 	case len(p.restart) == 0:
-		return "без перезапусков"
+		return "перезапуск не требуется"
 	}
 	names := make([]string, len(p.restart))
 	for i, s := range p.restart {
@@ -176,7 +176,7 @@ func (p *rolePlan) cutWarning() (string, bool) {
 		return "", false
 	}
 	if p.planErr != nil {
-		return "нода " + p.in.Dir + ": заранее не узнал, перезапустятся ли Caddy и xray — если да, подключения клиентов оборвутся на несколько секунд", true
+		return "нода " + p.in.Dir + ": не удалось заранее определить, будут ли перезапущены Caddy и xray; при перезапуске подключения клиентов прервутся на несколько секунд", true
 	}
 	var hit []string
 	for _, s := range p.restart {
@@ -187,7 +187,7 @@ func (p *rolePlan) cutWarning() (string, bool) {
 	if len(hit) == 0 {
 		return "", false
 	}
-	return "нода " + p.in.Dir + ": пересоздадутся " + strings.Join(hit, " и ") + " — подключения клиентов оборвутся на несколько секунд", true
+	return "нода " + p.in.Dir + ": будут пересозданы " + strings.Join(hit, " и ") + ", подключения клиентов прервутся на несколько секунд", true
 }
 
 func updatedEnv(u *ui.UI, in installed, target string) (*envfile.Env, error) {
@@ -204,7 +204,7 @@ func updatedEnv(u *ui.UI, in installed, target string) (*envfile.Env, error) {
 		for _, e := range errs {
 			u.Fail(e.Error())
 		}
-		return nil, shown(fmt.Errorf("в новой версии роли %s есть новые обязательные настройки — запусти `sudo ./sylph install %s --dir %s`", in.Role.Name, in.Role.Name, in.Dir))
+		return nil, shown(fmt.Errorf("в новой версии роли %s появились обязательные настройки: запустите `sudo ./sylph install %s --dir %s`", in.Role.Name, in.Role.Name, in.Dir))
 	}
 	return env, nil
 }
@@ -221,22 +221,22 @@ func prepareUpdate(ctx context.Context, u *ui.UI, in installed, target string) (
 		if err != nil {
 			return "", err
 		}
-		set("тяну образы " + target)
+		set("загрузка образов " + target)
 		if err := compose.PullFiles(ctx, files); err != nil {
 			return "", err
 		}
-		set("что перезапустится")
+		set("определение перезапусков")
 		plan, err := compose.Plan(ctx, files)
 		if err != nil {
 			p.planErr = err
-			return "", ui.WarnError{Msg: "образы на месте; что перезапустится, заранее не узнал: " + err.Error()}
+			return "", ui.WarnError{Msg: "образы загружены; не удалось заранее определить перезапуски: " + err.Error()}
 		}
 		for _, s := range plan {
 			if !s.OneShot {
 				p.restart = append(p.restart, s)
 			}
 		}
-		return "образы на месте · " + p.impact(), nil
+		return "образы загружены · " + p.impact(), nil
 	})
 	if err != nil && !ui.IsWarn(err) {
 		return p, shown(err)
@@ -302,15 +302,15 @@ func applyUpdate(ctx context.Context, u *ui.UI, p *rolePlan, target string) erro
 			return "", err
 		}
 		if len(backups) > 0 {
-			return "прежние: " + strings.Join(backups, ", "), nil
+			return "резервные копии: " + strings.Join(backups, ", "), nil
 		}
 		return "compose без изменений", nil
 	}); err != nil {
 		return shown(err)
 	}
 	if _, err := u.Step(ctx, "Образы", func(ctx context.Context, set func(string)) (string, error) {
-		set("тяну " + target)
-		return "на месте", compose.Pull(ctx, in.Dir)
+		set("загрузка " + target)
+		return "загружены", compose.Pull(ctx, in.Dir)
 	}); err != nil {
 		return shown(err)
 	}

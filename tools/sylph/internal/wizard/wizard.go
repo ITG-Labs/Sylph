@@ -45,7 +45,7 @@ func (w Wizard) ChooseRole() (*role.Role, error) {
 	for _, r := range role.All() {
 		opts = append(opts, huh.NewOption(r.Title, r.Name))
 	}
-	if err := w.run(huh.NewGroup(huh.NewSelect[string]().Title("Какую роль ставим на эту машину?").Options(opts...).Value(&name))); err != nil {
+	if err := w.run(huh.NewGroup(huh.NewSelect[string]().Title("Какую роль установить на этот сервер?").Options(opts...).Value(&name))); err != nil {
 		return nil, err
 	}
 	return role.Get(name)
@@ -74,7 +74,7 @@ func (w Wizard) Input(title string, description string, validate func(string) er
 }
 
 func (w Wizard) Pause(title string, description string) error {
-	return w.run(huh.NewGroup(huh.NewNote().Title(title).Description(description).Next(true).NextLabel("Записал")))
+	return w.run(huh.NewGroup(huh.NewNote().Title(title).Description(description).Next(true).NextLabel("Готово")))
 }
 
 type Request struct {
@@ -134,21 +134,21 @@ func (w Wizard) Ask(req Request) (*Answers, error) {
 	addAdmins := len(req.ExistingAdmins) == 0
 	if r.Admins {
 		if len(req.ExistingAdmins) > 0 {
-			desc := "уже есть: " + strings.Join(req.ExistingAdmins, ", ")
-			groups = append(groups, huh.NewGroup(huh.NewConfirm().Title("Добавить админа панели?").Description(desc).Affirmative("Да").Negative("Нет").Value(&addAdmins)))
+			desc := "уже добавлены: " + strings.Join(req.ExistingAdmins, ", ")
+			groups = append(groups, huh.NewGroup(huh.NewConfirm().Title("Добавить администратора панели?").Description(desc).Affirmative("Да").Negative("Нет").Value(&addAdmins)))
 		}
-		groups = append(groups, huh.NewGroup(huh.NewInput().Title("Имена новых админов").Description("через запятую; для каждого покажу пароль и QR для TOTP").Value(&adminsRaw).Validate(func(s string) error {
+		groups = append(groups, huh.NewGroup(huh.NewInput().Title("Имена новых администраторов").Description("через запятую; для каждого будут показаны пароль и QR-код для TOTP").Value(&adminsRaw).Validate(func(s string) error {
 			names, err := role.AdminNames(s)
 			if err != nil {
 				return err
 			}
 			if len(names) == 0 {
-				return errors.New("нужен хотя бы один админ")
+				return errors.New("укажите хотя бы одного администратора")
 			}
 			for _, n := range names {
 				for _, e := range req.ExistingAdmins {
 					if n == e {
-						return fmt.Errorf("админ %q уже есть", n)
+						return fmt.Errorf("администратор %q уже существует", n)
 					}
 				}
 			}
@@ -159,21 +159,21 @@ func (w Wizard) Ask(req Request) (*Answers, error) {
 	bundleInput := ""
 	newCerts := req.CertsUntil == ""
 	if !newCerts {
-		groups = append(groups, huh.NewGroup(huh.NewSelect[bool]().Title("Серты роли").Options(
+		groups = append(groups, huh.NewGroup(huh.NewSelect[bool]().Title("Сертификаты роли").Options(
 			huh.NewOption("Оставить текущие (действуют до "+req.CertsUntil+")", false),
-			huh.NewOption("Поставить новый пакет", true),
+			huh.NewOption("Установить новый пакет", true),
 		).Value(&newCerts)))
 	}
 	groups = append(groups, huh.NewGroup(huh.NewInput().
-		Title("Пакет сертов — вставь строку").
-		Description("её печатает `sylph certs bundle " + r.Name + "` на вашем компьютере (sylph-certs:…); можно и путь к файлу .sylph-certs").
+		Title("Пакет сертификатов: вставьте строку").
+		Description("строку выводит команда `sylph certs bundle " + r.Name + "` на компьютере с CA (sylph-certs:…); можно указать путь к файлу .sylph-certs").
 		CharLimit(1<<16).
 		Value(&bundleInput).
 		Validate(req.CheckBundle)).WithHideFunc(func() bool { return !newCerts }))
 
 	if len(adv) > 0 {
 		groups = append(groups,
-			huh.NewGroup(huh.NewConfirm().Title("Дополнительные настройки?").Description("порт, подсеть, имя в серте ядра, логи — обычно не нужно").Affirmative("Да").Negative("Нет").Value(&advanced)),
+			huh.NewGroup(huh.NewConfirm().Title("Дополнительные настройки?").Description("порт, подсеть, имя в сертификате ядра, журналы; обычно не требуются").Affirmative("Да").Negative("Нет").Value(&advanced)),
 			huh.NewGroup(adv...).Title("Дополнительно").WithHideFunc(func() bool { return !advanced }),
 		)
 	}
@@ -231,7 +231,7 @@ func (w Wizard) field(f role.Field, req Request, values map[string]*string, bool
 			if f.Optional {
 				return nil
 			}
-			return errors.New("нужно заполнить")
+			return errors.New("обязательное поле")
 		}
 		return f.Check(s)
 	})

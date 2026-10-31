@@ -66,41 +66,41 @@ var (
 	coreURL = Field{
 		Key:         KeyCoreURL,
 		Title:       "Адрес ядра",
-		Description: "IP или домен машины ядра и порт: https://203.0.113.10:443",
+		Description: "IP-адрес или домен сервера ядра и порт: https://203.0.113.10:443",
 		Example:     true,
 		Validate:    CoreURL,
 	}
 	coreName = Field{
 		Key:         KeyCoreName,
-		Title:       "Имя в серте ядра",
-		Description: "DNS для него не нужен; менять, только если выпускал серт ядра на другое имя",
+		Title:       "Имя в сертификате ядра",
+		Description: "DNS-запись не требуется; изменяйте, только если сертификат ядра выпущен для другого имени",
 		Advanced:    true,
 		Validate:    Hostname,
 	}
 	httpsPort = Field{
 		Key:         KeyPort,
 		Title:       "Внешний порт",
-		Description: "наружу торчит только он",
+		Description: "единственный порт, доступный извне",
 		Advanced:    true,
 		Validate:    Port,
 	}
 	subnet = Field{
 		Key:         "SYLPH_SUBNET",
 		Title:       "Подсеть compose",
-		Description: "менять, только если пересекается с сетями машины",
+		Description: "изменяйте, только если подсеть пересекается с сетями сервера",
 		Advanced:    true,
 		Validate:    IPv4Subnet,
 	}
 	caddyIP = Field{
 		Key:         "SYLPH_CADDY_IP",
 		Title:       "Адрес Caddy в подсети",
-		Description: "сервис верит X-Forwarded-For только от него",
+		Description: "сервис принимает X-Forwarded-For только с этого адреса",
 		Advanced:    true,
 		Validate:    IPv4,
 	}
 	logLevel = Field{
 		Key:      "SYLPH_LOG_LEVEL",
-		Title:    "Уровень логов",
+		Title:    "Уровень журналирования",
 		Kind:     Choice,
 		Choices:  []string{"debug", "info", "warn", "error"},
 		Advanced: true,
@@ -118,19 +118,19 @@ func domain(key string, title string, desc string) Field {
 var all = []*Role{
 	{
 		Name:        "core",
-		Title:       "core — ядро, Postgres и крон (машина A)",
+		Title:       "core — ядро, Postgres и cron",
 		CertReaders: []string{"core", "cron"},
 		Toggles: []Toggle{{
 			Name:        "yookassa",
 			Title:       "Подключить оплату ЮKassa?",
-			Description: "без неё ядро работает, а оплата в боте выключена",
+			Description: "без неё ядро работает, но оплата в боте недоступна",
 		}},
 		Fields: []Field{
-			{Key: "SYLPH_YOOKASSA_SHOP_ID", Title: "ЮKassa: shop ID", Description: "в кабинете ЮKassa → Интеграция", Toggle: "yookassa", Validate: ShopID},
-			{Key: "SYLPH_YOOKASSA_SECRET_KEY", Title: "ЮKassa: секретный ключ", Description: "live_… для боя, test_… для тестового магазина", Kind: Secret, Toggle: "yookassa", Validate: SecretKey},
-			{Key: "SYLPH_YOOKASSA_RETURN_URL", Title: "ЮKassa: куда вернуть юзера", Description: "после оплаты, например https://t.me/<бот>", Toggle: "yookassa", Validate: HTTPSURL},
-			{Key: "SYLPH_BOT_USERNAME", Title: "Имя клиентского бота", Description: "без @; для ссылок-приглашений в приватные тарифы, можно пусто", Optional: true, Validate: BotUsername},
-			tz("SYLPH_STATS_TZ", "пояс суток статистики"),
+			{Key: "SYLPH_YOOKASSA_SHOP_ID", Title: "ЮKassa: shop ID", Description: "в личном кабинете ЮKassa, раздел «Интеграция»", Toggle: "yookassa", Validate: ShopID},
+			{Key: "SYLPH_YOOKASSA_SECRET_KEY", Title: "ЮKassa: секретный ключ", Description: "live_… для рабочего магазина, test_… для тестового", Kind: Secret, Toggle: "yookassa", Validate: SecretKey},
+			{Key: "SYLPH_YOOKASSA_RETURN_URL", Title: "ЮKassa: адрес возврата", Description: "куда перенаправить пользователя после оплаты, например https://t.me/<бот>", Toggle: "yookassa", Validate: HTTPSURL},
+			{Key: "SYLPH_BOT_USERNAME", Title: "Имя клиентского бота", Description: "без @; используется в ссылках-приглашениях в приватные тарифы, можно не заполнять", Optional: true, Validate: BotUsername},
+			tz("SYLPH_STATS_TZ", "часовой пояс суток статистики"),
 			httpsPort,
 			logLevel,
 		},
@@ -138,12 +138,12 @@ var all = []*Role{
 	},
 	{
 		Name:        "panel",
-		Title:       "panel — панель админов (машина B)",
+		Title:       "panel — панель управления",
 		DomainKey:   "SYLPH_PANEL_DOMAIN",
 		CertReaders: []string{"panel"},
 		Admins:      true,
 		Fields: []Field{
-			domain("SYLPH_PANEL_DOMAIN", "Домен панели", "DNS смотрит прямо на эту машину; серт выпустит Caddy"),
+			domain("SYLPH_PANEL_DOMAIN", "Домен панели", "DNS-запись указывает на этот сервер; сертификат выпустит Caddy"),
 			coreURL,
 			{Key: "SYLPH_PANEL_SESSION_HOURS", Title: "Сессия после входа, часов", Description: "от 1 до 168", Validate: Hours},
 			coreName, subnet, caddyIP, httpsPort, logLevel,
@@ -152,31 +152,31 @@ var all = []*Role{
 	},
 	{
 		Name:        "bot",
-		Title:       "bot — клиентский бот и вебхук ЮKassa (машина C)",
+		Title:       "bot — клиентский бот и уведомления ЮKassa",
 		DomainKey:   "SYLPH_BOT_DOMAIN",
 		TokenKey:    "SYLPH_BOT_TOKEN",
 		CertReaders: []string{"bot"},
 		Fields: []Field{
-			{Key: "SYLPH_BOT_TOKEN", Title: "Токен бота", Description: "от @BotFather", Kind: Secret, Validate: BotToken},
-			domain("SYLPH_BOT_DOMAIN", "Домен вебхука", "DNS смотрит прямо на эту машину; в ЮKassa — https://<домен>/yookassa"),
-			{Key: "SYLPH_SUBS_URL", Title: "Адрес subs", Description: "ссылка юзера — <адрес>/<токен>, например https://sub.example.com", Example: true, Validate: HTTPSURL},
+			{Key: "SYLPH_BOT_TOKEN", Title: "Токен бота", Description: "выдаётся в @BotFather", Kind: Secret, Validate: BotToken},
+			domain("SYLPH_BOT_DOMAIN", "Домен вебхука", "DNS-запись указывает на этот сервер; в ЮKassa указывается https://<домен>/yookassa"),
+			{Key: "SYLPH_SUBS_URL", Title: "Адрес subs", Description: "ссылка пользователя имеет вид <адрес>/<токен>, например https://sub.example.com", Example: true, Validate: HTTPSURL},
 			coreURL,
-			{Key: "SYLPH_BOT_CUSTOM_EMOJI", Title: "Иконки из пака tgiosicons?", Description: "нужен Telegram Premium у владельца бота", Kind: Bool},
-			tz("SYLPH_BOT_TZ", "пояс дат в сообщениях бота"),
+			{Key: "SYLPH_BOT_CUSTOM_EMOJI", Title: "Иконки из пака tgiosicons?", Description: "требуется Telegram Premium у владельца бота", Kind: Bool},
+			tz("SYLPH_BOT_TZ", "часовой пояс дат в сообщениях бота"),
 			coreName, subnet, caddyIP, httpsPort, logLevel,
 		},
 		check: checkCaddyIP,
 	},
 	{
 		Name:        "subs",
-		Title:       "subs — подписки для клиентов (машина D)",
+		Title:       "subs — подписки для клиентов",
 		DomainKey:   "SYLPH_SUBS_DOMAIN",
 		CertReaders: []string{"subs"},
 		Fields: []Field{
-			domain("SYLPH_SUBS_DOMAIN", "Домен subs", "DNS смотрит прямо на эту машину; тот же адрес — в SYLPH_SUBS_URL бота"),
+			domain("SYLPH_SUBS_DOMAIN", "Домен subs", "DNS-запись указывает на этот сервер; этот же адрес указывается в SYLPH_SUBS_URL бота"),
 			coreURL,
-			{Key: "SYLPH_SUBS_UPDATE_HOURS", Title: "Как часто клиенту обновлять подписку, часов", Description: "от 1 до 168", Validate: Hours},
-			tz("SYLPH_SUBS_TZ", "пояс «оплачено до» на страничке подписки"),
+			{Key: "SYLPH_SUBS_UPDATE_HOURS", Title: "Интервал обновления подписки в клиенте, часов", Description: "от 1 до 168", Validate: Hours},
+			tz("SYLPH_SUBS_TZ", "часовой пояс даты «оплачено до» на странице подписки"),
 			coreName, subnet, caddyIP, httpsPort, logLevel,
 		},
 		check: checkCaddyIP,
@@ -187,21 +187,21 @@ var all = []*Role{
 		CertReaders: []string{"agent"},
 		Fields: []Field{
 			coreURL,
-			{Key: "XRAY_VERSION", Title: "Версия xray-core", Description: "агент пишет конфиг под неё", Validate: XrayVersion},
+			{Key: "XRAY_VERSION", Title: "Версия xray-core", Description: "агент формирует конфигурацию для этой версии", Validate: XrayVersion},
 			coreName, httpsPort, logLevel,
 		},
 	},
 	{
 		Name:        "monitor",
-		Title:       "monitor — бот алертов (машина M)",
+		Title:       "monitor — бот уведомлений мониторинга",
 		TokenKey:    "SYLPH_MONITOR_BOT_TOKEN",
 		CertReaders: []string{"monitor"},
 		Fields: []Field{
 			coreURL,
-			{Key: "SYLPH_MONITOR_BOT_TOKEN", Title: "Токен бота алертов", Description: "отдельный бот от @BotFather, не клиентский", Kind: Secret, Validate: BotToken},
-			{Key: "SYLPH_MONITOR_CHAT_IDS", Title: "Кому слать алерты", Description: "Telegram ID через запятую; каждый потом пишет боту /start", Validate: ChatIDs},
-			{Key: "SYLPH_MONITOR_PANEL_URL", Title: "Адрес панели", Description: "необязательно: в алертах появятся ссылки", Optional: true, Example: true, Validate: HTTPSURL},
-			tz("SYLPH_MONITOR_TZ", "пояс времени в сообщениях"),
+			{Key: "SYLPH_MONITOR_BOT_TOKEN", Title: "Токен бота мониторинга", Description: "отдельный бот, созданный в @BotFather, не клиентский", Kind: Secret, Validate: BotToken},
+			{Key: "SYLPH_MONITOR_CHAT_IDS", Title: "Получатели уведомлений", Description: "Telegram ID через запятую; каждый получатель должен отправить боту /start", Validate: ChatIDs},
+			{Key: "SYLPH_MONITOR_PANEL_URL", Title: "Адрес панели", Description: "необязательно: в уведомлениях появятся ссылки", Optional: true, Example: true, Validate: HTTPSURL},
+			tz("SYLPH_MONITOR_TZ", "часовой пояс времени в сообщениях"),
 			coreName, logLevel,
 		},
 	},
@@ -217,7 +217,7 @@ func Get(name string) (*Role, error) {
 			return r, nil
 		}
 	}
-	return nil, fmt.Errorf("нет роли %q: core, panel, bot, subs, node или monitor", name)
+	return nil, fmt.Errorf("роль %q не существует: допустимы core, panel, bot, subs, node и monitor", name)
 }
 
 func Names() []string {
@@ -308,7 +308,7 @@ func (r *Role) Validate(env *envfile.Env) []error {
 		}
 		if v == "" {
 			if !f.Optional && f.Kind != Bool {
-				errs = append(errs, fmt.Errorf("%s: пусто", f.Key))
+				errs = append(errs, fmt.Errorf("%s: не заполнено", f.Key))
 			}
 			continue
 		}
@@ -326,7 +326,7 @@ func (f Field) Check(v string) error {
 	switch f.Kind {
 	case Bool:
 		if v != "true" && v != "false" {
-			return errors.New("true или false")
+			return errors.New("допустимы значения true или false")
 		}
 		return nil
 	case Choice:
@@ -335,7 +335,7 @@ func (f Field) Check(v string) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("одно из: %s", strings.Join(f.Choices, ", "))
+		return fmt.Errorf("допустимые значения: %s", strings.Join(f.Choices, ", "))
 	}
 	if f.Validate != nil {
 		return f.Validate(v)
@@ -352,11 +352,11 @@ func checkCore(env *envfile.Env) []error {
 
 func ValidPassword(s string) error {
 	if len(s) < 16 {
-		return errors.New("пароль базы — минимум 16 символов")
+		return errors.New("пароль базы должен содержать не менее 16 символов")
 	}
 	for _, c := range s {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
-			return errors.New("пароль базы — только буквы и цифры: он идёт в DSN ядра")
+			return errors.New("пароль базы может содержать только буквы и цифры, так как он используется в DSN ядра")
 		}
 	}
 	return nil

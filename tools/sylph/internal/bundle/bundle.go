@@ -179,7 +179,7 @@ func Read(r io.Reader) (*Bundle, error) {
 		return nil, err
 	}
 	if len(data) > 2*maxBundle {
-		return nil, errors.New("слишком много данных для пакета сертов")
+		return nil, errors.New("слишком много данных для пакета сертификатов")
 	}
 	if text := strings.TrimSpace(string(data)); strings.HasPrefix(text, Prefix) {
 		return Load(text)
@@ -190,7 +190,7 @@ func Read(r io.Reader) (*Bundle, error) {
 func Load(input string) (*Bundle, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
-		return nil, errors.New("нужен путь к пакету или строка sylph-certs:…")
+		return nil, errors.New("укажите путь к пакету или строку sylph-certs:…")
 	}
 	if rest, ok := strings.CutPrefix(input, Prefix); ok {
 		data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(rest), ""))
@@ -202,7 +202,7 @@ func Load(input string) (*Bundle, error) {
 	f, err := os.Open(input)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("нет файла %s", input)
+			return nil, fmt.Errorf("файл %s не найден", input)
 		}
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func Load(input string) (*Bundle, error) {
 		return nil, err
 	}
 	if len(data) > maxBundle {
-		return nil, errors.New("файл слишком большой для пакета сертов")
+		return nil, errors.New("файл слишком большой для пакета сертификатов")
 	}
 	return Decode(data)
 }
@@ -220,7 +220,7 @@ func Load(input string) (*Bundle, error) {
 func Decode(data []byte) (*Bundle, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, errors.New("это не пакет сертов sylph")
+		return nil, errors.New("это не пакет сертификатов sylph")
 	}
 	tr := tar.NewReader(io.LimitReader(gz, maxBundle))
 	b := &Bundle{Files: map[string][]byte{}}
@@ -231,32 +231,32 @@ func Decode(data []byte) (*Bundle, error) {
 			break
 		}
 		if err != nil {
-			return nil, errors.New("пакет сертов повреждён")
+			return nil, errors.New("пакет сертификатов повреждён")
 		}
 		if hdr.Typeflag != tar.TypeReg || hdr.Size > maxEntry {
-			return nil, fmt.Errorf("лишнее в пакете: %s", hdr.Name)
+			return nil, fmt.Errorf("лишний элемент в пакете: %s", hdr.Name)
 		}
 		data, err := io.ReadAll(tr)
 		if err != nil {
-			return nil, errors.New("пакет сертов повреждён")
+			return nil, errors.New("пакет сертификатов повреждён")
 		}
 		if hdr.Name == manifestName {
 			manifest = data
 			continue
 		}
 		if _, dup := b.Files[hdr.Name]; dup {
-			return nil, fmt.Errorf("файл %s в пакете дважды", hdr.Name)
+			return nil, fmt.Errorf("файл %s встречается в пакете дважды", hdr.Name)
 		}
 		b.Files[hdr.Name] = data
 	}
 	if manifest == nil {
-		return nil, errors.New("это не пакет сертов sylph (нет описи)")
+		return nil, errors.New("это не пакет сертификатов sylph (нет описи)")
 	}
 	if err := json.Unmarshal(manifest, &b.Manifest); err != nil {
 		return nil, errors.New("опись пакета повреждена")
 	}
 	if b.Manifest.Version != formatV1 {
-		return nil, fmt.Errorf("пакет формата %d, этот sylph понимает %d", b.Manifest.Version, formatV1)
+		return nil, fmt.Errorf("формат пакета %d не поддерживается, поддерживается формат %d", b.Manifest.Version, formatV1)
 	}
 	for name := range b.Files {
 		if !allowed(b.Manifest.Role, name) {
@@ -268,16 +268,16 @@ func Decode(data []byte) (*Bundle, error) {
 
 func (b *Bundle) Verify(role string, coreName string, now time.Time) ([]Leaf, error) {
 	if b.Manifest.Role != role {
-		return nil, fmt.Errorf("пакет для роли %s, а ставим %s", b.Manifest.Role, role)
+		return nil, fmt.Errorf("пакет предназначен для роли %s, а устанавливается роль %s", b.Manifest.Role, role)
 	}
 	for _, p := range Paths(role) {
 		if _, ok := b.Files[p]; !ok && p != RevokedFile {
-			return nil, fmt.Errorf("в пакете нет %s", p)
+			return nil, fmt.Errorf("в пакете отсутствует %s", p)
 		}
 	}
 	ca, err := mtls.ParseCertPEM(b.Files[CAFile])
 	if err != nil || !ca.IsCA {
-		return nil, errors.New("ca.pem в пакете — не серт CA")
+		return nil, errors.New("ca.pem в пакете не является сертификатом CA")
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
@@ -301,7 +301,7 @@ func (b *Bundle) Verify(role string, coreName string, now time.Time) ([]Leaf, er
 			return nil, err
 		}
 		if revoked[leaf.Serial] {
-			return nil, fmt.Errorf("%s: серт %s отозван в revoked.json этого же пакета", p.cert, leaf.Name)
+			return nil, fmt.Errorf("%s: сертификат %s отозван в revoked.json этого пакета", p.cert, leaf.Name)
 		}
 		leaves = append(leaves, leaf)
 	}
@@ -311,7 +311,7 @@ func (b *Bundle) Verify(role string, coreName string, now time.Time) ([]Leaf, er
 func verifyPair(b *Bundle, p pair, roots *x509.CertPool, coreName string, now time.Time) (Leaf, error) {
 	cert, err := mtls.ParseCertPEM(b.Files[p.cert])
 	if err != nil {
-		return Leaf{}, fmt.Errorf("%s: не серт", p.cert)
+		return Leaf{}, fmt.Errorf("%s: не является сертификатом", p.cert)
 	}
 	usage := x509.ExtKeyUsageClientAuth
 	if p.server {
@@ -320,28 +320,28 @@ func verifyPair(b *Bundle, p pair, roots *x509.CertPool, coreName string, now ti
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
 		var invalid x509.CertificateInvalidError
 		if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
-			return Leaf{}, fmt.Errorf("%s: серт %s истёк или ещё не начал действовать (проверь часы)", p.cert, cert.Subject.CommonName)
+			return Leaf{}, fmt.Errorf("%s: срок действия сертификата %s истёк или ещё не начался (проверьте системное время)", p.cert, cert.Subject.CommonName)
 		}
-		return Leaf{}, fmt.Errorf("%s: серт %s не подписан CA из пакета или не для этой цели", p.cert, cert.Subject.CommonName)
+		return Leaf{}, fmt.Errorf("%s: сертификат %s не подписан CA из пакета или не предназначен для этой цели", p.cert, cert.Subject.CommonName)
 	}
 	key, err := mtls.ParseKeyPEM(b.Files[p.key])
 	if err != nil {
-		return Leaf{}, fmt.Errorf("%s: не ключ", p.key)
+		return Leaf{}, fmt.Errorf("%s: не является ключом", p.key)
 	}
 	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
 	if !ok || !pub.Equal(&key.PublicKey) {
-		return Leaf{}, fmt.Errorf("%s не от серта %s", p.key, p.cert)
+		return Leaf{}, fmt.Errorf("%s не соответствует сертификату %s", p.key, p.cert)
 	}
 	leaf := Leaf{Path: p.cert, Name: cert.Subject.CommonName, Serial: cert.SerialNumber.String(), NotAfter: cert.NotAfter}
 	if p.server {
 		if err := cert.VerifyHostname(coreName); err != nil {
-			return Leaf{}, fmt.Errorf("серт ядра выпущен на %s, а SYLPH_CORE_NAME = %s", strings.Join(cert.DNSNames, ", "), coreName)
+			return Leaf{}, fmt.Errorf("сертификат ядра выпущен для %s, а SYLPH_CORE_NAME = %s", strings.Join(cert.DNSNames, ", "), coreName)
 		}
 		return leaf, nil
 	}
 	got, _ := mtls.RoleOf(cert)
 	if got != p.role {
-		return Leaf{}, fmt.Errorf("%s: серт %s с ролью %q, а нужна %q", p.cert, cert.Subject.CommonName, got, p.role)
+		return Leaf{}, fmt.Errorf("%s: сертификат %s выпущен для роли %q, требуется %q", p.cert, cert.Subject.CommonName, got, p.role)
 	}
 	leaf.Role = got
 	return leaf, nil

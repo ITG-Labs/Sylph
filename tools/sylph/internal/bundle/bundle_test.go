@@ -130,11 +130,11 @@ func TestVerifyRejects(t *testing.T) {
 		want   string
 	}{
 		"foreign CA":       {func(b *Bundle) { b.Files[CAFile] = foreign }, now, "не подписан"},
-		"key from another": {func(b *Bundle) { b.Files["key.pem"] = botBundle.Files["key.pem"] }, now, "не от серта"},
-		"cert of bot role": {func(b *Bundle) { b.Files["cert.pem"] = botBundle.Files["cert.pem"]; b.Files["key.pem"] = botBundle.Files["key.pem"] }, now, "с ролью \"bot\""},
+		"key from another": {func(b *Bundle) { b.Files["key.pem"] = botBundle.Files["key.pem"] }, now, "не соответствует сертификату"},
+		"cert of bot role": {func(b *Bundle) { b.Files["cert.pem"] = botBundle.Files["cert.pem"]; b.Files["key.pem"] = botBundle.Files["key.pem"] }, now, "для роли \"bot\""},
 		"expired":          {func(b *Bundle) {}, now.Add(400 * 24 * time.Hour), "истёк"},
-		"missing key":      {func(b *Bundle) { delete(b.Files, "key.pem") }, now, "нет key.pem"},
-		"leaf as CA":       {func(b *Bundle) { b.Files[CAFile] = b.Files["cert.pem"] }, now, "не серт CA"},
+		"missing key":      {func(b *Bundle) { delete(b.Files, "key.pem") }, now, "отсутствует key.pem"},
+		"leaf as CA":       {func(b *Bundle) { b.Files[CAFile] = b.Files["cert.pem"] }, now, "не является сертификатом CA"},
 	}
 	for name, c := range cases {
 		b := roundTrip(t, good)
@@ -193,7 +193,7 @@ func TestDecodeRejects(t *testing.T) {
 	if _, err := Load("sylph-certs:!!!"); err == nil {
 		t.Error("bad base64 should fail")
 	}
-	if _, err := Load(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "нет файла") {
+	if _, err := Load(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "не найден") {
 		t.Errorf("missing file: %v", err)
 	}
 }

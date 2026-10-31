@@ -51,20 +51,20 @@ func parseLine(line string) (string, string, bool, error) {
 	key, raw, found := strings.Cut(trimmed, "=")
 	key = strings.TrimSpace(key)
 	if !found || !keyPattern.MatchString(key) {
-		return "", "", false, fmt.Errorf("ожидаю строку вида КЛЮЧ=значение")
+		return "", "", false, fmt.Errorf("ожидается строка вида КЛЮЧ=значение")
 	}
 	raw = strings.TrimSpace(raw)
 	switch {
 	case strings.HasPrefix(raw, "'"):
 		end := strings.Index(raw[1:], "'")
 		if end < 0 {
-			return "", "", false, fmt.Errorf("не закрыта кавычка в %s", key)
+			return "", "", false, fmt.Errorf("не закрыта кавычка в значении %s", key)
 		}
 		return key, raw[1 : end+1], true, nil
 	case strings.HasPrefix(raw, `"`):
 		end := strings.Index(raw[1:], `"`)
 		if end < 0 {
-			return "", "", false, fmt.Errorf("не закрыта кавычка в %s", key)
+			return "", "", false, fmt.Errorf("не закрыта кавычка в значении %s", key)
 		}
 		return key, raw[1 : end+1], true, nil
 	}
@@ -130,7 +130,7 @@ func Quote(value string) string {
 
 func ValidValue(value string) error {
 	if strings.ContainsAny(value, "'\n\r") {
-		return fmt.Errorf("без одинарных кавычек и переводов строки")
+		return fmt.Errorf("значение не должно содержать одинарных кавычек и переводов строки")
 	}
 	return nil
 }
@@ -167,7 +167,7 @@ func Render(template []byte, values *Env) ([]byte, error) {
 		}
 	}
 	if len(extra) > 0 {
-		out.WriteString("\n# Свои переменные (их нет в примере роли)\n")
+		out.WriteString("\n# Дополнительные переменные (отсутствуют в примере роли)\n")
 		for _, k := range extra {
 			if err := ValidValue(values.values[k]); err != nil {
 				return nil, fmt.Errorf("%s: %w", k, err)

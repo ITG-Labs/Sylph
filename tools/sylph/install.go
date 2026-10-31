@@ -41,13 +41,13 @@ type installOpts struct {
 
 func cmdInstall(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "install", "sudo ./sylph install [роль] [флаги]")
-	dir := fs.String("dir", "", "папка роли (по умолчанию ./sylph-<роль>)")
-	envFile := fs.String("env", "", "файл с настройками роли: установка без вопросов")
-	certs := fs.String("certs", "", "пакет сертов: файл .sylph-certs, строка sylph-certs:… или - (прочитать со stdin)")
+	dir := fs.String("dir", "", "каталог роли (по умолчанию ./sylph-<роль>)")
+	envFile := fs.String("env", "", "файл с настройками роли для установки без вопросов")
+	certs := fs.String("certs", "", "пакет сертификатов: файл .sylph-certs, строка sylph-certs:… или - (чтение из stdin)")
 	var admins multiFlag
-	fs.Var(&admins, "admin", "имя нового админа панели (флаг можно повторять)")
-	yes := fs.Bool("yes", false, "не спрашивать подтверждение; предупреждения не останавливают")
-	ver := fs.String("version", "", "тег образов вместо версии бинаря")
+	fs.Var(&admins, "admin", "имя нового администратора панели (флаг можно повторять)")
+	yes := fs.Bool("yes", false, "не запрашивать подтверждение; предупреждения не прерывают установку")
+	ver := fs.String("version", "", "тег образов вместо версии sylph")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
@@ -96,7 +96,7 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	}
 	interactive := u.TTY && o.envFile == ""
 	if o.envFile == "" && !u.TTY {
-		return errors.New("нет терминала для мастера: передай настройки через --env <файл>")
+		return errors.New("нет терминала для мастера установки: передайте настройки через --env <файл>")
 	}
 	if api := os.Getenv("SYLPH_TELEGRAM_API"); api != "" {
 		machine.TelegramAPI = strings.TrimRight(api, "/")
@@ -104,7 +104,7 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	wz := wizardFor(u)
 	sub := "образы " + imgVer
 	if u.Sink == nil {
-		sub += " · Ctrl+C — выйти"
+		sub += " · Ctrl+C — выход"
 	}
 	u.Banner("установка роли", sub)
 	u.Section("Docker")
@@ -119,7 +119,7 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 	case interactive:
 		p.r, err = wz.ChooseRole()
 	default:
-		err = errors.New("укажи роль: sudo ./sylph install <роль> --env …")
+		err = errors.New("укажите роль: sudo ./sylph install <роль> --env …")
 	}
 	if err != nil {
 		return err
@@ -177,11 +177,11 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 		}
 		bundleIn = o.certs
 		if bundleIn == "" && curErr != nil {
-			return errors.New("нужен пакет сертов: --certs <файл или строка sylph-certs:…>")
+			return errors.New("укажите пакет сертификатов: --certs <файл или строка sylph-certs:…>")
 		}
 	}
 	if p.r.Admins && len(p.adminNames) == 0 && len(p.newAdmins) == 0 {
-		return errors.New("у панели нет ни одного админа: добавь хотя бы одного")
+		return errors.New("у панели нет администраторов: добавьте хотя бы одного")
 	}
 	if errs := p.r.Validate(p.env); len(errs) > 0 {
 		u.Section("Настройки с ошибками")
@@ -206,20 +206,20 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 		}
 	}
 
-	u.Section("Проверка машины")
+	u.Section("Проверка сервера")
 	warnings, err := p.checks(ctx, u, now)
 	if err != nil {
 		return shown(err)
 	}
 
-	u.Section("Что ставлю")
+	u.Section("Параметры установки")
 	u.Box(p.r.Title, p.summary(), ui.Accent)
 	if warnings > 0 {
-		u.Warn(fmt.Sprintf("предупреждений: %d — посмотри выше", warnings))
+		u.Warn(fmt.Sprintf("предупреждений: %d (см. выше)", warnings))
 	}
 	switch {
 	case interactive && !o.yes:
-		ok, err := wz.Confirm("Ставим?", "запишу папку роли, подниму контейнеры и дождусь здоровья", true)
+		ok, err := wz.Confirm("Выполнить установку?", "будут записаны файлы роли, запущены контейнеры и проверено их состояние", true)
 		if err != nil {
 			return err
 		}
@@ -227,7 +227,7 @@ func install(ctx context.Context, u *ui.UI, o installOpts) error {
 			return wizard.ErrAborted
 		}
 	case !interactive && warnings > 0 && !o.yes:
-		return errors.New("есть предупреждения: проверь их и запусти ещё раз с --yes")
+		return errors.New("есть предупреждения: проверьте их и повторите запуск с --yes")
 	}
 
 	u.Section("Установка")
@@ -244,7 +244,7 @@ func (p *plan) load(imgVer string) error {
 	p.firstInstall = !exists(envPath)
 	if !p.firstInstall {
 		if existing, err := roleOfDir(p.dir); err == nil && existing.Name != p.r.Name {
-			return fmt.Errorf("в %s стоит роль %s, а не %s", p.dir, existing.Name, p.r.Name)
+			return fmt.Errorf("в %s установлена роль %s, а не %s", p.dir, existing.Name, p.r.Name)
 		}
 		old, err := readEnv(p.dir)
 		if err != nil {
@@ -255,7 +255,7 @@ func (p *plan) load(imgVer string) error {
 		p.env.Merge(old)
 	}
 	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
-		return fmt.Errorf("в %s есть база Postgres, но в .env нет её пароля: пароль базы не восстановить — верни .env", p.dir)
+		return fmt.Errorf("в %s есть база Postgres, но в .env нет её пароля: пароль базы восстановить невозможно, верните прежний .env", p.dir)
 	}
 	if err := p.r.Pin(p.env, imgVer); err != nil {
 		return err
@@ -278,7 +278,7 @@ func (p *plan) load(imgVer string) error {
 func (p *plan) fromFile(o installOpts, imgVer string) error {
 	data, err := os.ReadFile(o.envFile)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("нет файла %s", o.envFile)
+		return fmt.Errorf("файл %s не найден", o.envFile)
 	}
 	if err != nil {
 		return err
@@ -296,14 +296,14 @@ func (p *plan) fromFile(o installOpts, imgVer string) error {
 		return err
 	}
 	if p.r.Name == "core" && !p.firstInstall && p.env.Get(role.KeyPassword) != password {
-		return errors.New("POSTGRES_PASSWORD менять нельзя: база создана со старым паролем")
+		return errors.New("POSTGRES_PASSWORD нельзя изменить: база создана с прежним паролем")
 	}
 	if p.r.Name == "core" && p.env.Get(role.KeyPassword) == "" {
 		p.env.Set(role.KeyPassword, password)
 	}
 	if !p.r.Admins {
 		if len(o.admins) > 0 {
-			return fmt.Errorf("--admin бывает только у панели")
+			return fmt.Errorf("--admin используется только для панели")
 		}
 		return nil
 	}
@@ -314,7 +314,7 @@ func (p *plan) fromFile(o installOpts, imgVer string) error {
 	for _, n := range names {
 		for _, e := range p.adminNames {
 			if n == e {
-				return fmt.Errorf("админ %q уже есть", n)
+				return fmt.Errorf("администратор %q уже существует", n)
 			}
 		}
 	}
@@ -346,10 +346,10 @@ func dockerChecks(ctx context.Context, u *ui.UI) error {
 	if _, err := u.Step(ctx, "Docker", func(ctx context.Context, set func(string)) (string, error) {
 		v, arch, err := compose.DockerInfo(ctx)
 		if err != nil {
-			return "", errors.New("не отвечает: поставь Docker Engine (docs.docker.com/engine/install) и запусти его")
+			return "", errors.New("не отвечает: установите Docker Engine (docs.docker.com/engine/install) и запустите его")
 		}
 		if arch != "amd64" && arch != "x86_64" {
-			return "", fmt.Errorf("образы Sylph собраны только под amd64, а тут %s", arch)
+			return "", fmt.Errorf("образы Sylph собраны только для amd64, а на сервере %s", arch)
 		}
 		return v, nil
 	}); err != nil {
@@ -358,10 +358,10 @@ func dockerChecks(ctx context.Context, u *ui.UI) error {
 	_, err := u.Step(ctx, "Docker Compose", func(ctx context.Context, set func(string)) (string, error) {
 		v, err := compose.Version(ctx)
 		if err != nil {
-			return "", errors.New("нет плагина docker compose: поставь docker-compose-plugin")
+			return "", errors.New("плагин docker compose не установлен: установите docker-compose-plugin")
 		}
 		if !compose.AtLeast(v, minCompose) {
-			return "", fmt.Errorf("compose %s старый, нужен %s или новее", v, minCompose)
+			return "", fmt.Errorf("версия compose %s устарела, требуется %s или новее", v, minCompose)
 		}
 		return v, nil
 	})
@@ -396,7 +396,7 @@ func (p *plan) checks(ctx context.Context, u *ui.UI, now time.Time) (int, error)
 			return warnings, err
 		}
 	}
-	if err := step("Часы", machine.TimeSync); err != nil {
+	if err := step("Системное время", machine.TimeSync); err != nil {
 		return warnings, err
 	}
 	if err := step("Место на диске", func(context.Context) machine.Result { return machine.DiskFree(p.dir) }); err != nil {
@@ -412,7 +412,7 @@ func (p *plan) checks(ctx context.Context, u *ui.UI, now time.Time) (int, error)
 	}
 	if port := p.env.Get(role.KeyPort); p.r.DomainKey != "" && port != "443" {
 		if err := step("Let's Encrypt", func(context.Context) machine.Result {
-			return machine.Result{Level: machine.Warn, Detail: "проверяет домен только на 443: с портом " + port + " серт выпустится, если 443 снаружи проброшен на " + port}
+			return machine.Result{Level: machine.Warn, Detail: "Let's Encrypt проверяет домен только на порту 443: с портом " + port + " сертификат будет выпущен, если внешний порт 443 перенаправлен на " + port}
 		}); err != nil {
 			return warnings, err
 		}
@@ -423,7 +423,7 @@ func (p *plan) checks(ctx context.Context, u *ui.UI, now time.Time) (int, error)
 			return warnings, err
 		}
 	}
-	if err := step("Серты", func(context.Context) machine.Result { return p.certsResult(now) }); err != nil {
+	if err := step("Сертификаты", func(context.Context) machine.Result { return p.certsResult(now) }); err != nil {
 		return warnings, err
 	}
 	if p.r.Name != "core" {
@@ -452,7 +452,7 @@ func (p *plan) certsResult(now time.Time) machine.Result {
 	}
 	detail := fmt.Sprintf("%s: %s, до %s", source, strings.Join(names, " + "), first.NotAfter.Local().Format("02.01.2006"))
 	if first.NotAfter.Sub(now) < 30*24*time.Hour {
-		return machine.Result{Level: machine.Warn, Detail: detail + " — меньше 30 дней, перевыпусти"}
+		return machine.Result{Level: machine.Warn, Detail: detail + " — осталось меньше 30 дней, выпустите новые"}
 	}
 	return machine.Result{Level: machine.OK, Detail: detail}
 }
@@ -478,7 +478,7 @@ func (p *plan) summary() string {
 	if p.prevVersion != "" && p.prevVersion != ver {
 		ver = p.prevVersion + " → " + ver
 	}
-	rows := [][2]string{{"папка", p.dir}, {"образы", ver}}
+	rows := [][2]string{{"каталог", p.dir}, {"образы", ver}}
 	if p.firstInstall {
 		rows[0][1] += ui.Dimmed(" (новая)")
 	}
@@ -502,7 +502,7 @@ func (p *plan) summary() string {
 		}
 	}
 	if len(p.leaves) > 0 {
-		rows = append(rows, [2]string{"серты", p.certsResult(time.Now()).Detail})
+		rows = append(rows, [2]string{"сертификаты", p.certsResult(time.Now()).Detail})
 	}
 	if p.r.Admins {
 		admins := strings.Join(p.adminNames, ", ")
@@ -512,10 +512,10 @@ func (p *plan) summary() string {
 			}
 			admins += "новые: " + strings.Join(p.newAdmins, ", ")
 		}
-		rows = append(rows, [2]string{"админы", admins})
+		rows = append(rows, [2]string{"администраторы", admins})
 	}
 	if p.r.Name == "node" && !p.firstInstall && p.prevCaddy != p.env.Get(role.KeyCaddyVersion) {
-		rows = append(rows, [2]string{"Caddy", ui.Colored(ui.Yellow, "новая сборка — Caddy и xray пересоздадутся, клиенты оборвутся на несколько секунд")})
+		rows = append(rows, [2]string{"Caddy", ui.Colored(ui.Yellow, "новая сборка: Caddy и xray будут пересозданы, подключения клиентов прервутся на несколько секунд")})
 	}
 	return ui.KV(rows)
 }
@@ -536,7 +536,7 @@ func display(f role.Field, v string) string {
 
 func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactive bool) error {
 	wasRunning := projectRunning(ctx, p.dir)
-	if _, err := u.Step(ctx, "Папка роли", func(ctx context.Context, set func(string)) (string, error) {
+	if _, err := u.Step(ctx, "Каталог роли", func(ctx context.Context, set func(string)) (string, error) {
 		created := !exists(p.dir)
 		if err := os.MkdirAll(p.dir, 0o755); err != nil {
 			return "", err
@@ -557,7 +557,7 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 			return "", err
 		}
 		if len(backups) > 0 {
-			return p.dir + ", прежние: " + strings.Join(backups, ", "), nil
+			return p.dir + ", резервные копии: " + strings.Join(backups, ", "), nil
 		}
 		return p.dir, nil
 	}); err != nil {
@@ -566,27 +566,27 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 
 	certsChanged := false
 	if p.newBundle != nil {
-		if _, err := u.Step(ctx, "Серты", func(ctx context.Context, set func(string)) (string, error) {
+		if _, err := u.Step(ctx, "Сертификаты", func(ctx context.Context, set func(string)) (string, error) {
 			changed, err := writeCerts(p.dir, p.newBundle)
 			certsChanged = changed
 			if err != nil {
 				return "", err
 			}
 			if !changed {
-				return "те же, что стояли", nil
+				return "без изменений", nil
 			}
-			return "разложены в certs/", nil
+			return "записаны в certs/", nil
 		}); err != nil {
 			return shown(err)
 		}
 	}
 
 	if _, err := u.Step(ctx, "Образы", func(ctx context.Context, set func(string)) (string, error) {
-		set("тяну недостающие")
+		set("загрузка недостающих")
 		if err := compose.Pull(ctx, p.dir); err != nil {
 			return "", err
 		}
-		return "на месте", nil
+		return "загружены", nil
 	}); err != nil {
 		return shown(err)
 	}
@@ -616,7 +616,7 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 	}
 
 	if p.r.Name == "core" {
-		if _, err := u.Step(ctx, "Ядро снаружи", func(ctx context.Context, set func(string)) (string, error) {
+		if _, err := u.Step(ctx, "Внешний доступ к ядру", func(ctx context.Context, set func(string)) (string, error) {
 			cc, err := cronCert(p.dir)
 			if err != nil {
 				return "", err
@@ -631,7 +631,7 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		}
 	}
 	if p.r.DomainKey != "" {
-		if _, err := u.Step(ctx, "Серт Let's Encrypt", func(ctx context.Context, set func(string)) (string, error) {
+		if _, err := u.Step(ctx, "Сертификат Let's Encrypt", func(ctx context.Context, set func(string)) (string, error) {
 			return waitACME(ctx, p.dir, p.env.Get(p.r.DomainKey))
 		}); err != nil && !ui.IsWarn(err) {
 			return shown(err)
@@ -640,10 +640,10 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 
 	u.Line("")
 	u.Box("Готово 🎉 "+p.r.Title, ui.KV([][2]string{
-		{"папка", p.dir},
+		{"каталог", p.dir},
 		{"образы", p.env.Get(role.KeyVersion)},
-		{"здоровье", ui.Colored(ui.Green, "все контейнеры в порядке")},
-	})+"\n\n"+ui.Bold("Дальше:")+"\n"+strings.Join(p.nextSteps(), "\n"), ui.Green)
+		{"состояние", ui.Colored(ui.Green, "все контейнеры работают")},
+	})+"\n\n"+ui.Bold("Далее:")+"\n"+strings.Join(p.nextSteps(), "\n"), ui.Green)
 	return nil
 }
 
@@ -653,7 +653,7 @@ func (p *plan) createAdmins(ctx context.Context, u *ui.UI, wz wizard.Wizard, int
 		name, password, uri string
 	}
 	var made []created
-	if _, err := u.Step(ctx, "Админы панели", func(ctx context.Context, set func(string)) (string, error) {
+	if _, err := u.Step(ctx, "Администраторы панели", func(ctx context.Context, set func(string)) (string, error) {
 		for _, name := range p.newAdmins {
 			set(name)
 			out, err := compose.Run(ctx, image, "new-admin", "--name", name, "--json")
@@ -666,7 +666,7 @@ func (p *plan) createAdmins(ctx context.Context, u *ui.UI, wz wizard.Wizard, int
 				TOTPURI  string          `json:"totp_uri"`
 			}
 			if err := json.Unmarshal(out, &res); err != nil || len(res.Record) == 0 || res.Password == "" {
-				return "", errors.New("new-admin в образе панели ответил не JSON — образ старше установщика?")
+				return "", errors.New("new-admin в образе панели вернул не JSON; возможно, образ старше установщика")
 			}
 			p.admins = append(p.admins, adminRecord(res.Record))
 			made = append(made, created{name, res.Password, res.TOTPURI})
@@ -680,21 +680,21 @@ func (p *plan) createAdmins(ctx context.Context, u *ui.UI, wz wizard.Wizard, int
 	}
 	for _, a := range made {
 		u.Line("")
-		u.Box("Админ "+a.name+" — показываю один раз", ui.KV([][2]string{{"логин", a.name}, {"пароль", ui.Bold(a.password)}}), ui.Yellow)
+		u.Box("Администратор "+a.name+" (данные показываются один раз)", ui.KV([][2]string{{"логин", a.name}, {"пароль", ui.Bold(a.password)}}), ui.Yellow)
 		qr, err := ui.QR(a.uri)
 		if err != nil {
 			return err
 		}
-		u.Line(ui.Dimmed("TOTP: отсканируй в приложении-аутентификаторе"))
+		u.Line(ui.Dimmed("TOTP: отсканируйте код в приложении-аутентификаторе"))
 		u.Line(qr)
-		u.Line(ui.Dimmed("или вручную: ") + a.uri)
+		u.Line(ui.Dimmed("или введите вручную: ") + a.uri)
 	}
 	if interactive {
-		title := "Сохранил пароль и добавил TOTP в приложение?"
+		title := "Пароль сохранён и TOTP добавлен в приложение?"
 		if len(made) > 1 {
-			title = "Сохранил пароли и TOTP всех новых админов?"
+			title = "Пароли и TOTP всех новых администраторов сохранены?"
 		}
-		if err := wz.Pause(title, "больше их нигде не будет: в admins.json только хэш и секрет; выше листается PgUp"); err != nil {
+		if err := wz.Pause(title, "повторно они показаны не будут: admins.json содержит только хэш и секрет; для прокрутки вверх используйте PgUp"); err != nil {
 			return err
 		}
 	}
@@ -716,21 +716,21 @@ func cronCert(dir string) (machine.ClientCert, error) {
 
 func waitHealthy(ctx context.Context, u *ui.UI, dir string) error {
 	var verdict compose.Verdict
-	_, err := u.Step(ctx, "Здоровье", func(ctx context.Context, set func(string)) (string, error) {
+	_, err := u.Step(ctx, "Состояние", func(ctx context.Context, set func(string)) (string, error) {
 		v, err := compose.Wait(ctx, dir, healthTimeout, stableFor, func(v compose.Verdict) {
 			set(progress(v))
 		})
 		verdict = v
 		if err != nil {
 			if errors.Is(err, compose.ErrTimeout) {
-				return "", fmt.Errorf("за %s не все поднялись: %s", healthTimeout, progress(v))
+				return "", fmt.Errorf("за %s запустились не все контейнеры: %s", healthTimeout, progress(v))
 			}
 			return "", err
 		}
 		if s, failed := v.Failure(); failed {
 			return "", fmt.Errorf("%s: %s", s.Name, s.Detail)
 		}
-		return fmt.Sprintf("%d/%d контейнеров в порядке", v.Ready(), len(v.States)), nil
+		return fmt.Sprintf("%d/%d контейнеров работают", v.Ready(), len(v.States)), nil
 	})
 	if err == nil {
 		return nil
@@ -750,8 +750,8 @@ func waitHealthy(ctx context.Context, u *ui.UI, dir string) error {
 		}
 	}
 	if bad != "" {
-		u.Box("Лог "+bad+" (последние 40 строк)", compose.Logs(context.WithoutCancel(ctx), dir, bad, 40), ui.Red)
-		u.Info("полный лог: cd " + dir + " && sudo docker compose logs " + bad)
+		u.Box("Журнал "+bad+" (последние 40 строк)", compose.Logs(context.WithoutCancel(ctx), dir, bad, 40), ui.Red)
+		u.Info("полный журнал: cd " + dir + " && sudo docker compose logs " + bad)
 	}
 	return shown(err)
 }
@@ -775,10 +775,10 @@ func waitACME(ctx context.Context, dir string, domain string) (string, error) {
 			return "", err
 		}
 		if len(matches) > 0 {
-			return "есть для " + domain, nil
+			return "выпущен для " + domain, nil
 		}
 		if time.Now().After(deadline) {
-			return "", ui.WarnError{Msg: "за 2 мин не выпущен — проверь DNS и 443/tcp у провайдера; лог: docker compose logs caddy"}
+			return "", ui.WarnError{Msg: "не выпущен за 2 минуты: проверьте DNS и доступность 443/tcp у провайдера; журнал: docker compose logs caddy"}
 		}
 		select {
 		case <-ctx.Done():
@@ -790,7 +790,7 @@ func waitACME(ctx context.Context, dir string, domain string) (string, error) {
 
 func (p *plan) nextSteps() []string {
 	port := p.env.Get(role.KeyPort)
-	addr := "<IP машины>"
+	addr := "<IP сервера>"
 	for _, ip := range machine.LocalIPs() {
 		if ip.Is4() {
 			addr = ip.String()
@@ -801,16 +801,16 @@ func (p *plan) nextSteps() []string {
 	switch p.r.Name {
 	case "core":
 		steps = append(steps,
-			"• остальным ролям: SYLPH_CORE_URL=https://"+addr+":"+port,
-			"• дальше по порядку: ноды → панель → бот и subs → монитор",
+			"• для остальных ролей: SYLPH_CORE_URL=https://"+addr+":"+port,
+			"• далее по порядку: ноды → панель → бот и subs → монитор",
 		)
 	case "panel":
 		steps = append(steps,
 			"• вход: https://"+p.env.Get(p.r.DomainKey),
-			"• «Настройки» → название подписки и ссылка поддержки",
+			"• в разделе «Настройки» задайте название подписки и ссылку поддержки",
 		)
 	case "bot":
-		steps = append(steps, "• в кабинете ЮKassa URL уведомлений: https://"+p.env.Get(p.r.DomainKey)+"/yookassa")
+		steps = append(steps, "• в личном кабинете ЮKassa укажите URL уведомлений: https://"+p.env.Get(p.r.DomainKey)+"/yookassa")
 	case "subs":
 		steps = append(steps, "• у бота SYLPH_SUBS_URL=https://"+p.env.Get(p.r.DomainKey))
 	case "node":
@@ -819,14 +819,14 @@ func (p *plan) nextSteps() []string {
 			cn = p.leaves[0].Name
 		}
 		steps = append(steps,
-			"• в панели создай ноду: cert_cn = "+cn+", адрес = "+addr,
-			"• профили маршрутизации — после того, как нода вышла на связь",
+			"• создайте ноду в панели: cert_cn = "+cn+", адрес = "+addr,
+			"• профили маршрутизации назначайте после того, как нода выйдет на связь",
 		)
 	case "monitor":
-		steps = append(steps, "• каждый из получателей пишет боту алертов /start и проверяет /status")
+		steps = append(steps, "• каждый получатель уведомлений должен отправить боту мониторинга /start и проверить /status")
 	}
 	if port != "" {
-		steps = append(steps, "• "+port+"/tcp должен быть открыт у провайдера (Docker публикует порт мимо ufw/firewalld)")
+		steps = append(steps, "• "+port+"/tcp должен быть открыт у провайдера (Docker публикует порт в обход ufw/firewalld)")
 	}
 	return steps
 }

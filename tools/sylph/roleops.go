@@ -13,18 +13,18 @@ import (
 )
 
 var stopWarnings = map[string]string{
-	"core":    "ядро и база встанут: панель, бот, subs и ноды потеряют ядро, ноды продолжат пускать по кэшу",
-	"node":    "клиенты на этой ноде отключатся",
+	"core":    "ядро и база данных будут остановлены: панель, бот, subs и ноды потеряют связь с ядром, ноды продолжат обслуживать клиентов по кэшу",
+	"node":    "клиенты этой ноды будут отключены",
 	"panel":   "панель будет недоступна",
-	"bot":     "бот перестанет отвечать, вебхуки ЮKassa не дойдут — оплаты подхватит крон",
+	"bot":     "бот перестанет отвечать, уведомления ЮKassa не будут доставлены; оплаты обработает cron",
 	"subs":    "клиенты не смогут обновить подписку",
-	"monitor": "алерты перестанут приходить",
+	"monitor": "уведомления мониторинга перестанут приходить",
 }
 
 func cmdStop(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "stop", "sudo ./sylph stop [роль] [флаги]")
-	dir := fs.String("dir", "", "папка роли")
-	yes := fs.Bool("yes", false, "не спрашивать подтверждение")
+	dir := fs.String("dir", "", "каталог роли")
+	yes := fs.Bool("yes", false, "не запрашивать подтверждение")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
@@ -35,9 +35,9 @@ func cmdStop(ctx context.Context, u *ui.UI, args []string) error {
 	}
 	if !*yes {
 		if !u.TTY {
-			return errors.New("без терминала останавливаю только с --yes")
+			return errors.New("без терминала остановка выполняется только с флагом --yes")
 		}
-		ok, err := wizardFor(u).Confirm("Остановить "+in.Role.Name+"?", stopWarnings[in.Role.Name]+"; запустить снова — start", false)
+		ok, err := wizardFor(u).Confirm("Остановить "+in.Role.Name+"?", stopWarnings[in.Role.Name]+". Для запуска используйте start", false)
 		if err != nil {
 			return err
 		}
@@ -46,7 +46,7 @@ func cmdStop(ctx context.Context, u *ui.UI, args []string) error {
 		}
 	}
 	if _, err := u.Step(ctx, "Остановка "+in.Role.Name, func(ctx context.Context, set func(string)) (string, error) {
-		return "контейнеры остановлены, после перезагрузки сами не поднимутся", compose.Stop(ctx, in.Dir)
+		return "контейнеры остановлены и не запустятся автоматически после перезагрузки", compose.Stop(ctx, in.Dir)
 	}); err != nil {
 		return shown(err)
 	}
@@ -55,7 +55,7 @@ func cmdStop(ctx context.Context, u *ui.UI, args []string) error {
 
 func cmdStart(ctx context.Context, u *ui.UI, args []string) error {
 	fs := newFlags(u, "start", "sudo ./sylph start [роль] [флаги]")
-	dir := fs.String("dir", "", "папка роли")
+	dir := fs.String("dir", "", "каталог роли")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
 		return err
@@ -84,7 +84,7 @@ func pickRole(ctx context.Context, u *ui.UI, pos []string, dir string) (installe
 		return installed{}, err
 	}
 	if len(roles) == 0 {
-		return installed{}, errors.New("ролей sylph на машине не нашёл (ищу через docker compose ls); укажи папку роли через --dir")
+		return installed{}, errors.New("роли sylph на сервере не найдены (поиск через docker compose ls); укажите каталог роли через --dir")
 	}
 	if len(pos) == 1 {
 		for _, in := range roles {
@@ -92,19 +92,19 @@ func pickRole(ctx context.Context, u *ui.UI, pos []string, dir string) (installe
 				return in, nil
 			}
 		}
-		return installed{}, fmt.Errorf("роли %s на машине нет", pos[0])
+		return installed{}, fmt.Errorf("роль %s на сервере не установлена", pos[0])
 	}
 	if len(roles) == 1 {
 		return roles[0], nil
 	}
 	if !u.TTY {
-		return installed{}, errors.New("на машине несколько ролей: укажи, какую")
+		return installed{}, errors.New("на сервере несколько ролей: укажите нужную")
 	}
 	labels := make([]string, len(roles))
 	for i, in := range roles {
 		labels[i] = in.Role.Title + "  " + ui.Dimmed(in.Dir)
 	}
-	idx, err := wizardFor(u).Select("Какую роль?", labels)
+	idx, err := wizardFor(u).Select("Выберите роль", labels)
 	if err != nil {
 		return installed{}, err
 	}

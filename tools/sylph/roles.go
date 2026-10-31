@@ -42,11 +42,11 @@ func roleDir(dir string, r *role.Role) (string, error) {
 func checkRoleDir(dir string) error {
 	for _, tmp := range []string{"/tmp", "/var/tmp", "/dev/shm", "/run"} {
 		if dir == tmp || strings.HasPrefix(dir, tmp+"/") {
-			return fmt.Errorf("папка роли %s во временной папке — после перезагрузки пропадёт: запусти sylph из домашней папки или укажи --dir", dir)
+			return fmt.Errorf("каталог роли %s находится во временном каталоге и будет удалён после перезагрузки: запустите sylph из домашнего каталога или укажите --dir", dir)
 		}
 	}
 	if onTmpfs(filepath.Dir(dir)) {
-		return fmt.Errorf("папка роли %s на tmpfs — после перезагрузки пропадёт: укажи --dir на диске", dir)
+		return fmt.Errorf("каталог роли %s находится на tmpfs и будет удалён после перезагрузки: укажите --dir на диске", dir)
 	}
 	if err := trustedDir(filepath.Dir(dir)); err != nil {
 		return err
@@ -64,7 +64,7 @@ func checkRoleDir(dir string) error {
 	if len(entries) == 0 || exists(filepath.Join(dir, "compose.yml")) || strings.HasPrefix(filepath.Base(dir), "sylph-") {
 		return nil
 	}
-	return fmt.Errorf("папка %s не пустая и это не папка роли: укажи новую или пустую через --dir", dir)
+	return fmt.Errorf("каталог %s не пуст и не является каталогом роли: укажите новый или пустой каталог через --dir", dir)
 }
 
 func onTmpfs(dir string) bool {
@@ -88,7 +88,7 @@ func notInstalledElsewhere(ctx context.Context, r *role.Role, dir string) error 
 	}
 	for _, p := range projects {
 		if p.Name == "sylph-"+r.Name && p.Dir != dir {
-			return fmt.Errorf("роль %s уже стоит в %s: запусти sylph из той папки или укажи --dir %s", r.Name, p.Dir, p.Dir)
+			return fmt.Errorf("роль %s уже установлена в %s: запустите sylph из этого каталога или укажите --dir %s", r.Name, p.Dir, p.Dir)
 		}
 	}
 	return nil
@@ -103,7 +103,7 @@ func trustedDir(dir string) error {
 		return err
 	}
 	if st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("папка %s — симлинк: укажи настоящую папку", dir)
+		return fmt.Errorf("каталог %s является символической ссылкой: укажите реальный каталог", dir)
 	}
 	sys, ok := st.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -115,10 +115,10 @@ func trustedDir(dir string) error {
 		sudoUID = -1
 	}
 	if owner != 0 && owner != sudoUID {
-		return fmt.Errorf("папка %s принадлежит чужому юзеру (uid %d) — не доверяю ей", dir, owner)
+		return fmt.Errorf("каталог %s принадлежит другому пользователю (uid %d) и не считается доверенным", dir, owner)
 	}
 	if st.Mode().Perm()&0o022 != 0 && st.Mode()&os.ModeSticky == 0 {
-		return fmt.Errorf("в папку %s могут писать другие — не доверяю ей", dir)
+		return fmt.Errorf("каталог %s доступен для записи другим пользователям и не считается доверенным", dir)
 	}
 	return nil
 }
@@ -138,7 +138,7 @@ func roleOfDir(dir string) (*role.Role, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("%s: это не папка роли sylph", dir)
+	return nil, fmt.Errorf("%s: это не каталог роли sylph", dir)
 }
 
 func readEnv(dir string) (*envfile.Env, error) {
