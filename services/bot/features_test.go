@@ -121,6 +121,25 @@ func TestStatsByServerWithTabs(t *testing.T) {
 	}
 }
 
+func TestStatsByInboundNamedLikeTheSubscription(t *testing.T) {
+	st := &Stats{PeriodID: i64(3), Inbounds: []InboundStats{
+		{NodeID: 1, NodeName: "Германия", Tag: "main", Label: "REALITY", Period: 3 << 30},
+		{NodeID: 1, NodeName: "Германия", Tag: "cdn", Label: "", Period: 2 << 30},
+		{NodeID: 1, NodeName: "Германия", Tag: "", Period: 1 << 20},
+		{NodeID: 2, NodeName: "Финляндия", Tag: "main", Label: "REALITY", Period: 1 << 30},
+	}}
+	app, tg := newTestApp(t, &fakeCore{status: activeStatus(), stats: st})
+	app.Handle(context.Background(), tg, callback("stats:period"))
+	m := tg.last(t).text
+	mustContain(t, m, "Германия · REALITY", "3 ГБ", "Германия · cdn", "2 ГБ", "Финляндия\n", "Всего")
+	if strings.Contains(m, "Финляндия · ") {
+		t.Fatalf("a node with one inbound must read as the node:\n%s", m)
+	}
+	if strings.Index(m, "Германия · REALITY") > strings.Index(m, "Германия · cdn") {
+		t.Fatalf("rows are not sorted by traffic:\n%s", m)
+	}
+}
+
 func TestStatsWithoutPeriodOrTraffic(t *testing.T) {
 	core := &fakeCore{status: &Status{User: User{ID: 7, SubToken: "tok"}}, stats: &Stats{}}
 	app, tg := newTestApp(t, core)

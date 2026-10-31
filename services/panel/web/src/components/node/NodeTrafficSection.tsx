@@ -4,10 +4,16 @@ import { useQuery } from "@tanstack/react-query"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
 import { TrafficChart } from "@/components/node/TrafficChart"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { core } from "@/lib/api"
 import { fmtBytes, fmtTelegram } from "@/lib/format"
 import type { NodeTraffic } from "@/lib/types"
+
+const ALL = "*all"
+const NONE = "*none"
+const valueOf = (tag: string) => (tag === "" ? NONE : tag)
+const tagOf = (value: string) => (value === NONE ? "" : value)
 
 type Win = "today" | "days_7" | "days_30"
 
@@ -17,23 +23,45 @@ const windows: { key: Win; label: string; days: number; top: string }[] = [
   { key: "days_30", label: "30 дней", days: 30, top: "за 30 дней" },
 ]
 
-export function NodeTrafficSection({ nodeId }: { nodeId: number }) {
+export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbounds: { tag: string; label: string }[] }) {
   const [win, setWin] = useState<Win>("today")
+  const [inbound, setInbound] = useState(ALL)
   const stats = useQuery({
-    queryKey: ["node-traffic", nodeId],
-    queryFn: () => core.get<NodeTraffic>(`/v1/admin/nodes/${nodeId}/stats`),
+    queryKey: ["node-traffic", nodeId, inbound],
+    queryFn: () => core.get<NodeTraffic>(`/v1/admin/nodes/${nodeId}/stats${inbound === ALL ? "" : `?inbound=${encodeURIComponent(tagOf(inbound))}`}`),
     refetchInterval: 60_000,
+    placeholderData: (prev) => prev,
   })
   const w = windows.find((x) => x.key === win) ?? windows[0]
+  const options = [...inbounds.map((i) => ({ tag: i.tag, title: i.label ? `${i.label} · ${i.tag}` : i.tag }))]
+  for (const x of stats.data?.inbounds ?? []) {
+    if (!options.some((o) => o.tag === x.tag)) options.push({ tag: x.tag, title: x.tag === "" ? "Без разбивки по входам" : `${x.tag} (удалён)` })
+  }
+  const picker =
+    options.length > 1 || (stats.data?.inbounds ?? []).some((x) => x.tag === "") ? (
+      <Select value={inbound} onValueChange={setInbound}>
+        <SelectTrigger aria-label="Вход" className="w-auto min-w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Все входы</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.tag} value={valueOf(o.tag)}>
+              {o.title}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : undefined
 
   return (
-    <Section title="Трафик" description="вверх + вниз, сутки по Москве" className="mt-4">
+    <Section title="Трафик" description="вверх + вниз, сутки по Москве" className="mt-4" action={picker}>
       {stats.isPending ? (
         <LoadingBlock rows={2} />
       ) : stats.isError ? (
         <LoadError error={stats.error} onRetry={() => stats.refetch()} />
       ) : stats.data.days_30.up + stats.data.days_30.down === 0 ? (
-        <Empty>За 30 дней через ноду не прошло ни байта</Empty>
+        <Empty>{inbound === ALL ? "За 30 дней через ноду не прошло трафика" : "За 30 дней через этот вход не прошло трафика"}</Empty>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="flex min-w-0 flex-col gap-4">

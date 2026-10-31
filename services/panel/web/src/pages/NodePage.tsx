@@ -191,7 +191,7 @@ export function NodePage() {
         <NodeAddressesSection nodeId={n.id} />
       </div>
 
-      <NodeTrafficSection nodeId={n.id} />
+      <NodeTrafficSection nodeId={n.id} inbounds={inbounds.data ?? []} />
 
       <NodeFormDialog open={dialog?.kind === "edit"} onOpenChange={close} node={n} groups={groups.data ?? []} onDone={() => refresh()} />
       <ActionDialog

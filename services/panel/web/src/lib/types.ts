@@ -247,6 +247,7 @@ export interface UserAddress {
 export interface UserStats {
   period_id: number | null
   nodes: { node_id: number; name: string; today: number; days_7: number; days_30: number; period: number }[]
+  inbounds: { node_id: number; node_name: string; tag: string; label: string; today: number; days_7: number; days_30: number; period: number }[]
 }
 
 export interface Node {
@@ -386,6 +387,7 @@ export interface NodeTraffic {
   days_30: UpDown
   daily: (UpDown & { day: string })[]
   top: { today: TopUser[]; days_7: TopUser[]; days_30: TopUser[] }
+  inbounds: { tag: string; label: string; days_30: UpDown }[]
 }
 
 export interface HelpButton {

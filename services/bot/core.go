@@ -118,9 +118,21 @@ type NodeStats struct {
 	Period int64  `json:"period"`
 }
 
+type InboundStats struct {
+	NodeID   int64  `json:"node_id"`
+	NodeName string `json:"node_name"`
+	Tag      string `json:"tag"`
+	Label    string `json:"label"`
+	Today    int64  `json:"today"`
+	Days7    int64  `json:"days_7"`
+	Days30   int64  `json:"days_30"`
+	Period   int64  `json:"period"`
+}
+
 type Stats struct {
-	PeriodID *int64      `json:"period_id"`
-	Nodes    []NodeStats `json:"nodes"`
+	PeriodID *int64         `json:"period_id"`
+	Nodes    []NodeStats    `json:"nodes"`
+	Inbounds []InboundStats `json:"inbounds"`
 }
 
 type Redeem struct {

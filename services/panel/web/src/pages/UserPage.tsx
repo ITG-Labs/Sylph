@@ -237,14 +237,14 @@ export function UserPage() {
 
           <UserOnlineSection userId={u.id} presence={c.presence} />
 
-          <Section title="Трафик по серверам" description="вверх + вниз, сутки по Москве">
+          <Section title="Трафик по входам" description="вверх + вниз, сутки по Москве">
             {banned ? (
               <Empty>У забаненного статистика не показывается</Empty>
             ) : stats.isPending ? (
               <LoadingBlock rows={1} />
             ) : stats.isError ? (
               <LoadError error={stats.error} />
-            ) : stats.data.nodes.length === 0 ? (
+            ) : stats.data.inbounds.length === 0 ? (
               <Empty>Трафика ещё не было</Empty>
             ) : (
               <Tabs defaultValue="today">
@@ -255,13 +255,18 @@ export function UserPage() {
                   <TabsTrigger value="period">Период</TabsTrigger>
                 </TabsList>
                 {(["today", "days_7", "days_30", "period"] as const).map((k) => {
-                  const max = Math.max(1, ...stats.data.nodes.map((n) => n[k]))
+                  const rows = stats.data.inbounds.filter((n) => n[k] > 0)
+                  const max = Math.max(1, ...rows.map((n) => n[k]))
                   return (
                     <TabsContent key={k} value={k} className="flex flex-col gap-3 pt-1">
-                      {stats.data.nodes.map((n) => (
-                        <div key={n.node_id} className="flex flex-col gap-1.5">
-                          <div className="flex justify-between text-sm">
-                            <span>{n.name}</span>
+                      {rows.length === 0 && <Empty>За этот срок трафика не было</Empty>}
+                      {rows.map((n) => (
+                        <div key={`${n.node_id}:${n.tag}`} className="flex flex-col gap-1.5">
+                          <div className="flex justify-between gap-3 text-sm">
+                            <span className="min-w-0 truncate">
+                              {n.node_name}
+                              <span className="text-muted-foreground"> · {n.tag === "" ? "без разбивки по входам" : n.label || n.tag}</span>
+                            </span>
                             <span className="tabular-nums">{fmtBytes(n[k])}</span>
                           </div>
                           <div className="h-1.5 overflow-hidden rounded-full bg-black/30 shadow-[inset_0_1px_1px_0_oklch(0_0_0/35%)]">

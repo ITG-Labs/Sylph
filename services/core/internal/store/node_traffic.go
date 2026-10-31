@@ -35,11 +35,18 @@ type NodeTop struct {
 }
 
 type NodeTraffic struct {
-	Today  UpDown       `json:"today"`
-	Days7  UpDown       `json:"days_7"`
-	Days30 UpDown       `json:"days_30"`
-	Daily  []DayTraffic `json:"daily"`
-	Top    NodeTop      `json:"top"`
+	Today    UpDown              `json:"today"`
+	Days7    UpDown              `json:"days_7"`
+	Days30   UpDown              `json:"days_30"`
+	Daily    []DayTraffic        `json:"daily"`
+	Top      NodeTop             `json:"top"`
+	Inbounds []NodeInboundTotals `json:"inbounds"`
+}
+
+type NodeInboundTotals struct {
+	Tag    string `json:"tag"`
+	Label  string `json:"label"`
+	Days30 UpDown `json:"days_30"`
 }
 
 func addSat(a, b int64) int64 {
@@ -53,21 +60,46 @@ func (u UpDown) plus(v UpDown) UpDown {
 	return UpDown{Up: addSat(u.Up, v.Up), Down: addSat(u.Down, v.Down)}
 }
 
-func (s *Store) NodeTraffic(ctx context.Context, nodeID int64) (NodeTraffic, error) {
+func (s *Store) NodeTraffic(ctx context.Context, nodeID int64, tag *string) (NodeTraffic, error) {
 	out := NodeTraffic{
-		Daily: make([]DayTraffic, 0, nodeTrafficDays),
-		Top:   NodeTop{Today: []TopUser{}, Days7: []TopUser{}, Days30: []TopUser{}},
+		Daily:    make([]DayTraffic, 0, nodeTrafficDays),
+		Top:      NodeTop{Today: []TopUser{}, Days7: []TopUser{}, Days30: []TopUser{}},
+		Inbounds: []NodeInboundTotals{},
 	}
 	rows, err := s.pool.Query(ctx,
+		`WITH today AS (SELECT (now() AT TIME ZONE $2)::date AS d)
+		 SELECT td.inbound_tag, COALESCE(i.label, ''),
+		        LEAST(sum(td.bytes_up), 9223372036854775807)::bigint, LEAST(sum(td.bytes_down), 9223372036854775807)::bigint
+		 FROM traffic_daily td CROSS JOIN today
+		 LEFT JOIN node_inbounds i ON i.node_id = td.node_id AND i.tag = td.inbound_tag
+		 WHERE td.node_id = $1 AND td.day > today.d - $3::int
+		 GROUP BY td.inbound_tag, i.label ORDER BY td.inbound_tag`,
+		nodeID, s.statsTZ, nodeTrafficDays)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		var in NodeInboundTotals
+		if err := rows.Scan(&in.Tag, &in.Label, &in.Days30.Up, &in.Days30.Down); err != nil {
+			rows.Close()
+			return out, err
+		}
+		out.Inbounds = append(out.Inbounds, in)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	rows, err = s.pool.Query(ctx,
 		`WITH today AS (SELECT (now() AT TIME ZONE $2)::date AS d),
 		 days AS (SELECT (today.d - g)::date AS day FROM today, generate_series(0, $3::int - 1) g),
 		 t AS (SELECT td.day, sum(td.bytes_up) AS up, sum(td.bytes_down) AS down FROM traffic_daily td, today
-		       WHERE td.node_id = $1 AND td.day > today.d - $3::int GROUP BY td.day)
+		       WHERE td.node_id = $1 AND td.day > today.d - $3::int AND ($4::text IS NULL OR td.inbound_tag = $4) GROUP BY td.day)
 		 SELECT to_char(days.day, 'YYYY-MM-DD'),
 		        LEAST(COALESCE(t.up, 0), 9223372036854775807)::bigint,
 		        LEAST(COALESCE(t.down, 0), 9223372036854775807)::bigint
 		 FROM days LEFT JOIN t ON t.day = days.day ORDER BY days.day`,
-		nodeID, s.statsTZ, nodeTrafficDays)
+		nodeID, s.statsTZ, nodeTrafficDays, tag)
 	if err != nil {
 		return out, err
 	}
@@ -97,7 +129,7 @@ func (s *Store) NodeTraffic(ctx context.Context, nodeID int64) (NodeTraffic, err
 	rows, err = s.pool.Query(ctx,
 		`WITH today AS (SELECT (now() AT TIME ZONE $2)::date AS d),
 		 t AS (SELECT td.user_id, td.day, td.bytes_up::numeric + td.bytes_down AS b FROM traffic_daily td, today
-		       WHERE td.node_id = $1 AND td.day > today.d - $3::int),
+		       WHERE td.node_id = $1 AND td.day > today.d - $3::int AND ($5::text IS NULL OR td.inbound_tag = $5)),
 		 w AS (SELECT 'today' AS win, t.user_id, sum(t.b) AS b FROM t, today WHERE t.day = today.d GROUP BY t.user_id
 		       UNION ALL SELECT 'days_7', t.user_id, sum(t.b) FROM t, today WHERE t.day > today.d - 7 GROUP BY t.user_id
 		       UNION ALL SELECT 'days_30', t.user_id, sum(t.b) FROM t GROUP BY t.user_id),
@@ -107,7 +139,7 @@ func (s *Store) NodeTraffic(ctx context.Context, nodeID int64) (NodeTraffic, err
 		        LEAST(r.b, 9223372036854775807)::bigint
 		 FROM r JOIN users u ON u.id = r.user_id LEFT JOIN telegram_profiles tp ON tp.user_id = r.user_id
 		 WHERE r.rn <= $4 ORDER BY r.win, r.rn`,
-		nodeID, s.statsTZ, nodeTrafficDays, nodeTopSize)
+		nodeID, s.statsTZ, nodeTrafficDays, nodeTopSize, tag)
 	if err != nil {
 		return out, err
 	}
