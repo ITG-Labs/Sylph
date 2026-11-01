@@ -36,3 +36,9 @@ describe("request ids", () => {
     expect(describeError(new ApiError(502, "bad_reply", "", "HTTP 502"))).toBe("Ответ сервера не в формате JSON (HTTP 502).")
   })
 })
+
+describe("cut replies", () => {
+  it("keeps the request id when the reply broke off", () => {
+    expect(describeError(new ApiError(0, "network", "", "Ответ сервера оборвался.", "abc-123"))).toBe("Ответ сервера оборвался. Код запроса: abc-123")
+  })
+})

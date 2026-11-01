@@ -112,7 +112,7 @@ export function errorSummary(err: unknown): string {
 
 export function describeError(err: unknown): string {
   const text = errorSummary(err)
-  if (err instanceof ApiError && err.requestId && (err.status >= 500 || err.code === "bad_reply")) {
+  if (err instanceof ApiError && err.requestId && (err.status === 0 || err.status >= 500 || err.code === "bad_reply")) {
     return `${text} Код запроса: ${err.requestId}`
   }
   return text

@@ -7,16 +7,21 @@ import { Toaster, toast } from "sonner"
 import { router } from "./router"
 import { Backdrop } from "./components/layout/Backdrop"
 import { ApiError } from "./lib/errors"
-import { queryErrorToast } from "./lib/queryErrors"
+import { createQueryErrorReporter } from "./lib/queryErrors"
 import "./index.css"
 
+const reporter = createQueryErrorReporter((t) => toast.error(t.message, { id: t.id }))
+
+const queryCache = new QueryCache({
+  onError: (err, query) => reporter.onError(err, query),
+  onSuccess: (_data, query) => reporter.onSuccess(query),
+})
+queryCache.subscribe((event) => {
+  if (event.type === "removed") reporter.forget(event.query)
+})
+
 const queryClient = new QueryClient({
-  queryCache: new QueryCache({
-    onError: (err, query) => {
-      const t = queryErrorToast(err, query.queryKey)
-      toast.error(t.message, { id: t.id })
-    },
-  }),
+  queryCache,
   defaultOptions: {
     queries: {
       staleTime: 10_000,

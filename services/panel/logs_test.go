@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -197,5 +198,56 @@ func TestMissingIndexIsAnError(t *testing.T) {
 	}
 	if l := findLog(logLines(t, logs), "http_request", "ERROR"); l == nil || !strings.Contains(l["error"].(string), "index.html") {
 		t.Fatalf("missing index not recorded: %s", logs)
+	}
+}
+
+func TestProxyTreatsRoleRefusalAsRejectedCertificate(t *testing.T) {
+	e := newEnv(t)
+	sid := e.login("Иван", "secret-1")
+	e.core.status = http.StatusForbidden
+	e.core.reply = `{"code":"forbidden","message":"role not allowed"}`
+	w := e.do("GET", "/api/core/v1/admin/overview", "", panelHdr(sid))
+	if w.Code != http.StatusBadGateway || errCode(t, w) != "core_rejected" {
+		t.Fatalf("core 403 forbidden → %d %s", w.Code, w.Body)
+	}
+	if l := accessLine(t, e.logs, w.Header().Get("X-Request-Id")); l["level"] != "ERROR" || !strings.Contains(l["error"].(string), "role not allowed") {
+		t.Fatalf("access line = %v", l)
+	}
+	e.core.reply = `{"code":"banned","message":"user is banned"}`
+	w = e.do("POST", "/api/core/v1/admin/users/1/extend", `{}`, panelHdr(sid))
+	if w.Code != http.StatusForbidden || errCode(t, w) != "banned" {
+		t.Fatalf("other 403 must pass through: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestProxyOversizedReplyIsAnError(t *testing.T) {
+	e := newEnv(t)
+	sid := e.login("Иван", "secret-1")
+	e.core.reply = strings.Repeat("a", maxReplyBytes+1)
+	w := e.do("GET", "/api/core/v1/admin/overview", "", panelHdr(sid))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("oversized reply → %d", w.Code)
+	}
+	if l := accessLine(t, e.logs, w.Header().Get("X-Request-Id")); l["level"] != "ERROR" || !strings.Contains(l["error"].(string), "reply exceeds") {
+		t.Fatalf("access line = %v", l)
+	}
+}
+
+func TestProxyClientGoneIsNotACoreFailure(t *testing.T) {
+	e := newEnv(t)
+	sid := e.login("Иван", "secret-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest("GET", "/api/core/v1/admin/overview", nil).WithContext(ctx)
+	r.RemoteAddr = "203.0.113.7:4444"
+	r.Header.Set("Cookie", sessionCookie+"="+sid)
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	l := accessLine(t, e.logs, w.Header().Get("X-Request-Id"))
+	if l["level"] != "INFO" || l["status"] != float64(statusClientGone) || l["error"] != nil {
+		t.Fatalf("client gone access line = %v", l)
+	}
+	if p := findLog(logLines(t, e.logs), "panel_proxy", "INFO"); p == nil || p["status"] != float64(statusClientGone) {
+		t.Fatalf("panel_proxy for a gone client: %s", e.logs)
 	}
 }
