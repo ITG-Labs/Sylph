@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	xrayRestartSlack   = 2 * time.Second
+	xrayRefillGap      = 10 * time.Second
 	maxOnlineIPsPerKey = 32
 	maxOnlineReport    = 20000
 	maxOnlineAgeSec    = 30 * 24 * 3600
@@ -33,13 +35,15 @@ type Loop struct {
 	egress  []AddressStatus
 	checker *EgressChecker
 	held    bool
-	xrayUp  time.Duration
-	xrayOK  bool
+
+	xrayStart  time.Time
+	lastRefill time.Time
+	refillGap  time.Duration
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
 	return &Loop{engine: e, stats: sc, core: core, xray: xray, node: node, rules: NewPlanRules(xray, logger), cfg: cfg, logger: logger, started: time.Now(),
-		checker: NewEgressChecker(cfg.Egress)}
+		checker: NewEgressChecker(cfg.Egress), refillGap: xrayRefillGap}
 }
 
 func (l *Loop) RunOnce(ctx context.Context) error {
@@ -178,6 +182,9 @@ func (l *Loop) apply(ctx context.Context) error {
 		l.node.geo.Start(ctx, d.Geo, need)
 	}
 	l.applied = l.node.ApplyDesired(ctx, d)
+	if start, ok := l.xrayStarted(ctx); ok {
+		l.xrayStart = start
+	}
 	blocked := egressBlocked(l.node.AppliedEgress(), want.Egress)
 	if len(blocked) > 0 {
 		l.logger.Warn("egress_users_held_out", "users", len(blocked))
@@ -230,7 +237,6 @@ func (l *Loop) Run(ctx context.Context) error {
 		if err := l.RunOnce(ctx); err != nil && ctx.Err() == nil {
 			l.logger.Debug("loop_tick_incomplete", "error", err.Error())
 		}
-		l.noteXray(ctx)
 	wait:
 		for {
 			select {
@@ -245,23 +251,34 @@ func (l *Loop) Run(ctx context.Context) error {
 	}
 }
 
-func (l *Loop) noteXray(ctx context.Context) {
+func (l *Loop) xrayStarted(ctx context.Context) (time.Time, bool) {
 	up, err := l.xray.Uptime(ctx)
-	l.xrayUp, l.xrayOK = up, err == nil
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Now().Add(-up), true
 }
 
 func (l *Loop) watchXray(ctx context.Context) {
-	prevUp, prevOK := l.xrayUp, l.xrayOK
-	l.noteXray(ctx)
-	if !l.xrayOK || (prevOK && l.xrayUp >= prevUp) {
+	start, ok := l.xrayStarted(ctx)
+	if !ok {
 		return
 	}
-	l.logger.Warn("xray_restart_detected", "uptime_sec", int64(l.xrayUp/time.Second), "was_reachable", prevOK)
-	start := time.Now()
+	if l.xrayStart.IsZero() || start.Before(l.xrayStart) {
+		l.xrayStart = start
+		return
+	}
+	if start.Sub(l.xrayStart) <= xrayRestartSlack {
+		return
+	}
+	if !l.lastRefill.IsZero() && time.Since(l.lastRefill) < l.refillGap {
+		return
+	}
+	l.logger.Warn("xray_restart_detected", "uptime_sec", int64(time.Since(start)/time.Second))
+	l.lastRefill = time.Now()
 	if err := l.apply(ctx); err != nil {
 		l.logger.Error("reconcile_failed", "error", err.Error())
-	} else {
-		l.logger.Info("xray_refilled", "duration_ms", time.Since(start).Milliseconds())
+		return
 	}
-	l.noteXray(ctx)
+	l.logger.Info("xray_refilled", "duration_ms", time.Since(l.lastRefill).Milliseconds())
 }
