@@ -172,18 +172,28 @@ func (n NodeStats) bytes(rng string) int64 {
 	return n.Period
 }
 
-func statsRows(s *Stats) []NodeStats {
+func statsRows(s *Stats) ([]NodeStats, NodeStats) {
+	var unsplit NodeStats
 	if len(s.Inbounds) == 0 {
-		return slices.Clone(s.Nodes)
+		return slices.Clone(s.Nodes), unsplit
 	}
 	perNode := map[int64]int{}
 	for _, in := range s.Inbounds {
-		perNode[in.NodeID]++
+		if in.Tag != "" {
+			perNode[in.NodeID]++
+		}
 	}
 	out := make([]NodeStats, 0, len(s.Inbounds))
 	for _, in := range s.Inbounds {
+		if in.Tag == "" {
+			unsplit.Today += in.Today
+			unsplit.Days7 += in.Days7
+			unsplit.Days30 += in.Days30
+			unsplit.Period += in.Period
+			continue
+		}
 		name := in.NodeName
-		if max(perNode[in.NodeID], in.Visible) > 1 && in.Tag != "" {
+		if max(perNode[in.NodeID], in.Visible) > 1 {
 			label := in.Label
 			if label == "" {
 				label = in.Tag
@@ -192,7 +202,7 @@ func statsRows(s *Stats) []NodeStats {
 		}
 		out = append(out, NodeStats{NodeID: in.NodeID, Name: name, Today: in.Today, Days7: in.Days7, Days30: in.Days30, Period: in.Period})
 	}
-	return out
+	return out, unsplit
 }
 
 func (a *App) statsView(s *Stats, raw string) (string, *models.InlineKeyboardMarkup) {
@@ -201,9 +211,9 @@ func (a *App) statsView(s *Stats, raw string) (string, *models.InlineKeyboardMar
 	var b strings.Builder
 	b.WriteString(a.header(icChart, "Статистика"))
 	fmt.Fprintf(&b, "<b>%s</b>\n\n", titles[rng])
-	nodes := statsRows(s)
+	nodes, unsplit := statsRows(s)
 	slices.SortStableFunc(nodes, func(x, y NodeStats) int { return cmp.Compare(y.bytes(rng), x.bytes(rng)) })
-	var total int64
+	total := max(unsplit.bytes(rng), 0)
 	for _, n := range nodes {
 		v := n.bytes(rng)
 		if v <= 0 {
