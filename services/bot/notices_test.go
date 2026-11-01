@@ -28,10 +28,31 @@ type fakeNotices struct {
 	dueErr  error
 	markErr error
 	marks   []marked
+	limit   int
+	fetches int
 }
 
 func (f *fakeNotices) DueNotices(context.Context) ([]Notice, error) {
-	return f.due, f.dueErr
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fetches++
+	if f.dueErr != nil {
+		return nil, f.dueErr
+	}
+	var out []Notice
+	for _, n := range f.due {
+		done := false
+		for _, m := range f.marks {
+			if m.userID == n.UserID && m.kind == n.Kind && m.ref == n.Ref {
+				done = true
+				break
+			}
+		}
+		if !done && (f.limit == 0 || len(out) < f.limit) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeNotices) MarkNotice(_ context.Context, n Notice, outcome string) error {
@@ -343,5 +364,34 @@ func TestRejectedDatesFallBackToPlainText(t *testing.T) {
 	}
 	if got := plainDates("a " + app.when(far) + " b"); got != "a 24.10.2036 12:00 b" {
 		t.Fatalf("plainDates = %q", got)
+	}
+}
+
+func TestSendNoticesDrainsTheQueue(t *testing.T) {
+	app, _ := noticeApp(t)
+	app.noticePause = 0
+	var due []Notice
+	for i := range 250 {
+		due = append(due, Notice{UserID: int64(i + 1), TelegramID: int64(1000 + i), Kind: "expired", Ref: fmt.Sprintf("r%d", i)})
+	}
+	core := &fakeNotices{due: due, limit: 100}
+	tg := &noticeTG{}
+	app.SendNotices(context.Background(), core, tg)
+	if len(core.marks) != 250 || len(tg.only(t, "sendMessage")) != 250 {
+		t.Fatalf("marked %d, sent %d of 250", len(core.marks), len(tg.only(t, "sendMessage")))
+	}
+	if core.fetches != 4 {
+		t.Fatalf("fetches = %d, want 3 full rounds and one empty", core.fetches)
+	}
+}
+
+func TestSendNoticesStopsWhenARoundMakesNoProgress(t *testing.T) {
+	app, _ := noticeApp(t)
+	app.noticePause = 0
+	core := &fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"}}}
+	tg := &noticeTG{errs: map[int64]error{11: errors.New("connection reset")}}
+	app.SendNotices(context.Background(), core, tg)
+	if core.fetches != 1 || len(tg.only(t, "sendMessage")) != 0 {
+		t.Fatalf("fetches = %d", core.fetches)
 	}
 }

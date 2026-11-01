@@ -16,6 +16,7 @@ import (
 
 const (
 	NoticeEvery        = time.Minute
+	maxNoticeRounds    = 100
 	noticeMarkTimeout  = 10 * time.Second
 	outcomeSent        = "sent"
 	outcomeUnreachable = "unreachable"
@@ -82,23 +83,42 @@ func botBroken(err error) bool {
 }
 
 func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
+	attempts := 0
+	for round := range maxNoticeRounds {
+		marked, more := a.sendNoticeRound(ctx, core, tg, &attempts)
+		if !more || marked == 0 || ctx.Err() != nil {
+			if round > 0 {
+				a.log.LogAttrs(ctx, slog.LevelInfo, "notices_drained", slog.Int("rounds", round+1), slog.Int("attempts", attempts))
+			}
+			return
+		}
+	}
+	a.log.LogAttrs(ctx, slog.LevelWarn, "notices_round_limit", slog.Int("rounds", maxNoticeRounds), slog.Int("attempts", attempts))
+}
+
+func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, attempts *int) (int, bool) {
 	list, err := core.DueNotices(ctx)
 	if errors.Is(err, ErrNotFound) {
 		a.log.LogAttrs(ctx, slog.LevelWarn, "notices_unsupported")
-		return
+		return 0, false
 	}
 	if err != nil {
 		a.log.LogAttrs(ctx, slog.LevelWarn, "notices_fetch_failed", slog.String("error", err.Error()))
-		return
+		return 0, false
 	}
-	for i, n := range list {
+	if len(list) == 0 {
+		return 0, false
+	}
+	marked := 0
+	for _, n := range list {
 		if ctx.Err() != nil {
-			return
+			return marked, false
 		}
-		if i > 0 && a.noticePause > 0 {
+		*attempts++
+		if *attempts > 1 && a.noticePause > 0 {
 			select {
 			case <-ctx.Done():
-				return
+				return marked, false
 			case <-time.After(a.noticePause):
 			}
 		}
@@ -118,10 +138,10 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 			outcome = outcomeUnreachable
 		case throttled(err):
 			a.log.LogAttrs(ctx, slog.LevelWarn, "notices_throttled", slog.String("error", err.Error()))
-			return
+			return marked, false
 		case botBroken(err):
 			a.log.LogAttrs(ctx, slog.LevelError, "notices_bot_broken", slog.String("error", err.Error()))
-			return
+			return marked, false
 		case errors.Is(err, tgbot.ErrorBadRequest):
 			outcome = outcomeFailed
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_send_failed", append(attrs, slog.String("error", err.Error()))...)
@@ -136,8 +156,10 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
 			continue
 		}
+		marked++
 		a.log.LogAttrs(ctx, slog.LevelInfo, "notice_sent", append(attrs, slog.String("outcome", outcome))...)
 	}
+	return marked, true
 }
 
 func (a *App) noticeView(n Notice) (string, *models.InlineKeyboardMarkup) {
