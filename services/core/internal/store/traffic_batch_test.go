@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
 )
@@ -88,5 +91,69 @@ func TestDeltaBatchForManyUsersKeepsPerUserAccounting(t *testing.T) {
 	again := record(t, s, node.ID, "many-users", deltas...)
 	if !again.Duplicate {
 		t.Fatal("same batch id must be ignored")
+	}
+}
+
+func TestPoolCountersScaleLinearly(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	plan := mkLimitedPlan(t, s, 30, 1<<40)
+	pool := mainPool(t, s, plan.ID)
+	const n = 10000
+	for _, q := range []string{
+		`INSERT INTO users (sub_token, email, status) SELECT 'scale' || i, '', 'active' FROM generate_series(1, 10000) i`,
+		`INSERT INTO subscriptions (user_id, plan_id, starts_at, expires_at) SELECT id, $1, now() - interval '1 day', now() + interval '29 days' FROM users WHERE sub_token LIKE 'scale%'`,
+		`INSERT INTO period_pool_usage (period_id, pool_id, used_bytes) SELECT id, $2, 1000 FROM subscriptions WHERE plan_id = $1 AND id % 2 = 0`,
+	} {
+		args := []any{plan.ID, pool}
+		if !strings.Contains(q, "$2") {
+			args = args[:1]
+		}
+		if !strings.Contains(q, "$1") {
+			args = nil
+		}
+		if _, err := s.pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM subscriptions WHERE plan_id = $1 ORDER BY id`, plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	periods, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil || len(periods) != n {
+		t.Fatalf("periods %d, %v", len(periods), err)
+	}
+	var adds poolAdds
+	for _, p := range periods {
+		adds.add(p, &pool, 100)
+		adds.add(p, nil, 50)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	start := time.Now()
+	got, err := adds.apply(ctx, tx)
+	took := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%d pooled and %d main counters in %v", n, n, took)
+	if took > 5*time.Second {
+		t.Fatalf("counters took %v", took)
+	}
+	for _, p := range periods {
+		before := int64(0)
+		if p%2 == 0 {
+			before = 1000
+		}
+		if r := got[poolKey{p, pool}]; r.before != before || r.used != before+100 {
+			t.Fatalf("period %d pool: %+v", p, r)
+		}
+		if r := got[poolKey{p, 0}]; r.before != 0 || r.used != 50 {
+			t.Fatalf("period %d main: %+v", p, r)
+		}
 	}
 }

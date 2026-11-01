@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -51,6 +53,17 @@ func TestConcurrentRegistrationsDoNotDeadlockOnNodeBumps(t *testing.T) {
 		wg.Go(func() {
 			for range 50 {
 				if err := s.TouchNodeSync(ctx, id, true, true); err != nil {
+					report(err)
+				}
+			}
+		})
+	}
+	for range 4 {
+		wg.Go(func() {
+			for range 60 {
+				subset := slices.Clone(nodes)
+				rand.Shuffle(len(subset), func(i, j int) { subset[i], subset[j] = subset[j], subset[i] })
+				if err := s.BumpNodes(ctx, subset[:1+rand.IntN(len(subset))]); err != nil {
 					report(err)
 				}
 			}

@@ -165,7 +165,7 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		}
 	}
 	if len(resync) > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE id = ANY($1)`, resync); err != nil {
+		if err := bumpNodes(ctx, tx, resync); err != nil {
 			return BatchResult{}, err
 		}
 	}
@@ -418,14 +418,14 @@ func (a *poolAdds) apply(ctx context.Context, tx pgx.Tx) (map[poolKey]poolResult
 	if len(a.periods) > 0 {
 		rows, err := tx.Query(ctx,
 			`WITH v AS (SELECT * FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS v(period_id, pool_id, add)),
-			      cur AS (SELECT v.period_id, v.pool_id, COALESCE(u.used_bytes, 0) AS before
-			              FROM v LEFT JOIN period_pool_usage u ON u.period_id = v.period_id AND u.pool_id = v.pool_id)
-			 INSERT INTO period_pool_usage AS p (period_id, pool_id, used_bytes)
-			 SELECT period_id, pool_id, add FROM v ORDER BY period_id, pool_id
-			 ON CONFLICT (period_id, pool_id) DO UPDATE
-			 SET used_bytes = LEAST(p.used_bytes::numeric + EXCLUDED.used_bytes, 9223372036854775807)::bigint
-			 RETURNING p.period_id, p.pool_id,
-			   (SELECT c.before FROM cur c WHERE c.period_id = p.period_id AND c.pool_id = p.pool_id), p.used_bytes, p.bonus_bytes`,
+			      cur AS MATERIALIZED (SELECT v.period_id, v.pool_id, COALESCE(u.used_bytes, 0) AS before
+			              FROM v LEFT JOIN period_pool_usage u ON u.period_id = v.period_id AND u.pool_id = v.pool_id),
+			      ins AS (INSERT INTO period_pool_usage AS p (period_id, pool_id, used_bytes)
+			              SELECT period_id, pool_id, add FROM v ORDER BY period_id, pool_id
+			              ON CONFLICT (period_id, pool_id) DO UPDATE
+			              SET used_bytes = LEAST(p.used_bytes::numeric + EXCLUDED.used_bytes, 9223372036854775807)::bigint
+			              RETURNING p.period_id, p.pool_id, p.used_bytes, p.bonus_bytes)
+			 SELECT i.period_id, i.pool_id, c.before, i.used_bytes, i.bonus_bytes FROM ins i JOIN cur c USING (period_id, pool_id)`,
 			a.periods, a.pools, a.bytes)
 		if err != nil {
 			return nil, err

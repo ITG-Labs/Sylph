@@ -117,7 +117,7 @@ func (s *Store) UpdateProfile(ctx context.Context, id int64, name string, doc js
 		id, name, doc); err != nil {
 		return nil, mapWriteErr(err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE profile_id = $1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id = $1))`, id); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -237,7 +237,7 @@ func (s *Store) RefreshLinks(ctx context.Context) error {
 		touched = append(touched, l.from, l.to)
 	}
 	if len(touched) > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE id = ANY($1)`, touched); err != nil {
+		if err := bumpNodes(ctx, tx, touched); err != nil {
 			return err
 		}
 	}
@@ -274,22 +274,20 @@ func (s *Store) BumpNodes(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE id = ANY($1)`, ids)
-	return err
+	return bumpNodes(ctx, s.pool, ids)
 }
 
 func (s *Store) BumpProfileNodes(ctx context.Context, profileIDs []int64) error {
 	if len(profileIDs) == 0 {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE profile_id = ANY($1)`, profileIDs)
+	_, err := s.pool.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id = ANY($1)))`, profileIDs)
 	return err
 }
 
 func (s *Store) BumpNodesCascadingTo(ctx context.Context, nodeID int64) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE nodes SET users_version = next_users_version(users_version)
-		 WHERE id IN (SELECT from_node_id FROM node_links WHERE to_node_id = $1)`, nodeID)
+		`SELECT bump_nodes_ordered(ARRAY(SELECT from_node_id FROM node_links WHERE to_node_id = $1))`, nodeID)
 	return err
 }
 
@@ -413,7 +411,7 @@ func (s *Store) RequestGeoRefresh(ctx context.Context) (int64, error) {
 	if err := tx.QueryRow(ctx, `UPDATE settings SET geo_generation = geo_generation + 1 RETURNING geo_generation`).Scan(&gen); err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE profile_id IS NOT NULL`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id IS NOT NULL))`); err != nil {
 		return 0, err
 	}
 	return gen, tx.Commit(ctx)

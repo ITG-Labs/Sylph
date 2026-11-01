@@ -142,3 +142,11 @@ func (s *Store) DBNow(ctx context.Context) (time.Time, error) {
 	err := s.pool.QueryRow(ctx, `SELECT now()`).Scan(&now)
 	return now, err
 }
+
+func bumpNodes(ctx context.Context, q querier, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := q.Exec(ctx, `SELECT bump_nodes_ordered($1::bigint[])`, ids)
+	return err
+}
