@@ -49,6 +49,10 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		return BatchResult{}, err
 	}
 	totals := map[int64]*userTotal{}
+	keys := make([]string, 0, len(deltas))
+	owned := make([]*int64, 0, len(deltas))
+	ups := make([]int64, 0, len(deltas))
+	downs := make([]int64, 0, len(deltas))
 	for _, d := range deltas {
 		owner, ok := owners[d.KeyUUID]
 		var userID *int64
@@ -66,9 +70,13 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 			}
 			t.daily[tag] = t.daily[tag].plus(UpDown{Up: d.BytesUp, Down: d.BytesDown})
 		}
+		keys, owned, ups, downs = append(keys, d.KeyUUID), append(owned, userID), append(ups, d.BytesUp), append(downs, d.BytesDown)
+	}
+	if len(keys) > 0 {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO traffic_deltas (node_id, key_uuid, user_id, bytes_up, bytes_down) VALUES ($1, $2, $3, $4, $5)`,
-			nodeID, d.KeyUUID, userID, d.BytesUp, d.BytesDown); err != nil {
+			`INSERT INTO traffic_deltas (node_id, key_uuid, user_id, bytes_up, bytes_down)
+			 SELECT $1, d.k, d.u, d.up, d.down FROM unnest($2::text[], $3::bigint[], $4::bigint[], $5::bigint[]) AS d(k, u, up, down)`,
+			nodeID, keys, owned, ups, downs); err != nil {
 			return BatchResult{}, err
 		}
 	}
@@ -77,11 +85,14 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		users = append(users, id)
 	}
 	slices.Sort(users)
-	var res BatchResult
-	var resync []int64
-	pools := &poolCache{node: nodeID, byTag: map[planTag]*int64{}, limits: map[int64]map[int64]*int64{}}
+	periods, err := lockActivePeriods(ctx, tx, users)
+	if err != nil {
+		return BatchResult{}, err
+	}
 	for _, id := range users {
-		t := totals[id]
+		if _, ok := periods[id]; ok {
+			continue
+		}
 		periodID, planID, err := lockActivePeriod(ctx, tx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			periodID, planID, err = lockActivePeriod(ctx, tx, id)
@@ -89,26 +100,63 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return BatchResult{}, err
 		}
+		periods[id] = activePeriod{id: periodID, plan: planID}
+	}
+	var daily dailyRows
+	for _, id := range users {
+		t := totals[id]
 		for _, tag := range slices.Sorted(maps.Keys(t.daily)) {
-			if err := s.addDaily(ctx, tx, id, nodeID, periodID, tag, t.daily[tag]); err != nil {
-				return BatchResult{}, err
-			}
+			daily.add(id, periods[id].id, tag, t.daily[tag])
 		}
-		if periodID == 0 {
+	}
+	if err := s.addDailyRows(ctx, tx, nodeID, daily); err != nil {
+		return BatchResult{}, err
+	}
+	pools := &poolCache{node: nodeID, byTag: map[planTag]*int64{}, limits: map[int64]map[int64]*int64{}}
+	type userPools struct {
+		id      int64
+		period  activePeriod
+		entries []poolTotal
+	}
+	var plan []userPools
+	var adds poolAdds
+	for _, id := range users {
+		p := periods[id]
+		if p.id == 0 {
 			continue
 		}
-		totals, err := pools.totals(ctx, tx, planID, t.byInbound)
+		entries, err := pools.totals(ctx, tx, p.plan, totals[id].byInbound)
 		if err != nil {
 			return BatchResult{}, err
 		}
-		for _, pt := range totals {
-			before, used, limit, err := pools.add(ctx, tx, periodID, planID, pt.pool, pt.bytes)
-			if err != nil {
-				return BatchResult{}, err
+		plan = append(plan, userPools{id: id, period: p, entries: entries})
+		for _, pt := range entries {
+			adds.add(p.id, pt.pool, pt.bytes)
+		}
+	}
+	applied, err := adds.apply(ctx, tx)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	var res BatchResult
+	var resync []int64
+	for _, u := range plan {
+		for _, pt := range u.entries {
+			r := applied[poolKey{u.period.id, poolID(pt.pool)}]
+			limit := (*int64)(nil)
+			if pt.pool != nil {
+				base, err := pools.limitOf(ctx, tx, u.period.plan, *pt.pool)
+				if err != nil {
+					return BatchResult{}, err
+				}
+				if base != nil {
+					total := satAdd(*base, r.bonus)
+					limit = &total
+				}
 			}
-			if limit != nil && before < *limit && used >= *limit {
-				res.Exhausted = append(res.Exhausted, Exhaustion{UserID: id, PoolID: pt.pool, Used: used, Limit: *limit})
-				nodes, err := poolNodes(ctx, tx, planID, pt.pool)
+			if limit != nil && r.before < *limit && r.used >= *limit {
+				res.Exhausted = append(res.Exhausted, Exhaustion{UserID: u.id, PoolID: pt.pool, Used: r.used, Limit: *limit})
+				nodes, err := poolNodes(ctx, tx, u.period.plan, pt.pool)
 				if err != nil {
 					return BatchResult{}, err
 				}
@@ -117,11 +165,43 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		}
 	}
 	if len(resync) > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE nodes SET users_version = next_users_version(users_version) WHERE id = ANY($1)`, resync); err != nil {
+		if err := bumpNodes(ctx, tx, resync); err != nil {
 			return BatchResult{}, err
 		}
 	}
 	return res, tx.Commit(ctx)
+}
+
+type activePeriod struct {
+	id   int64
+	plan int64
+}
+
+func lockActivePeriods(ctx context.Context, tx pgx.Tx, users []int64) (map[int64]activePeriod, error) {
+	out := make(map[int64]activePeriod, len(users))
+	if len(users) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx,
+		`SELECT s.user_id, s.id, s.plan_id FROM subscriptions s
+		 WHERE s.id IN (SELECT DISTINCT ON (user_id) id FROM subscriptions
+		                WHERE user_id = ANY($1) AND NOT canceled AND starts_at <= now() AND expires_at > now()
+		                ORDER BY user_id, starts_at DESC, id DESC)
+		   AND NOT s.canceled AND s.starts_at <= now() AND s.expires_at > now()
+		 ORDER BY s.user_id FOR UPDATE OF s`, users)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var user int64
+		var p activePeriod
+		if err := rows.Scan(&user, &p.id, &p.plan); err != nil {
+			return nil, err
+		}
+		out[user] = p
+	}
+	return out, rows.Err()
 }
 
 func lockActivePeriod(ctx context.Context, tx pgx.Tx, userID int64) (periodID, planID int64, err error) {
@@ -251,35 +331,110 @@ func cmpPool(a, b *int64) int {
 	return cmp.Compare(*a, *b)
 }
 
-func (c *poolCache) add(ctx context.Context, tx pgx.Tx, periodID, planID int64, pool *int64, bytes int64) (before, used int64, limit *int64, err error) {
-	if pool == nil {
-		err = tx.QueryRow(ctx,
-			`WITH cur AS (SELECT traffic_used_bytes AS before FROM subscriptions WHERE id = $1)
+type poolKey struct {
+	period int64
+	pool   int64
+}
+
+type poolResult struct {
+	before int64
+	used   int64
+	bonus  int64
+}
+
+func poolID(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+type poolAdds struct {
+	seen        map[poolKey]int
+	mainPeriods []int64
+	mainBytes   []int64
+	periods     []int64
+	pools       []int64
+	bytes       []int64
+}
+
+func (a *poolAdds) add(periodID int64, pool *int64, bytes int64) {
+	if a.seen == nil {
+		a.seen = map[poolKey]int{}
+	}
+	k := poolKey{periodID, poolID(pool)}
+	i, ok := a.seen[k]
+	switch {
+	case ok && pool == nil:
+		a.mainBytes[i] = satAdd(a.mainBytes[i], bytes)
+	case ok:
+		a.bytes[i] = satAdd(a.bytes[i], bytes)
+	case pool == nil:
+		a.seen[k] = len(a.mainPeriods)
+		a.mainPeriods, a.mainBytes = append(a.mainPeriods, periodID), append(a.mainBytes, bytes)
+	default:
+		a.seen[k] = len(a.periods)
+		a.periods, a.pools, a.bytes = append(a.periods, periodID), append(a.pools, *pool), append(a.bytes, bytes)
+	}
+}
+
+func (a *poolAdds) apply(ctx context.Context, tx pgx.Tx) (map[poolKey]poolResult, error) {
+	out := make(map[poolKey]poolResult, len(a.mainPeriods)+len(a.periods))
+	collect := func(rows pgx.Rows, pooled bool) error {
+		defer rows.Close()
+		for rows.Next() {
+			var k poolKey
+			var r poolResult
+			var err error
+			if pooled {
+				err = rows.Scan(&k.period, &k.pool, &r.before, &r.used, &r.bonus)
+			} else {
+				err = rows.Scan(&k.period, &r.before, &r.used)
+			}
+			if err != nil {
+				return err
+			}
+			out[k] = r
+		}
+		return rows.Err()
+	}
+	if len(a.mainPeriods) > 0 {
+		rows, err := tx.Query(ctx,
+			`WITH v AS (SELECT * FROM unnest($1::bigint[], $2::bigint[]) AS v(id, add)),
+			      cur AS (SELECT s.id, s.traffic_used_bytes AS before FROM subscriptions s JOIN v ON v.id = s.id)
 			 UPDATE subscriptions s
-			 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + $2, 9223372036854775807)::bigint
-			 FROM cur
-			 WHERE s.id = $1
-			 RETURNING cur.before, s.traffic_used_bytes`,
-			periodID, bytes).Scan(&before, &used)
-		return before, used, nil, err
+			 SET traffic_used_bytes = LEAST(s.traffic_used_bytes::numeric + v.add, 9223372036854775807)::bigint
+			 FROM v JOIN cur ON cur.id = v.id
+			 WHERE s.id = v.id
+			 RETURNING s.id, cur.before, s.traffic_used_bytes`,
+			a.mainPeriods, a.mainBytes)
+		if err != nil {
+			return nil, err
+		}
+		if err := collect(rows, false); err != nil {
+			return nil, err
+		}
 	}
-	var bonus int64
-	err = tx.QueryRow(ctx,
-		`WITH cur AS (SELECT COALESCE((SELECT used_bytes FROM period_pool_usage WHERE period_id = $1 AND pool_id = $2), 0) AS before)
-		 INSERT INTO period_pool_usage (period_id, pool_id, used_bytes) VALUES ($1, $2, $3)
-		 ON CONFLICT (period_id, pool_id) DO UPDATE
-		 SET used_bytes = LEAST(period_pool_usage.used_bytes::numeric + EXCLUDED.used_bytes, 9223372036854775807)::bigint
-		 RETURNING (SELECT before FROM cur), used_bytes, bonus_bytes`,
-		periodID, *pool, bytes).Scan(&before, &used, &bonus)
-	if err != nil {
-		return 0, 0, nil, err
+	if len(a.periods) > 0 {
+		rows, err := tx.Query(ctx,
+			`WITH v AS (SELECT * FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS v(period_id, pool_id, add)),
+			      cur AS MATERIALIZED (SELECT v.period_id, v.pool_id, COALESCE(u.used_bytes, 0) AS before
+			              FROM v LEFT JOIN period_pool_usage u ON u.period_id = v.period_id AND u.pool_id = v.pool_id),
+			      ins AS (INSERT INTO period_pool_usage AS p (period_id, pool_id, used_bytes)
+			              SELECT period_id, pool_id, add FROM v ORDER BY period_id, pool_id
+			              ON CONFLICT (period_id, pool_id) DO UPDATE
+			              SET used_bytes = LEAST(p.used_bytes::numeric + EXCLUDED.used_bytes, 9223372036854775807)::bigint
+			              RETURNING p.period_id, p.pool_id, p.used_bytes, p.bonus_bytes)
+			 SELECT i.period_id, i.pool_id, c.before, i.used_bytes, i.bonus_bytes FROM ins i JOIN cur c USING (period_id, pool_id)`,
+			a.periods, a.pools, a.bytes)
+		if err != nil {
+			return nil, err
+		}
+		if err := collect(rows, true); err != nil {
+			return nil, err
+		}
 	}
-	base, err := c.limitOf(ctx, tx, planID, *pool)
-	if err != nil || base == nil {
-		return before, used, nil, err
-	}
-	total := satAdd(*base, bonus)
-	return before, used, &total, nil
+	return out, nil
 }
 
 func poolNodes(ctx context.Context, tx pgx.Tx, planID int64, pool *int64) ([]int64, error) {

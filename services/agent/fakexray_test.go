@@ -28,6 +28,7 @@ type fakeXray struct {
 	uptimeErr   error
 	uptimeFail  int
 	uptimeHits  int
+	listHits    int
 	rules       []noderoute.TailRule
 	ruleErr     error
 	ruleCalls   int
@@ -72,6 +73,7 @@ func (f *fakeXray) RemoveUser(ctx context.Context, tag string, email string) err
 func (f *fakeXray) ListUsers(ctx context.Context, tag string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.listHits++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}

@@ -55,6 +55,11 @@ func (s *Store) withLockedNode(ctx context.Context, nodeID int64, exclude int64,
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`SELECT 1 FROM nodes WHERE id = $1 OR id IN (SELECT from_node_id FROM node_links WHERE to_node_id = $1)
+		 ORDER BY id FOR NO KEY UPDATE`, nodeID); err != nil {
+		return err
+	}
 	var id int64
 	if err := tx.QueryRow(ctx, `SELECT id FROM nodes WHERE id = $1 FOR UPDATE`, nodeID).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
