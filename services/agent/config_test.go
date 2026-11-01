@@ -149,3 +149,25 @@ func TestLoadConfigRejectsBadXrayTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigXrayWatch(t *testing.T) {
+	setRequiredEnv(t)
+	unsetEnv(t, "SYLPH_XRAY_WATCH")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.XrayWatch != 3*time.Second {
+		t.Fatalf("xray watch = %v", cfg.XrayWatch)
+	}
+	t.Setenv("SYLPH_XRAY_WATCH", "500ms")
+	if cfg, err = LoadConfig(); err != nil || cfg.XrayWatch != 500*time.Millisecond {
+		t.Fatalf("xray watch = %v, %v", cfg, err)
+	}
+	for _, bad := range []string{"0s", "-1s", "soon"} {
+		t.Setenv("SYLPH_XRAY_WATCH", bad)
+		if _, err := LoadConfig(); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

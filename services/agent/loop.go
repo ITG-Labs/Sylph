@@ -33,6 +33,8 @@ type Loop struct {
 	egress  []AddressStatus
 	checker *EgressChecker
 	held    bool
+	xrayUp  time.Duration
+	xrayOK  bool
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
@@ -218,12 +220,48 @@ func (l *Loop) reportTraffic(ctx context.Context) {
 func (l *Loop) Run(ctx context.Context) error {
 	ticker := time.NewTicker(l.cfg.SyncInterval)
 	defer ticker.Stop()
+	var watch <-chan time.Time
+	if l.cfg.XrayWatch > 0 {
+		w := time.NewTicker(l.cfg.XrayWatch)
+		defer w.Stop()
+		watch = w.C
+	}
 	for {
-		_ = l.RunOnce(ctx)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
+		if err := l.RunOnce(ctx); err != nil && ctx.Err() == nil {
+			l.logger.Debug("loop_tick_incomplete", "error", err.Error())
+		}
+		l.noteXray(ctx)
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				break wait
+			case <-watch:
+				l.watchXray(ctx)
+			}
 		}
 	}
+}
+
+func (l *Loop) noteXray(ctx context.Context) {
+	up, err := l.xray.Uptime(ctx)
+	l.xrayUp, l.xrayOK = up, err == nil
+}
+
+func (l *Loop) watchXray(ctx context.Context) {
+	prevUp, prevOK := l.xrayUp, l.xrayOK
+	l.noteXray(ctx)
+	if !l.xrayOK || (prevOK && l.xrayUp >= prevUp) {
+		return
+	}
+	l.logger.Warn("xray_restart_detected", "uptime_sec", int64(l.xrayUp/time.Second), "was_reachable", prevOK)
+	start := time.Now()
+	if err := l.apply(ctx); err != nil {
+		l.logger.Error("reconcile_failed", "error", err.Error())
+	} else {
+		l.logger.Info("xray_refilled", "duration_ms", time.Since(start).Milliseconds())
+	}
+	l.noteXray(ctx)
 }

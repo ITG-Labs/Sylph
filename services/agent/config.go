@@ -33,6 +33,7 @@ type Config struct {
 	GeoStatePath  string
 	XrayGeoPrefix string
 	SyncInterval  time.Duration
+	XrayWatch     time.Duration
 	Egress        []EgressAddr
 	ACMECA        string
 	ACMECARoot    string
@@ -58,6 +59,7 @@ func LoadConfig() (*Config, error) {
 		GeoStatePath:  envOr("SYLPH_GEO_STATE_PATH", "geo.json"),
 		XrayGeoPrefix: envOr("SYLPH_XRAY_GEO_PREFIX", defaultGeoPrefix),
 		SyncInterval:  30 * time.Second,
+		XrayWatch:     3 * time.Second,
 		ACMECA:        os.Getenv("SYLPH_ACME_CA"),
 		ACMECARoot:    os.Getenv("SYLPH_ACME_CA_ROOT"),
 	}
@@ -78,6 +80,16 @@ func LoadConfig() (*Config, error) {
 			return nil, errors.New("SYLPH_SYNC_INTERVAL: " + err.Error())
 		}
 		cfg.SyncInterval = d
+	}
+	if v := os.Getenv("SYLPH_XRAY_WATCH"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, errors.New("SYLPH_XRAY_WATCH: " + err.Error())
+		}
+		if d <= 0 {
+			return nil, errors.New("SYLPH_XRAY_WATCH must be positive")
+		}
+		cfg.XrayWatch = d
 	}
 	if v := os.Getenv("SYLPH_XRAY_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
