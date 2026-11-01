@@ -1,15 +1,27 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "react-router"
 import { MotionConfig } from "motion/react"
-import { Toaster } from "sonner"
+import { Toaster, toast } from "sonner"
 import { router } from "./router"
 import { Backdrop } from "./components/layout/Backdrop"
 import { ApiError } from "./lib/errors"
+import { createQueryErrorReporter } from "./lib/queryErrors"
 import "./index.css"
 
+const reporter = createQueryErrorReporter((t) => toast.error(t.message, { id: t.id }))
+
+const queryCache = new QueryCache({
+  onError: (err, query) => reporter.onError(err, query),
+  onSuccess: (_data, query) => reporter.onSuccess(query),
+})
+queryCache.subscribe((event) => {
+  if (event.type === "removed") reporter.forget(event.query)
+})
+
 const queryClient = new QueryClient({
+  queryCache,
   defaultOptions: {
     queries: {
       staleTime: 10_000,

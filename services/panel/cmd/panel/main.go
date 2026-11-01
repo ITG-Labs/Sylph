@@ -107,6 +107,7 @@ func run(logger *slog.Logger) error {
 		WriteTimeout:      45 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
+		ErrorLog:          slog.NewLogLogger(logger.With(slog.String("source", "net/http")).Handler(), slog.LevelError),
 	}
 	errCh := make(chan error, 1)
 	go func() {

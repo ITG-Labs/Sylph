@@ -141,6 +141,29 @@ func TestStatsByInboundNamedLikeTheSubscription(t *testing.T) {
 	}
 }
 
+func TestStatsListOnlyInbounds(t *testing.T) {
+	st := &Stats{PeriodID: i64(3), Inbounds: []InboundStats{
+		{NodeID: 1, NodeName: "Германия", Tag: "", Period: 1 << 30},
+		{NodeID: 1, NodeName: "Германия", Tag: "main", Label: "REALITY", Visible: 1, Period: 2 << 30},
+		{NodeID: 2, NodeName: "Финляндия", Tag: "", Period: 1 << 30},
+	}}
+	app, tg := newTestApp(t, &fakeCore{status: activeStatus(), stats: st})
+	app.Handle(context.Background(), tg, callback("stats:period"))
+	m := tg.last(t).text
+	mustContain(t, m, "Германия\n2 ГБ", "Всего</b> · 4 ГБ")
+	if strings.Contains(m, "Германия · ") || strings.Count(m, "Германия") != 1 || strings.Contains(m, "Финляндия") {
+		t.Fatalf("traffic recorded before the per-inbound split must not be listed as node rows:\n%s", m)
+	}
+
+	st.Inbounds = []InboundStats{{NodeID: 2, NodeName: "Финляндия", Tag: "", Period: 1 << 30}}
+	app.Handle(context.Background(), tg, callback("stats:period"))
+	m = tg.last(t).text
+	mustContain(t, m, "Всего</b> · 1 ГБ")
+	if strings.Contains(m, "Финляндия") || strings.Contains(m, "Пока нет трафика") {
+		t.Fatalf("untagged traffic only:\n%s", m)
+	}
+}
+
 func TestStatsWithoutPeriodOrTraffic(t *testing.T) {
 	core := &fakeCore{status: &Status{User: User{ID: 7, SubToken: "tok"}}, stats: &Stats{}}
 	app, tg := newTestApp(t, core)

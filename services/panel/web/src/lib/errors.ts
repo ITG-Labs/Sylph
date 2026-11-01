@@ -2,12 +2,14 @@ export class ApiError extends Error {
   status: number
   code: string
   field: string
+  requestId: string
 
-  constructor(status: number, code: string, field: string, message: string) {
+  constructor(status: number, code: string, field: string, message: string, requestId = "") {
     super(message)
     this.status = status
     this.code = code
     this.field = field
+    this.requestId = requestId
   }
 }
 
@@ -95,14 +97,23 @@ const fieldLabels: Record<string, string> = {
   q: "Поиск",
 }
 
-export function describeError(err: unknown): string {
+export function errorSummary(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 409 && err.field === "status" && err.message.includes("still waiting")) return "С момента создания платежа не прошло суток: пользователь ещё может его оплатить."
     if (err.status === 409 && byField[err.field]) return byField[err.field]
+    if (err.code === "bad_reply") return `Ответ сервера не в формате JSON (HTTP ${err.status}).`
     if (byCode[err.code]) return byCode[err.code]
     if (err.field) return `${fieldLabels[err.field] ?? err.field}: ${err.message}`
     return err.message || `Ошибка ${err.status}`
   }
   if (err instanceof Error) return err.message
   return String(err)
+}
+
+export function describeError(err: unknown): string {
+  const text = errorSummary(err)
+  if (err instanceof ApiError && err.requestId && (err.status === 0 || err.status >= 500 || err.code === "bad_reply")) {
+    return `${text} Код запроса: ${err.requestId}`
+  }
+  return text
 }

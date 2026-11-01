@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ const (
 	operatorHeader   = "X-Sylph-Operator"
 	coreProxyPrefix  = "/api/core"
 	maxNumericDigits = 19
+	statusClientGone = 499
 )
 
 type coreRoute struct {
@@ -182,6 +184,8 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
+		p.log.Warn("panel_proxy_body_failed", "admin", operator, "route", route.method+" "+route.pattern,
+			"request_id", logging.RequestIDFromContext(r.Context()), "error", err.Error())
 		writeError(w, http.StatusBadRequest, "bad_request", "cannot read body")
 		return
 	}
@@ -201,7 +205,12 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 	}
 	req, err := http.NewRequestWithContext(ctx, r.Method, target, rd)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "bad request")
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		logging.RecordError(w, fmt.Errorf("build core request for %s %s: %w", route.method, route.pattern, err))
+		writeError(w, http.StatusInternalServerError, "internal", "cannot build the core request")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -211,33 +220,49 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 	resp, err := p.client.Do(req)
 	status := 0
 	defer func() {
-		p.log.Info("panel_proxy", "admin", operator, "method", r.Method, "route", route.method+" "+route.pattern,
+		level := slog.LevelInfo
+		if status >= 500 {
+			level = slog.LevelWarn
+		}
+		p.log.Log(r.Context(), level, "panel_proxy", "admin", operator, "method", r.Method, "route", route.method+" "+route.pattern,
 			"status", status, "duration_ms", time.Since(start).Milliseconds(), "request_id", logging.RequestIDFromContext(r.Context()))
 	}()
 	if err != nil {
+		if r.Context().Err() != nil {
+			status = statusClientGone
+			w.WriteHeader(statusClientGone)
+			return
+		}
 		status = http.StatusBadGateway
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		p.log.Error("core_unavailable", "route", route.method+" "+route.pattern, "error", err.Error())
+		logging.RecordError(w, fmt.Errorf("core unavailable: %w", err))
 		writeError(w, http.StatusBadGateway, "core_unavailable", "core is unreachable")
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		status = http.StatusBadGateway
-		writeError(w, http.StatusBadGateway, "core_rejected", "core rejected the panel certificate")
-		return
-	}
 	reply, err := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes+1))
 	if err != nil || len(reply) > maxReplyBytes {
+		if err != nil && r.Context().Err() != nil {
+			status = statusClientGone
+			w.WriteHeader(statusClientGone)
+			return
+		}
 		status = http.StatusBadGateway
 		if err == nil {
-			err = errors.New("reply too large")
+			err = fmt.Errorf("reply exceeds %d bytes", maxReplyBytes)
 		}
-		p.log.Error("core_reply_failed", "route", route.method+" "+route.pattern, "error", err.Error())
+		logging.RecordError(w, fmt.Errorf("read core reply: %w", err))
 		writeError(w, http.StatusBadGateway, "core_unavailable", "core reply was cut")
+		return
+	}
+	if rejected(resp.StatusCode, reply) {
+		status = http.StatusBadGateway
+		logging.RecordError(w, fmt.Errorf("core rejected the panel certificate (%d %q): check that it is not revoked or expired and has the panel role",
+			resp.StatusCode, truncateRunes(strings.TrimSpace(string(reply)), 256)))
+		writeError(w, http.StatusBadGateway, "core_rejected", "core rejected the panel certificate")
 		return
 	}
 	status = resp.StatusCode
@@ -245,5 +270,20 @@ func (p *CoreProxy) serve(w http.ResponseWriter, r *http.Request, operator strin
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(reply)
+	if _, err := w.Write(reply); err != nil {
+		logging.RecordError(w, fmt.Errorf("write response: %w", err))
+	}
+}
+
+func rejected(status int, reply []byte) bool {
+	switch status {
+	case http.StatusUnauthorized:
+		return true
+	case http.StatusForbidden:
+		var e struct {
+			Code string `json:"code"`
+		}
+		return json.Unmarshal(reply, &e) == nil && e.Code == "forbidden"
+	}
+	return false
 }
