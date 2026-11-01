@@ -43,14 +43,31 @@ func (s *Store) SetStatsTimezone(ctx context.Context, tz string) error {
 	return nil
 }
 
-func (s *Store) addDaily(ctx context.Context, tx pgx.Tx, userID, nodeID, periodID int64, tag string, v UpDown) error {
+type dailyRows struct {
+	users   []int64
+	periods []int64
+	tags    []string
+	ups     []int64
+	downs   []int64
+}
+
+func (d *dailyRows) add(userID, periodID int64, tag string, v UpDown) {
+	d.users, d.periods, d.tags = append(d.users, userID), append(d.periods, periodID), append(d.tags, tag)
+	d.ups, d.downs = append(d.ups, v.Up), append(d.downs, v.Down)
+}
+
+func (s *Store) addDailyRows(ctx context.Context, tx pgx.Tx, nodeID int64, d dailyRows) error {
+	if len(d.users) == 0 {
+		return nil
+	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO traffic_daily (user_id, node_id, day, period_id, inbound_tag, bytes_up, bytes_down)
-		 VALUES ($1, $2, (now() AT TIME ZONE $3)::date, $4, $5, $6, $7)
+		 SELECT r.u, $1, (now() AT TIME ZONE $2)::date, r.p, r.t, r.up, r.down
+		 FROM unnest($3::bigint[], $4::bigint[], $5::text[], $6::bigint[], $7::bigint[]) AS r(u, p, t, up, down)
 		 ON CONFLICT (user_id, day, node_id, period_id, inbound_tag) DO UPDATE SET
 		   bytes_up   = LEAST(traffic_daily.bytes_up::numeric + EXCLUDED.bytes_up, 9223372036854775807)::bigint,
 		   bytes_down = LEAST(traffic_daily.bytes_down::numeric + EXCLUDED.bytes_down, 9223372036854775807)::bigint`,
-		userID, nodeID, s.statsTZ, periodID, tag, v.Up, v.Down)
+		nodeID, s.statsTZ, d.users, d.periods, d.tags, d.ups, d.downs)
 	return err
 }
 
