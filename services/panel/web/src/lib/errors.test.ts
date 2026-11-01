@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ApiError, describeError } from "./errors"
+import { ApiError, describeError, errorSummary } from "./errors"
 
 describe("describeError", () => {
   it("explains known conflicts by field", () => {
@@ -18,5 +18,21 @@ describe("describeError", () => {
   it("falls back to the core message with the field", () => {
     expect(describeError(new ApiError(400, "bad_request", "reality.dest", "dest must not point to localhost"))).toBe("dest: dest must not point to localhost")
     expect(describeError(new Error("boom"))).toBe("boom")
+  })
+})
+
+describe("request ids", () => {
+  it("adds the request id to server failures only", () => {
+    expect(describeError(new ApiError(500, "internal", "", "boom", "abc-123"))).toBe("Внутренняя ошибка ядра. Подробности — в журнале ядра. Код запроса: abc-123")
+    expect(describeError(new ApiError(502, "core_unavailable", "", "", "abc-123"))).toBe("Ядро не отвечает. Код запроса: abc-123")
+    expect(describeError(new ApiError(404, "not_found", "", "", "abc-123"))).toBe("Не найдено.")
+    expect(describeError(new ApiError(500, "internal", "", "boom"))).toBe("Внутренняя ошибка ядра. Подробности — в журнале ядра.")
+  })
+  it("keeps the summary free of the request id", () => {
+    expect(errorSummary(new ApiError(502, "core_unavailable", "", "", "abc-123"))).toBe("Ядро не отвечает.")
+  })
+  it("explains replies that are not JSON", () => {
+    expect(describeError(new ApiError(200, "bad_reply", "", "HTTP 200", "abc-123"))).toBe("Ответ сервера не в формате JSON (HTTP 200). Код запроса: abc-123")
+    expect(describeError(new ApiError(502, "bad_reply", "", "HTTP 502"))).toBe("Ответ сервера не в формате JSON (HTTP 502).")
   })
 })

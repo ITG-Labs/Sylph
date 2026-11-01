@@ -19,21 +19,31 @@ async function request<T>(method: Method, url: string, body?: unknown): Promise<
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: "same-origin",
     })
-  } catch {
+  } catch (cause) {
+    console.error(`${method} ${url}: request failed`, cause)
     throw new ApiError(0, "network", "", "Панель не отвечает. Проверьте подключение к сети.")
   }
-  const text = await res.text()
+  const requestId = res.headers.get("X-Request-Id") ?? ""
+  let text: string
+  try {
+    text = await res.text()
+  } catch (cause) {
+    console.error(`${method} ${url}: reply was cut (HTTP ${res.status}, request ${requestId})`, cause)
+    throw new ApiError(0, "network", "", "Ответ сервера оборвался.", requestId)
+  }
   let data: unknown = null
   if (text) {
     try {
       data = JSON.parse(text)
     } catch {
-      data = null
+      console.error(`${method} ${url}: HTTP ${res.status} reply is not JSON (request ${requestId}):`, text.slice(0, 500))
+      throw new ApiError(res.status, "bad_reply", "", `HTTP ${res.status}`, requestId)
     }
   }
   if (!res.ok) {
     const e = (data ?? {}) as { code?: string; field?: string; message?: string }
-    const err = new ApiError(res.status, e.code ?? "", e.field ?? "", e.message ?? text)
+    const err = new ApiError(res.status, e.code ?? "", e.field ?? "", e.message ?? "", requestId)
+    if (res.status >= 500) console.error(`${method} ${url}: HTTP ${res.status} ${err.code} (request ${requestId}):`, err.message)
     if (res.status === 401 && e.code === "unauthorized") onUnauthorized?.()
     throw err
   }

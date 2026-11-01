@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { ActionDialog } from "@/components/common/ActionDialog"
+import { LoadError, LoadingBlock } from "@/components/common/QueryState"
 import { Empty, Section } from "@/components/common/Section"
 import { GeoStatusList } from "@/components/node/NodeRoutingSection"
 import { Badge } from "@/components/ui/badge"
@@ -119,7 +120,11 @@ export function GeoSourcesSection() {
       }
     >
       <div className="flex flex-col gap-5">
-        {!sources.data?.length ? (
+        {sources.isPending ? (
+          <LoadingBlock rows={2} />
+        ) : sources.isError ? (
+          <LoadError error={sources.error} onRetry={() => void sources.refetch()} />
+        ) : !sources.data.length ? (
           <Empty>Собственных источников нет; в правилах доступны только встроенные geosite: и geoip:</Empty>
         ) : (
           <div className="flex flex-col gap-2">
