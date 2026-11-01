@@ -82,10 +82,17 @@ func botBroken(err error) bool {
 	return errors.Is(err, tgbot.ErrorUnauthorized) || errors.Is(err, tgbot.ErrorNotFound)
 }
 
+type noticeKey struct {
+	user int64
+	kind string
+	ref  string
+}
+
 func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 	attempts := 0
+	tried := map[noticeKey]bool{}
 	for round := range maxNoticeRounds {
-		marked, more := a.sendNoticeRound(ctx, core, tg, &attempts)
+		marked, more := a.sendNoticeRound(ctx, core, tg, &attempts, tried)
 		if !more || marked == 0 || ctx.Err() != nil {
 			if round > 0 {
 				a.log.LogAttrs(ctx, slog.LevelInfo, "notices_drained", slog.Int("rounds", round+1), slog.Int("attempts", attempts))
@@ -96,7 +103,7 @@ func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
 	a.log.LogAttrs(ctx, slog.LevelWarn, "notices_round_limit", slog.Int("rounds", maxNoticeRounds), slog.Int("attempts", attempts))
 }
 
-func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, attempts *int) (int, bool) {
+func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, attempts *int, tried map[noticeKey]bool) (int, bool) {
 	list, err := core.DueNotices(ctx)
 	if errors.Is(err, ErrNotFound) {
 		a.log.LogAttrs(ctx, slog.LevelWarn, "notices_unsupported")
@@ -109,11 +116,17 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 	if len(list) == 0 {
 		return 0, false
 	}
-	marked := 0
+	marked, fresh := 0, 0
 	for _, n := range list {
 		if ctx.Err() != nil {
 			return marked, false
 		}
+		key := noticeKey{n.UserID, n.Kind, n.Ref}
+		if tried[key] {
+			continue
+		}
+		tried[key] = true
+		fresh++
 		*attempts++
 		if *attempts > 1 && a.noticePause > 0 {
 			select {
@@ -159,7 +172,7 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 		marked++
 		a.log.LogAttrs(ctx, slog.LevelInfo, "notice_sent", append(attrs, slog.String("outcome", outcome))...)
 	}
-	return marked, true
+	return marked, fresh > 0
 }
 
 func (a *App) noticeView(n Notice) (string, *models.InlineKeyboardMarkup) {

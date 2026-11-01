@@ -30,6 +30,7 @@ type fakeNotices struct {
 	marks   []marked
 	limit   int
 	fetches int
+	failFor int64
 }
 
 func (f *fakeNotices) DueNotices(context.Context) ([]Notice, error) {
@@ -60,6 +61,9 @@ func (f *fakeNotices) MarkNotice(_ context.Context, n Notice, outcome string) er
 	defer f.mu.Unlock()
 	if f.markErr != nil {
 		return f.markErr
+	}
+	if f.failFor != 0 && n.UserID == f.failFor {
+		return errors.New("core timed out")
 	}
 	f.marks = append(f.marks, marked{kind: n.Kind, ref: n.Ref, outcome: outcome, userID: n.UserID})
 	return nil
@@ -393,5 +397,24 @@ func TestSendNoticesStopsWhenARoundMakesNoProgress(t *testing.T) {
 	app.SendNotices(context.Background(), core, tg)
 	if core.fetches != 1 || len(tg.only(t, "sendMessage")) != 0 {
 		t.Fatalf("fetches = %d", core.fetches)
+	}
+}
+
+func TestSendNoticesTriesEachNoticeOncePerRun(t *testing.T) {
+	app, logs := noticeApp(t)
+	app.noticePause = 0
+	var due []Notice
+	for i := range 5 {
+		due = append(due, Notice{UserID: int64(i + 1), TelegramID: int64(100 + i), Kind: "expired", Ref: fmt.Sprintf("r%d", i)})
+	}
+	core := &fakeNotices{due: due, limit: 2, failFor: 1}
+	tg := &noticeTG{}
+	app.SendNotices(context.Background(), core, tg)
+	sent := tg.only(t, "sendMessage")
+	if len(sent) != 5 {
+		t.Fatalf("sent %d messages, want each of 5 once", len(sent))
+	}
+	if len(core.marks) != 4 || strings.Count(logs.String(), `"msg":"notice_mark_failed"`) != 1 {
+		t.Fatalf("marks %d, logs %s", len(core.marks), logs)
 	}
 }
