@@ -57,7 +57,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
-	return logging.Middleware(s.log)(securityHeaders(csrfGuard(root)))
+	return logging.Middleware(s.log)(securityHeaders(s.csrfGuard(root)))
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -75,11 +75,19 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func csrfGuard(next http.Handler) http.Handler {
+func (s *Server) csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		guarded := strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/auth/")
 		safe := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
-		if guarded && !safe && !sameOrigin(r) {
+		if !guarded || safe {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if reason := crossSiteReason(r); reason != "" {
+			s.log.Warn("panel_csrf_refused", "reason", reason, "method", r.Method, "path", r.URL.Path,
+				"host", truncateRunes(r.Host, maxLoggedRunes), "origin", truncateRunes(r.Header.Get("Origin"), maxLoggedRunes),
+				"sec_fetch_site", truncateRunes(r.Header.Get("Sec-Fetch-Site"), maxLoggedRunes),
+				"ip", s.trust.clientIP(r), "request_id", logging.RequestIDFromContext(r.Context()))
 			writeError(w, http.StatusForbidden, "csrf", "cross-site request refused")
 			return
 		}
@@ -87,20 +95,20 @@ func csrfGuard(next http.Handler) http.Handler {
 	})
 }
 
-func sameOrigin(r *http.Request) bool {
+func crossSiteReason(r *http.Request) string {
 	if r.Header.Get(csrfHeader) != "1" {
-		return false
+		return "header"
 	}
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-		return false
+		return "sec_fetch_site"
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
 		if err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host) {
-			return false
+			return "origin"
 		}
 	}
-	return true
+	return ""
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +216,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	if s.ui == nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = io.WriteString(w, unbuiltUIPage)
+		writeBody(w, []byte(unbuiltUIPage))
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/")
@@ -229,12 +237,19 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	}
 	index, err := fs.ReadFile(s.ui, "index.html")
 	if err != nil {
-		http.Error(w, "index.html missing", http.StatusServiceUnavailable)
+		logging.RecordError(w, fmt.Errorf("embedded ui has no index.html, the build is broken: %w", err))
+		http.Error(w, "index.html missing", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(index)
+	writeBody(w, index)
+}
+
+func writeBody(w http.ResponseWriter, b []byte) {
+	if _, err := w.Write(b); err != nil {
+		logging.RecordError(w, fmt.Errorf("write response: %w", err))
+	}
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
@@ -250,9 +265,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if _, err := w.Write(append(b, '\n')); err != nil {
-		logging.RecordError(w, fmt.Errorf("write response: %w", err))
-	}
+	writeBody(w, append(b, '\n'))
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
