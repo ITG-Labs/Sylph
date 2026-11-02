@@ -8,7 +8,7 @@ services:
     volumes:
       - ./pebble/pebble-config.json:/etc/pebble/pebble-config.json:ro
   roots:
-    image: curlimages/curl:8.17.0
+    image: curlimages/curl:8.23.0
     user: root
     command: ["sh", "-c", "until curl -sfk https://pebble:15000/roots/0 -o /roots/root.pem; do sleep 1; done"]
     volumes:
