@@ -19,6 +19,7 @@ const (
 	maxNoticeRounds    = 100
 	noticeMarkTimeout  = 10 * time.Second
 	paidPassTimeout    = 2 * time.Minute
+	maxRejected        = 1000
 	outcomeSent        = "sent"
 	outcomeUnreachable = "unreachable"
 	outcomeFailed      = "failed"
@@ -99,9 +100,12 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 	a.paidMu.Lock()
 	defer a.paidMu.Unlock()
 	for id := range a.paidUnmarked {
-		if err := a.markPaid(ctx, core, id); err != nil && !permanent(err) {
-			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", slog.String("payment_id", id), slog.String("error", err.Error()))
-			return
+		if err := a.markPaid(ctx, core, id); err != nil {
+			if !permanent(err) {
+				a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", slog.String("payment_id", id), slog.String("error", err.Error()))
+				return
+			}
+			a.paidRejected.add(id)
 		}
 		delete(a.paidUnmarked, id)
 	}
@@ -117,6 +121,9 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 	for i, n := range list {
 		if ctx.Err() != nil {
 			return
+		}
+		if a.paidRejected.has(n.PaymentID) {
+			continue
 		}
 		if i > 0 && a.noticePause > 0 {
 			select {
@@ -148,6 +155,7 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 				a.paidUnmarked[n.PaymentID] = true
 				return
 			}
+			a.paidRejected.add(n.PaymentID)
 			continue
 		}
 		a.log.LogAttrs(ctx, slog.LevelInfo, "payment_notice_sent", attrs...)
@@ -171,6 +179,33 @@ func botBroken(err error) bool {
 	return errors.Is(err, tgbot.ErrorUnauthorized) || errors.Is(err, tgbot.ErrorNotFound)
 }
 
+type recentSet[K comparable] struct {
+	max   int
+	order []K
+	set   map[K]struct{}
+}
+
+func newRecentSet[K comparable](max int) recentSet[K] {
+	return recentSet[K]{max: max, set: map[K]struct{}{}}
+}
+
+func (r *recentSet[K]) add(k K) {
+	if _, ok := r.set[k]; ok {
+		return
+	}
+	if len(r.order) >= r.max {
+		delete(r.set, r.order[0])
+		r.order = r.order[1:]
+	}
+	r.order = append(r.order, k)
+	r.set[k] = struct{}{}
+}
+
+func (r *recentSet[K]) has(k K) bool {
+	_, ok := r.set[k]
+	return ok
+}
+
 type pendingMark struct {
 	notice  Notice
 	outcome string
@@ -189,6 +224,7 @@ func (a *App) flushUnmarked(ctx context.Context, core Notices) bool {
 		if err := a.markNotice(ctx, core, p.notice, p.outcome); err != nil {
 			if permanent(err) {
 				a.log.LogAttrs(ctx, slog.LevelWarn, "notice_mark_dropped", slog.Int64("user_id", key.user), slog.String("kind", key.kind), slog.String("error", err.Error()))
+				a.rejected.add(key)
 				delete(a.unmarked, key)
 				continue
 			}
@@ -204,6 +240,18 @@ func (a *App) markNotice(ctx context.Context, core Notices, n Notice, outcome st
 	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
 	defer cancel()
 	return core.MarkNotice(markCtx, n, outcome)
+}
+
+func (a *App) rememberRejected(n Notice) {
+	a.unmarkedMu.Lock()
+	defer a.unmarkedMu.Unlock()
+	a.rejected.add(noticeKey{n.UserID, n.Kind, n.Ref})
+}
+
+func (a *App) wasRejected(key noticeKey) bool {
+	a.unmarkedMu.Lock()
+	defer a.unmarkedMu.Unlock()
+	return a.rejected.has(key)
 }
 
 func (a *App) rememberUnmarked(n Notice, outcome string) {
@@ -249,7 +297,7 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 			return marked, false
 		}
 		key := noticeKey{n.UserID, n.Kind, n.Ref}
-		if tried[key] {
+		if tried[key] || a.wasRejected(key) {
 			continue
 		}
 		tried[key] = true
@@ -295,6 +343,7 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 				a.rememberUnmarked(n, outcome)
 				return marked, false
 			}
+			a.rememberRejected(n)
 			continue
 		}
 		marked++

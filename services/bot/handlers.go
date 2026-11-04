@@ -36,6 +36,8 @@ type App struct {
 	unmarked      map[noticeKey]pendingMark
 	paidMu        sync.Mutex
 	paidUnmarked  map[string]bool
+	rejected      recentSet[noticeKey]
+	paidRejected  recentSet[string]
 	paidKick      chan struct{}
 
 	cfgMu     sync.Mutex
@@ -52,7 +54,7 @@ type App struct {
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
 	return &App{
 		core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log,
-		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{}, paidUnmarked: map[string]bool{}, paidKick: make(chan struct{}, 1),
+		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{}, paidUnmarked: map[string]bool{}, rejected: newRecentSet[noticeKey](maxRejected), paidRejected: newRecentSet[string](maxRejected), paidKick: make(chan struct{}, 1),
 		configTTL: defaultConfigTTL, members: map[int64]time.Time{}, memberTTL: defaultMemberTTL,
 	}
 }

@@ -310,7 +310,7 @@ func (c *CoreClient) do(ctx context.Context, method, path string, in, out any) e
 		return fmt.Errorf("%w: %v", ErrPaymentsDisabled, err)
 	case apiErr.StatusCode == http.StatusBadGateway && apiErr.Code == "provider_unavailable":
 		return fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
-	case apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != http.StatusTooManyRequests:
+	case apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusUnprocessableEntity:
 		return fmt.Errorf("%w: %v", ErrRejected, err)
 	}
 	return err

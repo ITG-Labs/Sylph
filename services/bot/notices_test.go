@@ -590,28 +590,47 @@ func TestSendPaidNoticesSurvivesCoreErrors(t *testing.T) {
 	}
 }
 
-func TestSendNoticesDropsAMarkTheCoreRejectsForGood(t *testing.T) {
+func TestSendNoticesDoesNotRepeatWhatTheCoreRejectsForGood(t *testing.T) {
 	app, _ := noticeApp(t)
-	core := &fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"}}, markErr: fmt.Errorf("%w: api 400", ErrRejected)}
+	core := &fakeNotices{due: []Notice{
+		{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"},
+		{UserID: 2, TelegramID: 22, Kind: "expired", Ref: "r2"},
+	}, markErr: fmt.Errorf("%w: api 400", ErrRejected)}
 	tg := &noticeTG{}
-	app.SendNotices(context.Background(), core, tg)
-	core.due = []Notice{{UserID: 2, TelegramID: 22, Kind: "expired", Ref: "r2"}}
-	app.SendNotices(context.Background(), core, tg)
+	for range 4 {
+		app.SendNotices(context.Background(), core, tg)
+	}
 	if got := len(tg.only(t, "sendMessage")); got != 2 {
-		t.Fatalf("sent %d, want the queue to keep moving after a 400 on a mark", got)
+		t.Fatalf("sent %d messages over 4 runs, want each of 2 once: the core keeps returning a notice whose mark it rejects", got)
 	}
 	if len(app.unmarked) != 0 {
 		t.Fatalf("unmarked %v", app.unmarked)
 	}
 }
 
-func TestSendPaidNoticesDropsAMarkTheCoreRejectsForGood(t *testing.T) {
+func TestSendPaidNoticesDoesNotRepeatWhatTheCoreRejectsForGood(t *testing.T) {
 	app, _ := noticeApp(t)
 	core := &fakeNotices{paid: paidNotices(2), paidMarkErr: fmt.Errorf("%w: api 400", ErrRejected)}
 	tg := &noticeTG{}
-	app.SendPaidNotices(context.Background(), core, tg)
+	for range 4 {
+		app.SendPaidNotices(context.Background(), core, tg)
+	}
 	if got := len(tg.only(t, "sendMessage")); got != 2 || len(app.paidUnmarked) != 0 {
-		t.Fatalf("sent %d, unmarked %v: a mark the core will never take must not hold the queue", got, app.paidUnmarked)
+		t.Fatalf("sent %d over 4 runs, unmarked %v", got, app.paidUnmarked)
+	}
+}
+
+func TestRecentSetStaysBounded(t *testing.T) {
+	r := newRecentSet[int](3)
+	for i := range 10 {
+		r.add(i)
+	}
+	if len(r.set) != 3 || len(r.order) != 3 || r.has(0) || !r.has(9) || !r.has(7) {
+		t.Fatalf("set = %v, order = %v", r.set, r.order)
+	}
+	r.add(9)
+	if len(r.order) != 3 {
+		t.Fatalf("a repeated key grew the set: %v", r.order)
 	}
 }
 
