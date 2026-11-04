@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,5 +193,49 @@ func TestCertNotAfter(t *testing.T) {
 	}
 	if _, err := certNotAfter(filepath.Join(t.TempDir(), "missing.pem")); err == nil {
 		t.Fatal("missing file accepted")
+	}
+}
+
+func TestNewHTTPServerBoundsEveryPhase(t *testing.T) {
+	srv := newHTTPServer(":0", http.NotFoundHandler(), nil)
+	if srv.ReadHeaderTimeout <= 0 || srv.ReadHeaderTimeout > 30*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %v, want within (0, 30s]", srv.ReadHeaderTimeout)
+	}
+	if srv.ReadTimeout < srv.ReadHeaderTimeout {
+		t.Fatalf("ReadTimeout = %v, want at least ReadHeaderTimeout %v", srv.ReadTimeout, srv.ReadHeaderTimeout)
+	}
+	if srv.WriteTimeout <= 0 {
+		t.Fatal("WriteTimeout is not set")
+	}
+	if srv.IdleTimeout <= 0 {
+		t.Fatal("IdleTimeout is not set")
+	}
+	if srv.MaxHeaderBytes <= 0 {
+		t.Fatal("MaxHeaderBytes is not set")
+	}
+}
+
+func TestStalledHandshakeIsDropped(t *testing.T) {
+	srv := newHTTPServer("127.0.0.1:0", http.NotFoundHandler(), &tls.Config{
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return nil, errors.New("no certificate") },
+	})
+	srv.ReadHeaderTimeout = 150 * time.Millisecond
+	srv.ReadTimeout = time.Second
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { srv.Close() })
+	go srv.ServeTLS(ln, "", "")
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("server answered a silent client")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("silent client was still connected after the handshake deadline")
 	}
 }

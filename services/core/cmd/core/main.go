@@ -123,7 +123,7 @@ func run(logger *slog.Logger) error {
 
 	server := api.NewServer(svc, logger, revoked)
 	addr := envOr("SYLPH_LISTEN", ":8443")
-	httpSrv := &http.Server{Addr: addr, Handler: server.Handler(), TLSConfig: tlsConfig}
+	httpSrv := newHTTPServer(addr, server.Handler(), tlsConfig)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -147,6 +147,19 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("stopped")
 	return nil
+}
+
+func newHTTPServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    32 << 10,
+	}
 }
 
 type payments struct {
