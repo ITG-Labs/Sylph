@@ -505,6 +505,10 @@ func (a *App) paidText(paidUntil *time.Time) string {
 	return text
 }
 
+func (a *App) paidEarlierText(paidUntil *time.Time) string {
+	return a.paidText(paidUntil) + "\n\nЭту ссылку ты уже оплатил. Нужен ещё один период — жми «Купить ещё раз»."
+}
+
 func (a *App) rotatedText(token string) string {
 	return a.header(icCheck, "Ссылка обновлена") +
 		"Старая больше не работает — добавь новую в клиент заново.\n\n" + a.linkBlock("Новая ссылка", token)

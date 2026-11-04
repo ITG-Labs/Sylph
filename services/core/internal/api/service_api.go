@@ -167,7 +167,16 @@ func (s *Server) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 		s.writePaymentError(w, err, "payment create")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"payment_id": p.PaymentID, "confirmation_url": p.ConfirmationURL, "amount_rub": p.AmountRub})
+	if p.Status == "succeeded" {
+		chk, err := s.svc.CheckPayment(r.Context(), p.PaymentID)
+		if err != nil {
+			s.writePaymentError(w, err, "payment create")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"payment_id": p.PaymentID, "status": p.Status, "amount_rub": p.AmountRub, "paid_until": chk.PaidUntil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"payment_id": p.PaymentID, "status": p.Status, "confirmation_url": p.ConfirmationURL, "amount_rub": p.AmountRub})
 }
 
 func (s *Server) handlePaymentCheck(w http.ResponseWriter, r *http.Request) {

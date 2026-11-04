@@ -89,6 +89,27 @@ func TestPaymentCreateReusesThePendingLink(t *testing.T) {
 	}
 }
 
+func TestPaymentCreateReportsAPaidPreviousLink(t *testing.T) {
+	e, yk := newPaymentsEnv(t)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	u, p := botUserAndPlan(t, e, 5106, 199)
+	var a createdPayment
+	adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID}).decode(t, &a)
+	yk.setStatus(a.PaymentID, "succeeded")
+	var b struct {
+		PaymentID string  `json:"payment_id"`
+		Status    string  `json:"status"`
+		URL       string  `json:"confirmation_url"`
+		PaidUntil *string `json:"paid_until"`
+	}
+	r := adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &b)
+	if b.PaymentID != a.PaymentID || b.Status != "succeeded" || b.URL != "" || b.PaidUntil == nil || yk.createCount() != 1 {
+		t.Fatalf("create after paying = %+v, provider creates = %d", b, yk.createCount())
+	}
+}
+
 func TestPaymentCreateErrors(t *testing.T) {
 	e, _ := newPaymentsEnv(t)
 	bot := e.client(t, "bot", mtls.RoleBot)

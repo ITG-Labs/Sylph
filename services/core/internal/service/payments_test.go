@@ -559,18 +559,40 @@ func TestReuseChecksThatTheOldLinkIsStillAlive(t *testing.T) {
 	}
 }
 
-func TestReusePaidLinkSettlesItAndMakesANewOne(t *testing.T) {
+func TestReusePaidLinkSettlesItAndReportsInsteadOfMakingANewOne(t *testing.T) {
 	svc, fp, _ := paymentsService(t)
 	ctx := context.Background()
 	u, p := userAndPlan(t, svc, 52, 199)
 	first, _ := svc.CreatePayment(ctx, u.ID, p.ID)
 	succeed(fp, first.PaymentID)
 	second, err := svc.CreatePayment(ctx, u.ID, p.ID)
-	if err != nil || second.PaymentID == first.PaymentID {
-		t.Fatalf("second = %+v, %v", second, err)
+	if err != nil || second.PaymentID != first.PaymentID || second.Status != "succeeded" {
+		t.Fatalf("second = %+v, %v; want the settled payment, not a fresh link", second, err)
+	}
+	if len(fp.requests) != 1 {
+		t.Fatalf("provider asked to create %d payments, want 1", len(fp.requests))
 	}
 	if got, _ := svc.store.GetPayment(ctx, first.PaymentID); got.Status != "succeeded" {
 		t.Fatalf("paid payment found on reuse was not settled: %q", got.Status)
+	}
+	third, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || third.PaymentID == first.PaymentID || third.Status != "pending" || len(fp.requests) != 2 {
+		t.Fatalf("buying again = %+v, %v", third, err)
+	}
+}
+
+func TestReusePaidLinkSettledByAnotherPathIsReportedToo(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 53, 199)
+	first, _ := svc.CreatePayment(ctx, u.ID, p.ID)
+	succeed(fp, first.PaymentID)
+	if _, err := svc.PollPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	next, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || next.PaymentID == first.PaymentID || next.Status != "pending" {
+		t.Fatalf("a settled payment is not pending, buying again must give a fresh link: %+v, %v", next, err)
 	}
 }
 

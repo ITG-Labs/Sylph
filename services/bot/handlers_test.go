@@ -609,6 +609,28 @@ func TestBuyCreatesAPaymentLink(t *testing.T) {
 	}
 }
 
+func TestBuyTellsThatThePreviousLinkWasAlreadyPaid(t *testing.T) {
+	until := at("2026-12-10T10:00:00Z")
+	core := &fakeCore{status: &Status{User: User{ID: 7}}, plans: []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, OnSale: true}},
+		payment: &Payment{PaymentID: "2d85d5ad-000f-5000-9000-1c4c6dd1d9e6", Status: "succeeded", AmountRub: 199, PaidUntil: &until}}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("buy:2"))
+	m := tg.last(t)
+	mustContain(t, m.text, "Оплата прошла", "Оплачено до")
+	if strings.Contains(m.text, "Нажми «Оплатить»") {
+		t.Fatalf("a payment screen after the money already went through:\n%s", m.text)
+	}
+	b := buttons(m.keyboard)
+	if _, ok := b[cbBuy]; !ok {
+		t.Fatalf("no way to buy once more: %+v", m.keyboard)
+	}
+	for _, btn := range b {
+		if btn.URL != "" {
+			t.Fatalf("a pay link on the already paid screen: %+v", m.keyboard)
+		}
+	}
+}
+
 func TestBuyWarnsWhatHappensToTheCurrentPeriod(t *testing.T) {
 	plans := []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, OnSale: true}, {ID: 3, Name: "Год", PriceRub: 1990, PeriodDays: 365, OnSale: true}}
 	pay := &Payment{PaymentID: "p1", ConfirmationURL: "https://yoomoney.ru/x", AmountRub: 1990}

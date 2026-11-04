@@ -88,6 +88,9 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 		if err != nil || status == "pending" {
 			return existing, nil
 		}
+		if status == "succeeded" {
+			return s.store.GetPayment(ctx, existing.PaymentID)
+		}
 	case !errors.Is(err, store.ErrNotFound):
 		return nil, err
 	}

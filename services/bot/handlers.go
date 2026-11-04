@@ -291,6 +291,11 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 		slog.Int64("telegram_id", tgID),
 		slog.String("payment_id", pay.PaymentID),
 		slog.Int64("plan_id", plan.ID))
+	if pay.Status == "succeeded" {
+		a.show(ctx, tg, to, a.paidEarlierText(pay.PaidUntil), keyboard(
+			row(styled(a.btn(icDiamond, "Купить ещё раз", cbBuy), styleSuccess)), a.statusRow(), a.backRow()))
+		return ""
+	}
 	text, kb := a.paymentView(st, *plan, pay)
 	a.show(ctx, tg, to, text, kb)
 	return ""

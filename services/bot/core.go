@@ -142,9 +142,11 @@ type Redeem struct {
 }
 
 type Payment struct {
-	PaymentID       string `json:"payment_id"`
-	ConfirmationURL string `json:"confirmation_url"`
-	AmountRub       int64  `json:"amount_rub"`
+	PaymentID       string     `json:"payment_id"`
+	Status          string     `json:"status"`
+	ConfirmationURL string     `json:"confirmation_url"`
+	AmountRub       int64      `json:"amount_rub"`
+	PaidUntil       *time.Time `json:"paid_until"`
 }
 
 type Check struct {
