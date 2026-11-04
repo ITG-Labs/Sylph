@@ -3,7 +3,9 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"reflect"
@@ -41,6 +43,7 @@ func killEngine(t *testing.T, fx *fakeXray, inbounds []Inbound, keys ...string) 
 	e := testEngine(t, fx, &fakeCore{})
 	fs := &fakeSockets{}
 	e.sockets = fs
+	e.gateways = func() (map[netip.Addr]bool, error) { return nil, nil }
 	e.inbounds = inbounds
 	e.setDesired(users(keys...))
 	if err := e.Reconcile(context.Background(), inbounds); err != nil {
@@ -239,16 +242,145 @@ func TestUnusableAddressesAreNotTargets(t *testing.T) {
 	}
 }
 
-func TestBlockedUserLosesSessions(t *testing.T) {
+func TestHeldUserKeepsSessionsBecauseAccessIsNotRevoked(t *testing.T) {
+	fx := newFakeXray()
+	e, fs := killEngine(t, fx, testInbounds("main"), "held", "gone")
+	fx.online = map[string]map[string]int64{
+		userEmail("held", "main"): {"203.0.113.7": 1},
+		userEmail("gone", "main"): {"203.0.113.8": 1},
+	}
+	e.Block(map[string]bool{userEmail("held", "main"): true})
+	e.setDesired(users("held"))
+	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasUser("main", "held") {
+		t.Fatal("egress hold must still keep the user out of xray")
+	}
+	if len(fs.calls) != 1 || !reflect.DeepEqual(fs.calls[0].ips, addrs("203.0.113.8")) {
+		t.Fatalf("kill calls = %+v, want only the user that left desired", fs.calls)
+	}
+}
+
+func TestEgressHoldAloneTouchesNothing(t *testing.T) {
 	fx := newFakeXray()
 	e, fs := killEngine(t, fx, testInbounds("main"), "held")
 	fx.online = map[string]map[string]int64{userEmail("held", "main"): {"203.0.113.7": 1}}
+	before := fx.onlineHits
 	e.Block(map[string]bool{userEmail("held", "main"): true})
 	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
 		t.Fatal(err)
 	}
+	if fx.onlineHits != before || len(fs.calls) != 0 {
+		t.Fatalf("online calls = %d, kill calls = %+v, want none: the hold revokes nobody", fx.onlineHits-before, fs.calls)
+	}
+}
+
+func TestLegacyEmailMigrationKeepsSessions(t *testing.T) {
+	fx := newFakeXray()
+	e, fs := killEngine(t, fx, testInbounds("main"), "stays")
+	fx.set(func(f *fakeXray) {
+		f.users = map[string]bool{"main/stays": true}
+		f.online = map[string]map[string]int64{"stays": {"203.0.113.7": 1}}
+	})
+	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasEmail("main", "stays") || !fx.hasUser("main", "stays") {
+		t.Fatal("the legacy email must move to the tagged one")
+	}
+	if len(fs.calls) != 0 {
+		t.Fatalf("kill calls = %+v, the key kept its access", fs.calls)
+	}
+}
+
+func TestLeavingOneInboundIsARevocationThere(t *testing.T) {
+	fx := newFakeXray()
+	inbounds := testInbounds("alpha", "beta")
+	e, fs := killEngine(t, fx, inbounds, "moved")
+	fx.online = map[string]map[string]int64{userEmail("moved", "alpha"): {"203.0.113.7": 1}}
+	e.setDesired([]SyncUser{{UUID: "moved", Inbounds: []string{"beta"}}})
+	if err := e.Reconcile(context.Background(), inbounds); err != nil {
+		t.Fatal(err)
+	}
+	if fx.hasUser("alpha", "moved") || !fx.hasUser("beta", "moved") {
+		t.Fatal("the user must stay only on beta")
+	}
 	if len(fs.calls) != 1 || !reflect.DeepEqual(fs.calls[0].ips, addrs("203.0.113.7")) {
+		t.Fatalf("kill calls = %+v: a session on the inbound it lost must end", fs.calls)
+	}
+}
+
+func TestGatewayAddressIsSkippedAndLogged(t *testing.T) {
+	fx := newFakeXray()
+	e, fs := killEngine(t, fx, testInbounds("main"), "gone")
+	var logs bytes.Buffer
+	e.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	e.gateways = func() (map[netip.Addr]bool, error) { return addrs("172.18.0.1"), nil }
+	fx.online = map[string]map[string]int64{userEmail("gone", "main"): {"172.18.0.1": 1, "203.0.113.7": 1}}
+	e.setDesired(users())
+	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.calls) != 1 || !reflect.DeepEqual(fs.calls[0].ips, addrs("203.0.113.7")) {
+		t.Fatalf("kill calls = %+v: the gateway stands for every client behind the port proxy", fs.calls)
+	}
+	if !strings.Contains(logs.String(), "sessions_gateway_skipped") {
+		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+func TestOnlyGatewayAddressMeansNoKill(t *testing.T) {
+	fx := newFakeXray()
+	e, fs := killEngine(t, fx, testInbounds("main"), "gone")
+	var logs bytes.Buffer
+	e.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	e.gateways = func() (map[netip.Addr]bool, error) { return addrs("fd00::1"), nil }
+	fx.online = map[string]map[string]int64{userEmail("gone", "main"): {"[fd00::1]": 1}}
+	e.setDesired(users())
+	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.calls) != 0 {
 		t.Fatalf("kill calls = %+v", fs.calls)
+	}
+	if !strings.Contains(logs.String(), "sessions_gateway_skipped") {
+		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+func TestGatewayLookupFailureStillKills(t *testing.T) {
+	fx := newFakeXray()
+	e, fs := killEngine(t, fx, testInbounds("main"), "gone")
+	var logs bytes.Buffer
+	e.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	e.gateways = func() (map[netip.Addr]bool, error) { return nil, errors.New("no route table") }
+	fx.online = map[string]map[string]int64{userEmail("gone", "main"): {"203.0.113.7": 1}}
+	e.setDesired(users())
+	if err := e.Reconcile(context.Background(), testInbounds("main")); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.calls) != 1 {
+		t.Fatalf("kill calls = %+v: a ban must not wait for the route table", fs.calls)
+	}
+	if !strings.Contains(logs.String(), "sessions_gateways_failed") {
+		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+func TestRouteGatewaysReadsDefaultRoutes(t *testing.T) {
+	native := fmt.Sprintf("%08X", binary.NativeEndian.Uint32(netip.MustParseAddr("172.18.0.1").AsSlice()))
+	route := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
+		"eth0\t00000000\t" + native + "\t0003\t0\t0\t0\t00000000\t0\t0\t0\n" +
+		"eth0\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n" +
+		"bad line\n" +
+		"eth1\t00000000\tZZZZZZZZ\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+	v6route := "00000000000000000000000000000000 00 00000000000000000000000000000000 00 fd770001000000000000000000000001 00000400 00000001 00000000 00000003 eth0\n" +
+		"fd770001000000000000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001 eth0\n" +
+		"short\n"
+	got := routeGateways(route, v6route)
+	if want := addrs("172.18.0.1", "fd77:1::1"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("gateways = %v, want %v", got, want)
 	}
 }
 

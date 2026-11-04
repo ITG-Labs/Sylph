@@ -25,6 +25,7 @@ type Engine struct {
 	serviceKeys []string
 	geo         *SyncGeo
 	sockets     SocketKiller
+	gateways    func() (map[netip.Addr]bool, error)
 }
 
 type NodeDesired struct {
@@ -37,13 +38,14 @@ type NodeDesired struct {
 
 func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logger) *Engine {
 	return &Engine{
-		cfg:     cfg,
-		core:    core,
-		xray:    xray,
-		logger:  logger,
-		version: -1,
-		desired: map[string]bool{},
-		sockets: netlinkSockets{},
+		cfg:      cfg,
+		core:     core,
+		xray:     xray,
+		logger:   logger,
+		version:  -1,
+		desired:  map[string]bool{},
+		sockets:  netlinkSockets{},
+		gateways: nodeGateways,
 	}
 }
 
@@ -232,7 +234,11 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool, dro
 			gone = append(gone, email)
 		}
 	}
-	if len(gone) > 0 {
+	revoked := func(email string) bool {
+		uuid, _ := splitEmail(email)
+		return !keys[uuid]
+	}
+	if slices.ContainsFunc(gone, revoked) {
 		e.snapshotOnline(ctx, drop)
 	}
 	var firstErr error
@@ -246,7 +252,9 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool, dro
 			continue
 		}
 		delete(actual, email)
-		drop.add(email)
+		if revoked(email) {
+			drop.add(email)
+		}
 		e.logger.Info("xray_user_removed", "inbound", in.Tag, "key_ref", keyRef(uuid))
 	}
 	if !add {

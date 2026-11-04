@@ -2,12 +2,21 @@ package agent
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const sessionKillTimeout = 5 * time.Second
+const (
+	sessionKillTimeout = 5 * time.Second
+	procRoute          = "/proc/net/route"
+	procRoute6         = "/proc/net/ipv6_route"
+)
 
 type SocketKiller interface {
 	Kill(ctx context.Context, ports map[uint16]bool, ips map[netip.Addr]bool) (int, error)
@@ -64,6 +73,10 @@ func (e *Engine) killSessions(ctx context.Context, inbounds []Inbound, drop *ses
 	if len(drop.ips) == 0 {
 		return
 	}
+	e.skipGateways(drop.ips)
+	if len(drop.ips) == 0 {
+		return
+	}
 	ports := publicPorts(inbounds, e.inbounds)
 	if len(ports) == 0 {
 		e.logger.Warn("sessions_kill_skipped", "ips", len(drop.ips), "reason", "public ports unknown")
@@ -77,4 +90,65 @@ func (e *Engine) killSessions(ctx context.Context, inbounds []Inbound, drop *ses
 		return
 	}
 	e.logger.Info("sessions_killed", "ips", len(drop.ips), "sockets", killed)
+}
+
+func (e *Engine) skipGateways(ips map[netip.Addr]bool) {
+	gateways, err := e.gateways()
+	if err != nil {
+		e.logger.Warn("sessions_gateways_failed", "error", err.Error())
+		return
+	}
+	skipped := 0
+	for ip := range ips {
+		if gateways[ip] {
+			delete(ips, ip)
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		e.logger.Warn("sessions_gateway_skipped", "ips", skipped, "reason", "the gateway address stands for every client behind the port proxy")
+	}
+}
+
+func nodeGateways() (map[netip.Addr]bool, error) {
+	route, err := os.ReadFile(procRoute)
+	if err != nil {
+		return nil, err
+	}
+	route6, err := os.ReadFile(procRoute6)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return routeGateways(string(route), string(route6)), nil
+}
+
+func routeGateways(route, route6 string) map[netip.Addr]bool {
+	out := map[netip.Addr]bool{}
+	for line := range strings.Lines(route) {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		v, err := strconv.ParseUint(fields[2], 16, 32)
+		if err != nil || v == 0 {
+			continue
+		}
+		var ip [4]byte
+		binary.NativeEndian.PutUint32(ip[:], uint32(v))
+		out[netip.AddrFrom4(ip)] = true
+	}
+	for line := range strings.Lines(route6) {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		raw, err := hex.DecodeString(fields[4])
+		if err != nil || len(raw) != 16 {
+			continue
+		}
+		if addr := netip.AddrFrom16([16]byte(raw)).Unmap(); !addr.IsUnspecified() {
+			out[addr] = true
+		}
+	}
+	return out
 }
