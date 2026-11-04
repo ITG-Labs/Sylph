@@ -82,13 +82,51 @@ func botBroken(err error) bool {
 	return errors.Is(err, tgbot.ErrorUnauthorized) || errors.Is(err, tgbot.ErrorNotFound)
 }
 
+type pendingMark struct {
+	notice  Notice
+	outcome string
+}
+
 type noticeKey struct {
 	user int64
 	kind string
 	ref  string
 }
 
+func (a *App) flushUnmarked(ctx context.Context, core Notices) bool {
+	a.unmarkedMu.Lock()
+	defer a.unmarkedMu.Unlock()
+	for key, p := range a.unmarked {
+		if err := a.markNotice(ctx, core, p.notice, p.outcome); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				a.log.LogAttrs(ctx, slog.LevelWarn, "notice_mark_dropped", slog.Int64("user_id", key.user), slog.String("kind", key.kind), slog.String("error", err.Error()))
+				delete(a.unmarked, key)
+				continue
+			}
+			a.log.LogAttrs(ctx, slog.LevelError, "notice_mark_failed", slog.Int64("user_id", key.user), slog.String("kind", key.kind), slog.String("error", err.Error()))
+			return false
+		}
+		delete(a.unmarked, key)
+	}
+	return true
+}
+
+func (a *App) markNotice(ctx context.Context, core Notices, n Notice, outcome string) error {
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
+	defer cancel()
+	return core.MarkNotice(markCtx, n, outcome)
+}
+
+func (a *App) rememberUnmarked(n Notice, outcome string) {
+	a.unmarkedMu.Lock()
+	defer a.unmarkedMu.Unlock()
+	a.unmarked[noticeKey{n.UserID, n.Kind, n.Ref}] = pendingMark{notice: n, outcome: outcome}
+}
+
 func (a *App) SendNotices(ctx context.Context, core Notices, tg Telegram) {
+	if !a.flushUnmarked(ctx, core) {
+		return
+	}
 	attempts := 0
 	tried := map[noticeKey]bool{}
 	for round := range maxNoticeRounds {
@@ -162,11 +200,12 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_send_failed", append(attrs, slog.String("error", err.Error()))...)
 			continue
 		}
-		markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
-		err = core.MarkNotice(markCtx, n, outcome)
-		cancel()
-		if err != nil {
+		if err := a.markNotice(ctx, core, n, outcome); err != nil {
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
+			if !errors.Is(err, ErrNotFound) {
+				a.rememberUnmarked(n, outcome)
+				return marked, false
+			}
 			continue
 		}
 		marked++

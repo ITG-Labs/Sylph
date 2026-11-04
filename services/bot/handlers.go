@@ -32,6 +32,8 @@ type App struct {
 	checkedMu     sync.Mutex
 	lastCheck     map[string]time.Time
 	noticePause   time.Duration
+	unmarkedMu    sync.Mutex
+	unmarked      map[noticeKey]pendingMark
 
 	cfgMu     sync.Mutex
 	cfg       *BotConfig
@@ -47,7 +49,7 @@ type App struct {
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
 	return &App{
 		core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log,
-		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond,
+		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{},
 		configTTL: defaultConfigTTL, members: map[int64]time.Time{}, memberTTL: defaultMemberTTL,
 	}
 }
