@@ -18,6 +18,7 @@ const (
 	NoticeEvery        = time.Minute
 	maxNoticeRounds    = 100
 	noticeMarkTimeout  = 10 * time.Second
+	paidPassTimeout    = 2 * time.Minute
 	outcomeSent        = "sent"
 	outcomeUnreachable = "unreachable"
 	outcomeFailed      = "failed"
@@ -57,8 +58,21 @@ func (c *CoreClient) MarkNotice(ctx context.Context, n Notice, outcome string) e
 	return c.do(ctx, http.MethodPost, "/v1/notifications/sent", body, nil)
 }
 
+func (a *App) KickPaidNotices() {
+	select {
+	case a.paidKick <- struct{}{}:
+	default:
+	}
+}
+
+func (a *App) sendPaidPass(ctx context.Context, core Notices, tg Telegram) {
+	passCtx, cancel := context.WithTimeout(ctx, paidPassTimeout)
+	defer cancel()
+	a.SendPaidNotices(passCtx, core, tg)
+}
+
 func (a *App) RunNotices(ctx context.Context, core Notices, tg Telegram, every time.Duration) {
-	a.SendPaidNotices(ctx, core, tg)
+	a.sendPaidPass(ctx, core, tg)
 	a.SendNotices(ctx, core, tg)
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -66,8 +80,10 @@ func (a *App) RunNotices(ctx context.Context, core Notices, tg Telegram, every t
 		select {
 		case <-ctx.Done():
 			return
+		case <-a.paidKick:
+			a.sendPaidPass(ctx, core, tg)
 		case <-t.C:
-			a.SendPaidNotices(ctx, core, tg)
+			a.sendPaidPass(ctx, core, tg)
 			a.SendNotices(ctx, core, tg)
 		}
 	}
@@ -83,7 +99,7 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 	a.paidMu.Lock()
 	defer a.paidMu.Unlock()
 	for id := range a.paidUnmarked {
-		if err := a.markPaid(ctx, core, id); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := a.markPaid(ctx, core, id); err != nil && !permanent(err) {
 			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", slog.String("payment_id", id), slog.String("error", err.Error()))
 			return
 		}
@@ -101,9 +117,6 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 	for i, n := range list {
 		if ctx.Err() != nil {
 			return
-		}
-		if a.paidUnmarked[n.PaymentID] {
-			continue
 		}
 		if i > 0 && a.noticePause > 0 {
 			select {
@@ -131,7 +144,7 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 		}
 		if err := a.markPaid(ctx, core, n.PaymentID); err != nil {
 			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
-			if !errors.Is(err, ErrNotFound) {
+			if !permanent(err) {
 				a.paidUnmarked[n.PaymentID] = true
 				return
 			}
@@ -139,6 +152,10 @@ func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
 		}
 		a.log.LogAttrs(ctx, slog.LevelInfo, "payment_notice_sent", attrs...)
 	}
+}
+
+func permanent(err error) bool {
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrBanned) || errors.Is(err, ErrRejected)
 }
 
 func unreachable(err error) bool {
@@ -170,7 +187,7 @@ func (a *App) flushUnmarked(ctx context.Context, core Notices) bool {
 	defer a.unmarkedMu.Unlock()
 	for key, p := range a.unmarked {
 		if err := a.markNotice(ctx, core, p.notice, p.outcome); err != nil {
-			if errors.Is(err, ErrNotFound) {
+			if permanent(err) {
 				a.log.LogAttrs(ctx, slog.LevelWarn, "notice_mark_dropped", slog.Int64("user_id", key.user), slog.String("kind", key.kind), slog.String("error", err.Error()))
 				delete(a.unmarked, key)
 				continue
@@ -274,7 +291,7 @@ func (a *App) sendNoticeRound(ctx context.Context, core Notices, tg Telegram, at
 		}
 		if err := a.markNotice(ctx, core, n, outcome); err != nil {
 			a.log.LogAttrs(ctx, slog.LevelError, "notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
-			if !errors.Is(err, ErrNotFound) {
+			if !permanent(err) {
 				a.rememberUnmarked(n, outcome)
 				return marked, false
 			}

@@ -589,3 +589,54 @@ func TestSendPaidNoticesSurvivesCoreErrors(t *testing.T) {
 		t.Fatalf("logs = %s", logs)
 	}
 }
+
+func TestSendNoticesDropsAMarkTheCoreRejectsForGood(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{due: []Notice{{UserID: 1, TelegramID: 11, Kind: "expired", Ref: "r1"}}, markErr: fmt.Errorf("%w: api 400", ErrRejected)}
+	tg := &noticeTG{}
+	app.SendNotices(context.Background(), core, tg)
+	core.due = []Notice{{UserID: 2, TelegramID: 22, Kind: "expired", Ref: "r2"}}
+	app.SendNotices(context.Background(), core, tg)
+	if got := len(tg.only(t, "sendMessage")); got != 2 {
+		t.Fatalf("sent %d, want the queue to keep moving after a 400 on a mark", got)
+	}
+	if len(app.unmarked) != 0 {
+		t.Fatalf("unmarked %v", app.unmarked)
+	}
+}
+
+func TestSendPaidNoticesDropsAMarkTheCoreRejectsForGood(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{paid: paidNotices(2), paidMarkErr: fmt.Errorf("%w: api 400", ErrRejected)}
+	tg := &noticeTG{}
+	app.SendPaidNotices(context.Background(), core, tg)
+	if got := len(tg.only(t, "sendMessage")); got != 2 || len(app.paidUnmarked) != 0 {
+		t.Fatalf("sent %d, unmarked %v: a mark the core will never take must not hold the queue", got, app.paidUnmarked)
+	}
+}
+
+func TestRunNoticesSendsPaidNoticesWhenKicked(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{}
+	tg := &noticeTG{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		app.RunNotices(ctx, core, tg, time.Hour)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	core.mu.Lock()
+	core.paid = paidNotices(1)
+	core.mu.Unlock()
+	app.KickPaidNotices()
+	deadline := time.Now().Add(3 * time.Second)
+	for len(tg.only(t, "sendMessage")) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got := len(tg.only(t, "sendMessage")); got != 1 {
+		t.Fatalf("sent %d after a kick", got)
+	}
+}

@@ -36,6 +36,7 @@ type App struct {
 	unmarked      map[noticeKey]pendingMark
 	paidMu        sync.Mutex
 	paidUnmarked  map[string]bool
+	paidKick      chan struct{}
 
 	cfgMu     sync.Mutex
 	cfg       *BotConfig
@@ -51,7 +52,7 @@ type App struct {
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
 	return &App{
 		core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log,
-		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{}, paidUnmarked: map[string]bool{},
+		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{}, paidUnmarked: map[string]bool{}, paidKick: make(chan struct{}, 1),
 		configTTL: defaultConfigTTL, members: map[int64]time.Time{}, memberTTL: defaultMemberTTL,
 	}
 }
@@ -289,16 +290,18 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 	if err != nil {
 		return a.fail(ctx, "payment_create", tgID, err)
 	}
+	if pay.Status == "succeeded" {
+		shown := a.show(ctx, tg, to, a.paidEarlierText(pay.PaidUntil), keyboard(
+			row(styled(a.btn(icDiamond, "Купить ещё раз", cbBuy), styleSuccess)), a.statusRow(), a.backRow()))
+		if shown {
+			a.markPaymentSeen(ctx, pay.PaymentID)
+		}
+		return ""
+	}
 	a.log.LogAttrs(ctx, slog.LevelInfo, "payment_link_sent",
 		slog.Int64("telegram_id", tgID),
 		slog.String("payment_id", pay.PaymentID),
 		slog.Int64("plan_id", plan.ID))
-	if pay.Status == "succeeded" {
-		a.markPaymentSeen(ctx, pay.PaymentID)
-		a.show(ctx, tg, to, a.paidEarlierText(pay.PaidUntil), keyboard(
-			row(styled(a.btn(icDiamond, "Купить ещё раз", cbBuy), styleSuccess)), a.statusRow(), a.backRow()))
-		return ""
-	}
 	text, kb := a.paymentView(st, *plan, pay)
 	a.show(ctx, tg, to, text, kb)
 	return ""
@@ -329,8 +332,9 @@ func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, pa
 		slog.Bool("applied", chk.Applied))
 	switch chk.Status {
 	case "succeeded":
-		a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(a.statusRow(), a.backRow()))
-		a.markPaymentSeen(ctx, paymentID)
+		if a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(a.statusRow(), a.backRow())) {
+			a.markPaymentSeen(ctx, paymentID)
+		}
 	case "canceled":
 		a.show(ctx, tg, to, a.canceledText(), keyboard(a.buyRow(), a.backRow()))
 	case "mismatch":
@@ -475,28 +479,30 @@ func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, pai
 	return err
 }
 
-func (a *App) show(ctx context.Context, tg Telegram, to reply, text string, kb *models.InlineKeyboardMarkup) {
+func (a *App) show(ctx context.Context, tg Telegram, to reply, text string, kb *models.InlineKeyboardMarkup) bool {
 	if to.msgID != 0 {
 		_, err := editMessage(ctx, tg, &tgbot.EditMessageTextParams{
 			ChatID: to.chatID, MessageID: to.msgID, Text: text, ParseMode: models.ParseModeHTML, ReplyMarkup: kb,
 			LinkPreviewOptions: noPreview(),
 		})
 		if err == nil || strings.Contains(err.Error(), "message is not modified") {
-			return
+			return true
 		}
 		a.log.LogAttrs(ctx, slog.LevelWarn, "telegram_edit_failed", slog.String("error", err.Error()))
 	}
-	a.send(ctx, tg, to.chatID, text, kb)
+	return a.send(ctx, tg, to.chatID, text, kb)
 }
 
-func (a *App) send(ctx context.Context, tg Telegram, chatID int64, text string, kb *models.InlineKeyboardMarkup) {
+func (a *App) send(ctx context.Context, tg Telegram, chatID int64, text string, kb *models.InlineKeyboardMarkup) bool {
 	params := &tgbot.SendMessageParams{ChatID: chatID, Text: text, ParseMode: models.ParseModeHTML, LinkPreviewOptions: noPreview()}
 	if kb != nil {
 		params.ReplyMarkup = kb
 	}
 	if _, err := sendMessage(ctx, tg, params); err != nil {
 		a.log.LogAttrs(ctx, slog.LevelError, "telegram_send_failed", slog.Int64("chat_id", chatID), slog.String("error", err.Error()))
+		return false
 	}
+	return true
 }
 
 func noPreview() *models.LinkPreviewOptions {

@@ -581,7 +581,7 @@ func TestReusePaidLinkSettlesItAndReportsInsteadOfMakingANewOne(t *testing.T) {
 	}
 }
 
-func TestReusePaidLinkSettledByAnotherPathIsReportedToo(t *testing.T) {
+func TestReuseAfterAnotherPathSettledTheLinkGivesAFreshOne(t *testing.T) {
 	svc, fp, _ := paymentsService(t)
 	ctx := context.Background()
 	u, p := userAndPlan(t, svc, 53, 199)

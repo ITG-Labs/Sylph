@@ -2,21 +2,21 @@ package bot
 
 import (
 	"bytes"
-	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type webhookEnv struct {
-	core        *fakeCore
-	h           *Webhook
-	logs        *bytes.Buffer
-	flushes     int
-	flushCtxErr error
+	core    *fakeCore
+	h       *Webhook
+	logs    *bytes.Buffer
+	flushes int
 }
 
 func newWebhookEnv(t *testing.T, trusted ...string) *webhookEnv {
@@ -30,9 +30,8 @@ func newWebhookEnv(t *testing.T, trusted ...string) *webhookEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.h = NewWebhook(e.core, func(ctx context.Context) {
+	e.h = NewWebhook(e.core, func() {
 		e.flushes++
-		e.flushCtxErr = ctx.Err()
 	}, allow, proxies, slog.New(slog.NewJSONHandler(e.logs, nil)))
 	return e
 }
@@ -183,17 +182,36 @@ func TestWebhookAsksYooKassaToRetryWhenTheCoreIsDown(t *testing.T) {
 	}
 }
 
-func TestWebhookFlushIgnoresACanceledRequest(t *testing.T) {
-	e := newWebhookEnv(t)
-	e.core.check = &Check{Status: "succeeded", Applied: true, TelegramID: i64(1001)}
+func TestWebhookDoesNotWaitForTheNoticeQueue(t *testing.T) {
+	core := &fakeCore{check: &Check{Status: "succeeded", Applied: true, TelegramID: i64(1001)}}
+	app, _ := newTestApp(t, core)
+	app.paidMu.Lock()
+	defer app.paidMu.Unlock()
+	allow, err := prefixes("x", strings.Join(defaultYooKassaIPs, ","))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewWebhook(core, app.KickPaidNotices, allow, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	r := httptest.NewRequest(http.MethodPost, "/yookassa", strings.NewReader(notification("payment.succeeded", paymentID)))
 	r.RemoteAddr = "185.71.76.10:1"
-	ctx, cancel := context.WithCancel(r.Context())
-	cancel()
 	w := httptest.NewRecorder()
-	e.h.ServeHTTP(w, r.WithContext(ctx))
-	if w.Code != http.StatusOK || e.flushes != 1 || e.flushCtxErr != nil {
-		t.Fatalf("status %d, flushes %d, flush ctx err %v", w.Code, e.flushes, e.flushCtxErr)
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(w, r)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the webhook waits for a busy notice queue instead of answering 200")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	select {
+	case <-app.paidKick:
+	default:
+		t.Fatal("the queue was not kicked")
 	}
 }
 

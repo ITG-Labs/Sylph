@@ -65,9 +65,7 @@ func run(logger *slog.Logger) error {
 	var srv *http.Server
 	errCh := make(chan error, 1)
 	if cfg.WebhookListen != "" {
-		hook := bot.NewWebhook(core, func(ctx context.Context) {
-			app.SendPaidNotices(ctx, core, tg)
-		}, cfg.YooKassaIPs, cfg.TrustedProxies, logger)
+		hook := bot.NewWebhook(core, app.KickPaidNotices, cfg.YooKassaIPs, cfg.TrustedProxies, logger)
 		mux := http.NewServeMux()
 		mux.Handle("/yookassa", hook)
 		mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -9,15 +8,11 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"time"
 )
 
-const (
-	webhookMaxBody      = 64 << 10
-	webhookFlushTimeout = 20 * time.Second
-)
+const webhookMaxBody = 64 << 10
 
-type Flusher func(ctx context.Context)
+type Flusher func()
 
 type Webhook struct {
 	core    Core
@@ -90,9 +85,7 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if chk.Status == "succeeded" {
-		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookFlushTimeout)
-		h.flush(flushCtx)
-		cancel()
+		h.flush()
 	}
 	w.WriteHeader(http.StatusOK)
 }

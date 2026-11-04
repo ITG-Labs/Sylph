@@ -179,6 +179,8 @@ func TestCoreErrorsMapToKinds(t *testing.T) {
 		"conflict":  {http.StatusConflict, "conflict", ErrConflict},
 		"disabled":  {http.StatusServiceUnavailable, "payments_disabled", ErrPaymentsDisabled},
 		"provider":  {http.StatusBadGateway, "provider_unavailable", ErrProviderUnavailable},
+		"bad req":   {http.StatusBadRequest, "bad_request", ErrRejected},
+		"forbidden": {http.StatusForbidden, "forbidden", ErrRejected},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -195,8 +197,14 @@ func TestCoreErrorsMapToKinds(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 	err := c.ResetDevices(context.Background(), 1)
-	if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
+	if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrRejected) {
 		t.Fatalf("500 err = %v", err)
+	}
+	for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests} {
+		c, _ := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) })
+		if err := c.ResetDevices(context.Background(), 1); err == nil || permanent(err) {
+			t.Fatalf("%d must be retried later, err = %v", status, err)
+		}
 	}
 }
 

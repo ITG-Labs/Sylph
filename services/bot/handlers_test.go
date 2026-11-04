@@ -721,6 +721,30 @@ func TestCheckSucceededPaymentIsMarkedSoTheQueueStaysQuiet(t *testing.T) {
 	}
 }
 
+func TestPaidScreenThatCouldNotBeShownLeavesThePaymentInTheQueue(t *testing.T) {
+	core := &fakeCore{check: &Check{Status: "succeeded", Applied: true, TelegramID: i64(tgUser)}}
+	app, _ := newTestApp(t, core)
+	tg := &noticeTG{errs: map[int64]error{tgUser: errors.New("telegram is down")}}
+	tg.editErr = errors.New("telegram is down")
+	app.Handle(context.Background(), tg, callback("chk:p1"))
+	if core.called("notified:p1") {
+		t.Fatalf("marked as notified although the user saw nothing: %v", core.calls)
+	}
+}
+
+func TestBuyOfAPaidLinkThatCouldNotBeShownLeavesThePaymentInTheQueue(t *testing.T) {
+	until := at("2026-12-10T10:00:00Z")
+	core := &fakeCore{status: &Status{User: User{ID: 7}}, plans: []Plan{{ID: 2, Name: "Месяц", PriceRub: 199, PeriodDays: 30, OnSale: true}},
+		payment: &Payment{PaymentID: "2d85d5ad-000f-5000-9000-1c4c6dd1d9e6", Status: "succeeded", AmountRub: 199, PaidUntil: &until}}
+	app, _ := newTestApp(t, core)
+	tg := &noticeTG{errs: map[int64]error{tgUser: errors.New("telegram is down")}}
+	tg.editErr = errors.New("telegram is down")
+	app.Handle(context.Background(), tg, callback("buy:2"))
+	if core.called("notified:2d85d5ad-000f-5000-9000-1c4c6dd1d9e6") {
+		t.Fatalf("marked as notified although the user saw nothing: %v", core.calls)
+	}
+}
+
 func TestCheckSomeoneElsesPayment(t *testing.T) {
 	core := &fakeCore{check: &Check{Status: "succeeded", Applied: true, TelegramID: i64(4242), PaidUntil: tptr(at("2026-11-30T10:00:00Z"))}}
 	app, tg := newTestApp(t, core)
