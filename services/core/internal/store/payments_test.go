@@ -429,3 +429,27 @@ func TestSettledPaymentEntersTheNotifyQueueOnAnyPath(t *testing.T) {
 		t.Fatalf("a payment settled by any path must be queued: %+v", got)
 	}
 }
+
+func TestUnbanDoesNotQueueANoticeForAPeriodItClosed(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkTelegramUser(t, s, 8020), mkPlan(t, s)
+	now := time.Now().UTC()
+	if _, err := s.BanUser(ctx, u.ID, "", now); err != nil {
+		t.Fatal(err)
+	}
+	pm := mkProviderPayment(t, s, u.ID, p.ID)
+	if res, err := s.SettlePayment(ctx, pm.PaymentID, now); err != nil || !res.Applied {
+		t.Fatalf("settle: %+v, %v", res, err)
+	}
+	since := now.Add(-72 * time.Hour)
+	if got, _ := s.ListUnnotifiedPayments(ctx, since, 10); len(got) != 0 {
+		t.Fatalf("queue while banned = %+v", got)
+	}
+	if _, err := s.UnbanUser(ctx, u.ID, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ListUnnotifiedPayments(ctx, since, 10); err != nil || len(got) != 0 {
+		t.Fatalf("queue after unban = %+v, %v; the period was closed, nothing works", got, err)
+	}
+}

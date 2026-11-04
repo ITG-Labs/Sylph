@@ -161,7 +161,9 @@ type UnnotifiedPayment struct {
 func (s *Store) ListUnnotifiedPayments(ctx context.Context, since time.Time, limit int) ([]UnnotifiedPayment, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT p.payment_id, p.user_id, u.telegram_id
-		 FROM payments p JOIN users u ON u.id = p.user_id
+		 FROM payments p
+		 JOIN users u ON u.id = p.user_id
+		 JOIN subscriptions s ON s.id = p.period_id AND NOT s.canceled AND s.expires_at > now()
 		 WHERE p.status = 'succeeded' AND p.source = 'yookassa' AND p.notified_at IS NULL AND p.paid_at > $1
 		   AND u.telegram_id IS NOT NULL AND u.status = 'active'
 		 ORDER BY p.paid_at, p.id LIMIT $2`, since, limit)
