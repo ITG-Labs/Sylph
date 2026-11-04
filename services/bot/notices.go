@@ -42,6 +42,8 @@ type Notice struct {
 type Notices interface {
 	DueNotices(ctx context.Context) ([]Notice, error)
 	MarkNotice(ctx context.Context, n Notice, outcome string) error
+	UnnotifiedPayments(ctx context.Context) ([]PaidNotice, error)
+	MarkPaymentNotified(ctx context.Context, paymentID string) error
 }
 
 func (c *CoreClient) DueNotices(ctx context.Context) ([]Notice, error) {
@@ -56,6 +58,7 @@ func (c *CoreClient) MarkNotice(ctx context.Context, n Notice, outcome string) e
 }
 
 func (a *App) RunNotices(ctx context.Context, core Notices, tg Telegram, every time.Duration) {
+	a.SendPaidNotices(ctx, core, tg)
 	a.SendNotices(ctx, core, tg)
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -64,8 +67,77 @@ func (a *App) RunNotices(ctx context.Context, core Notices, tg Telegram, every t
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			a.SendPaidNotices(ctx, core, tg)
 			a.SendNotices(ctx, core, tg)
 		}
+	}
+}
+
+func (a *App) markPaid(ctx context.Context, core Notices, paymentID string) error {
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
+	defer cancel()
+	return core.MarkPaymentNotified(markCtx, paymentID)
+}
+
+func (a *App) SendPaidNotices(ctx context.Context, core Notices, tg Telegram) {
+	a.paidMu.Lock()
+	defer a.paidMu.Unlock()
+	for id := range a.paidUnmarked {
+		if err := a.markPaid(ctx, core, id); err != nil && !errors.Is(err, ErrNotFound) {
+			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", slog.String("payment_id", id), slog.String("error", err.Error()))
+			return
+		}
+		delete(a.paidUnmarked, id)
+	}
+	list, err := core.UnnotifiedPayments(ctx)
+	if errors.Is(err, ErrNotFound) {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "payment_notices_unsupported")
+		return
+	}
+	if err != nil {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "payment_notices_fetch_failed", slog.String("error", err.Error()))
+		return
+	}
+	for i, n := range list {
+		if ctx.Err() != nil {
+			return
+		}
+		if a.paidUnmarked[n.PaymentID] {
+			continue
+		}
+		if i > 0 && a.noticePause > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(a.noticePause):
+			}
+		}
+		attrs := []slog.Attr{slog.String("payment_id", n.PaymentID), slog.Int64("telegram_id", n.TelegramID)}
+		err := a.NotifyPaid(ctx, tg, n.TelegramID, n.PaidUntil)
+		switch {
+		case err == nil, unreachable(err), errors.Is(err, tgbot.ErrorBadRequest):
+			if err != nil {
+				a.log.LogAttrs(ctx, slog.LevelWarn, "payment_notice_undeliverable", append(attrs, slog.String("error", err.Error()))...)
+			}
+		case throttled(err):
+			a.log.LogAttrs(ctx, slog.LevelWarn, "notices_throttled", slog.String("error", err.Error()))
+			return
+		case botBroken(err):
+			a.log.LogAttrs(ctx, slog.LevelError, "notices_bot_broken", slog.String("error", err.Error()))
+			return
+		default:
+			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_failed", append(attrs, slog.String("error", err.Error()))...)
+			continue
+		}
+		if err := a.markPaid(ctx, core, n.PaymentID); err != nil {
+			a.log.LogAttrs(ctx, slog.LevelError, "payment_notice_mark_failed", append(attrs, slog.String("error", err.Error()))...)
+			if !errors.Is(err, ErrNotFound) {
+				a.paidUnmarked[n.PaymentID] = true
+				return
+			}
+			continue
+		}
+		a.log.LogAttrs(ctx, slog.LevelInfo, "payment_notice_sent", attrs...)
 	}
 }
 

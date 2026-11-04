@@ -12,20 +12,23 @@ import (
 	"time"
 )
 
-const webhookMaxBody = 64 << 10
+const (
+	webhookMaxBody      = 64 << 10
+	webhookFlushTimeout = 20 * time.Second
+)
 
-type Notifier func(ctx context.Context, telegramID int64, paidUntil *time.Time) error
+type Flusher func(ctx context.Context)
 
 type Webhook struct {
 	core    Core
-	notify  Notifier
+	flush   Flusher
 	allow   []netip.Prefix
 	trusted []netip.Prefix
 	log     *slog.Logger
 }
 
-func NewWebhook(core Core, notify Notifier, allow, trusted []netip.Prefix, log *slog.Logger) *Webhook {
-	return &Webhook{core: core, notify: notify, allow: allow, trusted: trusted, log: log}
+func NewWebhook(core Core, flush Flusher, allow, trusted []netip.Prefix, log *slog.Logger) *Webhook {
+	return &Webhook{core: core, flush: flush, allow: allow, trusted: trusted, log: log}
 }
 
 func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,10 +89,10 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	if chk.Applied && chk.TelegramID != nil {
-		if err := h.notify(ctx, *chk.TelegramID, chk.PaidUntil); err != nil {
-			h.log.LogAttrs(ctx, slog.LevelError, "payment_notify_failed", slog.String("payment_id", id), slog.String("error", err.Error()))
-		}
+	if chk.Status == "succeeded" {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookFlushTimeout)
+		h.flush(flushCtx)
+		cancel()
 	}
 	w.WriteHeader(http.StatusOK)
 }

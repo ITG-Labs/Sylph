@@ -9,20 +9,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
-type notified struct {
-	tg        int64
-	paidUntil *time.Time
-}
-
 type webhookEnv struct {
-	core   *fakeCore
-	h      *Webhook
-	notes  []notified
-	logs   *bytes.Buffer
-	notErr error
+	core        *fakeCore
+	h           *Webhook
+	logs        *bytes.Buffer
+	flushes     int
+	flushCtxErr error
 }
 
 func newWebhookEnv(t *testing.T, trusted ...string) *webhookEnv {
@@ -36,9 +30,9 @@ func newWebhookEnv(t *testing.T, trusted ...string) *webhookEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.h = NewWebhook(e.core, func(_ context.Context, tg int64, paidUntil *time.Time) error {
-		e.notes = append(e.notes, notified{tg, paidUntil})
-		return e.notErr
+	e.h = NewWebhook(e.core, func(ctx context.Context) {
+		e.flushes++
+		e.flushCtxErr = ctx.Err()
 	}, allow, proxies, slog.New(slog.NewJSONHandler(e.logs, nil)))
 	return e
 }
@@ -70,8 +64,8 @@ func TestWebhookFromYooKassaChecksThePaymentAndNotifies(t *testing.T) {
 	if !e.core.called("check:" + paymentID) {
 		t.Fatalf("core calls = %v", e.core.calls)
 	}
-	if len(e.notes) != 1 || e.notes[0].tg != 1001 || e.notes[0].paidUntil == nil {
-		t.Fatalf("notes = %+v", e.notes)
+	if e.flushes != 1 {
+		t.Fatalf("flushes = %d", e.flushes)
 	}
 }
 
@@ -81,13 +75,13 @@ func TestWebhookTrustsNothingButThePaymentID(t *testing.T) {
 	if w := e.post("185.71.76.10:5555", "", notification("payment.succeeded", paymentID)); w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if len(e.notes) != 0 {
-		t.Fatal("notified although the core did not apply the payment")
+	if e.flushes != 0 {
+		t.Fatal("flushed the notices although the payment is not paid")
 	}
 	e.core.check = &Check{Status: "succeeded", Applied: false, TelegramID: i64(1001)}
 	e.post("185.71.76.10:5555", "", notification("payment.succeeded", paymentID))
-	if len(e.notes) != 0 {
-		t.Fatal("notified twice for one payment")
+	if e.flushes != 1 {
+		t.Fatal("a retried webhook for a payment the cron settled must still look at the notice queue")
 	}
 }
 
@@ -189,15 +183,17 @@ func TestWebhookAsksYooKassaToRetryWhenTheCoreIsDown(t *testing.T) {
 	}
 }
 
-func TestWebhookNotifyFailureStillAnswers200(t *testing.T) {
+func TestWebhookFlushIgnoresACanceledRequest(t *testing.T) {
 	e := newWebhookEnv(t)
-	e.notErr = errors.New("telegram down")
 	e.core.check = &Check{Status: "succeeded", Applied: true, TelegramID: i64(1001)}
-	if w := e.post("185.71.76.10:1", "", notification("payment.succeeded", paymentID)); w.Code != http.StatusOK {
-		t.Fatalf("status = %d", w.Code)
-	}
-	if !strings.Contains(e.logs.String(), `"msg":"payment_notify_failed"`) {
-		t.Fatalf("logs = %s", e.logs.String())
+	r := httptest.NewRequest(http.MethodPost, "/yookassa", strings.NewReader(notification("payment.succeeded", paymentID)))
+	r.RemoteAddr = "185.71.76.10:1"
+	ctx, cancel := context.WithCancel(r.Context())
+	cancel()
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r.WithContext(ctx))
+	if w.Code != http.StatusOK || e.flushes != 1 || e.flushCtxErr != nil {
+		t.Fatalf("status %d, flushes %d, flush ctx err %v", w.Code, e.flushes, e.flushCtxErr)
 	}
 }
 

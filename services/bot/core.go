@@ -156,6 +156,12 @@ type Check struct {
 	PaidUntil  *time.Time `json:"paid_until"`
 }
 
+type PaidNotice struct {
+	PaymentID  string     `json:"payment_id"`
+	TelegramID int64      `json:"telegram_id"`
+	PaidUntil  *time.Time `json:"paid_until"`
+}
+
 type Device struct {
 	ID        int64     `json:"id"`
 	UserAgent string    `json:"user_agent"`
@@ -171,6 +177,7 @@ type Core interface {
 	Plans(ctx context.Context, userID int64) ([]Plan, error)
 	CreatePayment(ctx context.Context, userID, planID int64) (*Payment, error)
 	CheckPayment(ctx context.Context, paymentID string) (*Check, error)
+	MarkPaymentNotified(ctx context.Context, paymentID string) error
 	Rotate(ctx context.Context, userID int64) (string, error)
 	ResetDevices(ctx context.Context, userID int64) error
 	Devices(ctx context.Context, userID int64) ([]Device, error)
@@ -241,6 +248,16 @@ func (c *CoreClient) CreatePayment(ctx context.Context, userID, planID int64) (*
 func (c *CoreClient) CheckPayment(ctx context.Context, paymentID string) (*Check, error) {
 	var chk Check
 	return &chk, c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(paymentID)+"/check", nil, &chk)
+}
+
+func (c *CoreClient) MarkPaymentNotified(ctx context.Context, paymentID string) error {
+	return c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(paymentID)+"/notified", nil, nil)
+}
+
+func (c *CoreClient) UnnotifiedPayments(ctx context.Context) ([]PaidNotice, error) {
+	var out []PaidNotice
+	err := c.do(ctx, http.MethodGet, "/v1/payments/unnotified", nil, &out)
+	return out, err
 }
 
 func (c *CoreClient) Rotate(ctx context.Context, userID int64) (string, error) {

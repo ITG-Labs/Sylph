@@ -104,22 +104,23 @@ func (f *fakeTelegram) last(t *testing.T) sent {
 }
 
 type fakeCore struct {
-	mu        sync.Mutex
-	status    *Status
-	statusErr error
-	plans     []Plan
-	payment   *Payment
-	payErr    error
-	check     *Check
-	checkErr  error
-	rotated   string
-	calls     []string
-	created   [][2]int64
-	resetFor  []int64
-	rotateFor []int64
-	devices   []Device
-	removed   [][2]int64
-	removeErr error
+	mu          sync.Mutex
+	status      *Status
+	statusErr   error
+	plans       []Plan
+	payment     *Payment
+	payErr      error
+	check       *Check
+	checkErr    error
+	notifiedErr error
+	rotated     string
+	calls       []string
+	created     [][2]int64
+	resetFor    []int64
+	rotateFor   []int64
+	devices     []Device
+	removed     [][2]int64
+	removeErr   error
 
 	registerErr error
 	profiles    []*Profile
@@ -238,6 +239,11 @@ func (c *fakeCore) CreatePayment(_ context.Context, userID, planID int64) (*Paym
 func (c *fakeCore) CheckPayment(_ context.Context, id string) (*Check, error) {
 	c.note("check:" + id)
 	return c.check, c.checkErr
+}
+
+func (c *fakeCore) MarkPaymentNotified(_ context.Context, id string) error {
+	c.note("notified:" + id)
+	return c.notifiedErr
 }
 
 func (c *fakeCore) Rotate(_ context.Context, userID int64) (string, error) {
@@ -617,6 +623,9 @@ func TestBuyTellsThatThePreviousLinkWasAlreadyPaid(t *testing.T) {
 	app.Handle(context.Background(), tg, callback("buy:2"))
 	m := tg.last(t)
 	mustContain(t, m.text, "Оплата прошла", "Оплачено до")
+	if !core.called("notified:2d85d5ad-000f-5000-9000-1c4c6dd1d9e6") {
+		t.Fatalf("the screen was shown but the queue was not told: %v", core.calls)
+	}
 	if strings.Contains(m.text, "Нажми «Оплатить»") {
 		t.Fatalf("a payment screen after the money already went through:\n%s", m.text)
 	}
@@ -695,6 +704,21 @@ func TestCheckSucceededPayment(t *testing.T) {
 		t.Fatalf("message = %+v", m)
 	}
 	mustContain(t, m.text, "Оплата прошла", "30.11.2026 13:00")
+}
+
+func TestCheckSucceededPaymentIsMarkedSoTheQueueStaysQuiet(t *testing.T) {
+	core := &fakeCore{check: &Check{Status: "succeeded", Applied: false, TelegramID: i64(tgUser)}}
+	app, tg := newTestApp(t, core)
+	app.Handle(context.Background(), tg, callback("chk:p1"))
+	if !core.called("notified:p1") {
+		t.Fatalf("calls = %v", core.calls)
+	}
+	core2 := &fakeCore{check: &Check{Status: "pending", TelegramID: i64(tgUser)}}
+	app2, tg2 := newTestApp(t, core2)
+	app2.Handle(context.Background(), tg2, callback("chk:p1"))
+	if core2.called("notified:p1") {
+		t.Fatal("a pending payment was marked as notified")
+	}
 }
 
 func TestCheckSomeoneElsesPayment(t *testing.T) {

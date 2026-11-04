@@ -31,6 +31,11 @@ type fakeNotices struct {
 	limit   int
 	fetches int
 	failFor int64
+
+	paid        []PaidNotice
+	paidErr     error
+	paidMarkErr error
+	paidMarked  []string
 }
 
 func (f *fakeNotices) DueNotices(context.Context) ([]Notice, error) {
@@ -66,6 +71,37 @@ func (f *fakeNotices) MarkNotice(_ context.Context, n Notice, outcome string) er
 		return errors.New("core timed out")
 	}
 	f.marks = append(f.marks, marked{kind: n.Kind, ref: n.Ref, outcome: outcome, userID: n.UserID})
+	return nil
+}
+
+func (f *fakeNotices) UnnotifiedPayments(context.Context) ([]PaidNotice, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.paidErr != nil {
+		return nil, f.paidErr
+	}
+	var out []PaidNotice
+	for _, n := range f.paid {
+		done := false
+		for _, id := range f.paidMarked {
+			if id == n.PaymentID {
+				done = true
+			}
+		}
+		if !done {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeNotices) MarkPaymentNotified(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.paidMarkErr != nil {
+		return f.paidMarkErr
+	}
+	f.paidMarked = append(f.paidMarked, id)
 	return nil
 }
 
@@ -271,6 +307,27 @@ func TestCoreNotices(t *testing.T) {
 	}
 }
 
+func TestCorePaymentNotices(t *testing.T) {
+	c, calls := fakeCoreClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			io.WriteString(w, `[{"payment_id":"p-1","telegram_id":1001,"paid_until":"2026-12-01T10:00:00Z"}]`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	list, err := c.UnnotifiedPayments(context.Background())
+	if err != nil || len(list) != 1 || list[0].PaymentID != "p-1" || list[0].TelegramID != 1001 || list[0].PaidUntil == nil {
+		t.Fatalf("unnotified = %+v, %v", list, err)
+	}
+	if err := c.MarkPaymentNotified(context.Background(), "p-1"); err != nil {
+		t.Fatal(err)
+	}
+	get, post := (*calls)[0], (*calls)[1]
+	if get.method != http.MethodGet || get.path != "/v1/payments/unnotified" || post.method != http.MethodPost || post.path != "/v1/payments/p-1/notified" {
+		t.Fatalf("calls = %+v", *calls)
+	}
+}
+
 func TestSendNoticesStopsWhenTheBotIsBroken(t *testing.T) {
 	for _, broken := range []error{
 		fmt.Errorf("%w, Unauthorized", tgbot.ErrorUnauthorized),
@@ -453,5 +510,82 @@ func TestSendNoticesDropsUnmarkedWhenCoreForgotTheUser(t *testing.T) {
 	app.SendNotices(context.Background(), core, tg)
 	if got := len(tg.only(t, "sendMessage")); got != 2 {
 		t.Fatalf("sent %d, want the second user to get his notice: a mark the core will never accept blocked the queue", got)
+	}
+}
+
+func paidNotices(n int) []PaidNotice {
+	var out []PaidNotice
+	until := time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC)
+	for i := range n {
+		out = append(out, PaidNotice{PaymentID: fmt.Sprintf("pay-%d", i), TelegramID: int64(100 + i), PaidUntil: &until})
+	}
+	return out
+}
+
+func TestSendPaidNoticesSendsAndMarksWhicheverPathSettled(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{paid: paidNotices(3)}
+	tg := &noticeTG{}
+	app.SendPaidNotices(context.Background(), core, tg)
+	sent := tg.only(t, "sendMessage")
+	if len(sent) != 3 || len(core.paidMarked) != 3 {
+		t.Fatalf("sent %d, marked %v", len(sent), core.paidMarked)
+	}
+	mustContain(t, sent[0].text, "Оплата прошла", "Оплачено до")
+	app.SendPaidNotices(context.Background(), core, tg)
+	if len(tg.only(t, "sendMessage")) != 3 {
+		t.Fatal("a marked payment was announced again")
+	}
+}
+
+func TestSendPaidNoticesRetriesWhatTelegramRefused(t *testing.T) {
+	app, logs := noticeApp(t)
+	core := &fakeNotices{paid: paidNotices(2)}
+	tg := &noticeTG{errs: map[int64]error{100: errors.New("connection reset")}}
+	app.SendPaidNotices(context.Background(), core, tg)
+	if len(core.paidMarked) != 1 || core.paidMarked[0] != "pay-1" || !strings.Contains(logs.String(), `"msg":"payment_notice_failed"`) {
+		t.Fatalf("marked %v, logs %s", core.paidMarked, logs)
+	}
+	tg.errs = nil
+	app.SendPaidNotices(context.Background(), core, tg)
+	if len(core.paidMarked) != 2 || len(tg.only(t, "sendMessage")) != 2 {
+		t.Fatalf("marked %v, sent %d", core.paidMarked, len(tg.only(t, "sendMessage")))
+	}
+}
+
+func TestSendPaidNoticesGivesUpOnUnreachableUsers(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{paid: paidNotices(1)}
+	tg := &noticeTG{errs: map[int64]error{100: fmt.Errorf("%w, Forbidden: bot was blocked by the user", tgbot.ErrorForbidden)}}
+	app.SendPaidNotices(context.Background(), core, tg)
+	if len(core.paidMarked) != 1 {
+		t.Fatalf("a blocked bot must not keep the payment in the queue: %v", core.paidMarked)
+	}
+}
+
+func TestSendPaidNoticesDoesNotResendWhenTheMarkFails(t *testing.T) {
+	app, _ := noticeApp(t)
+	core := &fakeNotices{paid: paidNotices(3), paidMarkErr: errors.New("core timed out")}
+	tg := &noticeTG{}
+	for range 3 {
+		app.SendPaidNotices(context.Background(), core, tg)
+	}
+	if got := len(tg.only(t, "sendMessage")); got != 1 {
+		t.Fatalf("sent %d messages while marks keep failing, want 1", got)
+	}
+	core.paidMarkErr = nil
+	app.SendPaidNotices(context.Background(), core, tg)
+	if got := len(tg.only(t, "sendMessage")); got != 3 || len(core.paidMarked) != 3 {
+		t.Fatalf("sent %d, marked %v; want each of 3 once", got, core.paidMarked)
+	}
+}
+
+func TestSendPaidNoticesSurvivesCoreErrors(t *testing.T) {
+	app, logs := noticeApp(t)
+	tg := &noticeTG{}
+	app.SendPaidNotices(context.Background(), &fakeNotices{paidErr: fmt.Errorf("%w: api 404", ErrNotFound)}, tg)
+	app.SendPaidNotices(context.Background(), &fakeNotices{paidErr: errors.New("dial tcp: refused")}, tg)
+	if len(tg.calls) != 0 || !strings.Contains(logs.String(), `"msg":"payment_notices_unsupported"`) || !strings.Contains(logs.String(), `"msg":"payment_notices_fetch_failed"`) {
+		t.Fatalf("logs = %s", logs)
 	}
 }

@@ -34,6 +34,8 @@ type App struct {
 	noticePause   time.Duration
 	unmarkedMu    sync.Mutex
 	unmarked      map[noticeKey]pendingMark
+	paidMu        sync.Mutex
+	paidUnmarked  map[string]bool
 
 	cfgMu     sync.Mutex
 	cfg       *BotConfig
@@ -49,7 +51,7 @@ type App struct {
 func NewApp(core Core, subsURL string, loc *time.Location, log *slog.Logger) *App {
 	return &App{
 		core: core, subsURL: strings.TrimRight(subsURL, "/"), loc: loc, log: log,
-		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{},
+		checkCooldown: 3 * time.Second, lastCheck: map[string]time.Time{}, noticePause: 50 * time.Millisecond, unmarked: map[noticeKey]pendingMark{}, paidUnmarked: map[string]bool{},
 		configTTL: defaultConfigTTL, members: map[int64]time.Time{}, memberTTL: defaultMemberTTL,
 	}
 }
@@ -292,6 +294,7 @@ func (a *App) onBuy(ctx context.Context, tg Telegram, to reply, tgID int64, raw 
 		slog.String("payment_id", pay.PaymentID),
 		slog.Int64("plan_id", plan.ID))
 	if pay.Status == "succeeded" {
+		a.markPaymentSeen(ctx, pay.PaymentID)
 		a.show(ctx, tg, to, a.paidEarlierText(pay.PaidUntil), keyboard(
 			row(styled(a.btn(icDiamond, "Купить ещё раз", cbBuy), styleSuccess)), a.statusRow(), a.backRow()))
 		return ""
@@ -327,6 +330,7 @@ func (a *App) onCheck(ctx context.Context, tg Telegram, to reply, tgID int64, pa
 	switch chk.Status {
 	case "succeeded":
 		a.show(ctx, tg, to, a.paidText(chk.PaidUntil), keyboard(a.statusRow(), a.backRow()))
+		a.markPaymentSeen(ctx, paymentID)
 	case "canceled":
 		a.show(ctx, tg, to, a.canceledText(), keyboard(a.buyRow(), a.backRow()))
 	case "mismatch":
@@ -453,6 +457,14 @@ func editMessage(ctx context.Context, tg Telegram, p *tgbot.EditMessageTextParam
 		return tg.EditMessageText(ctx, &retry)
 	}
 	return m, err
+}
+
+func (a *App) markPaymentSeen(ctx context.Context, paymentID string) {
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), noticeMarkTimeout)
+	defer cancel()
+	if err := a.core.MarkPaymentNotified(markCtx, paymentID); err != nil {
+		a.log.LogAttrs(ctx, slog.LevelWarn, "payment_seen_mark_failed", slog.String("payment_id", paymentID), slog.String("error", err.Error()))
+	}
 }
 
 func (a *App) NotifyPaid(ctx context.Context, tg Telegram, telegramID int64, paidUntil *time.Time) error {

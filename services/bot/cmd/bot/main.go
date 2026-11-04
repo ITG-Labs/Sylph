@@ -65,8 +65,8 @@ func run(logger *slog.Logger) error {
 	var srv *http.Server
 	errCh := make(chan error, 1)
 	if cfg.WebhookListen != "" {
-		hook := bot.NewWebhook(core, func(ctx context.Context, telegramID int64, paidUntil *time.Time) error {
-			return app.NotifyPaid(ctx, tg, telegramID, paidUntil)
+		hook := bot.NewWebhook(core, func(ctx context.Context) {
+			app.SendPaidNotices(ctx, core, tg)
 		}, cfg.YooKassaIPs, cfg.TrustedProxies, logger)
 		mux := http.NewServeMux()
 		mux.Handle("/yookassa", hook)
