@@ -41,6 +41,8 @@ services:
     pid: service:caddy
     restart: unless-stopped
     command: ["run", "-c", "/etc/xray/config.json"]
+    environment:
+      XRAY_BUF_SPLICE: disable
     volumes:
       - xray-config:/etc/xray:ro
     depends_on:

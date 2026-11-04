@@ -79,3 +79,39 @@ func TestCaddyTagFollowsItsBuild(t *testing.T) {
 		t.Fatal("node/compose.yml: caddy image must use CADDY_VERSION")
 	}
 }
+
+func serviceBlock(t *testing.T, compose, name string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(name) + `:\n((?:    .*\n|\n)*)`).FindStringSubmatch(compose)
+	if m == nil {
+		t.Fatalf("no service %s", name)
+	}
+	return m[1]
+}
+
+func TestNodeXrayRunsWithoutKernelSplice(t *testing.T) {
+	prod, err := fs.ReadFile(Files, "node/compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stand, err := os.ReadFile("../test/node/docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := regexp.MustCompile(`(?m)^\s+XRAY_BUF_SPLICE: ["']?disable["']?\s*$`)
+	for name, compose := range map[string]string{"prod/node/compose.yml": string(prod), "test/node/docker-compose.yml": string(stand)} {
+		if !want.MatchString(serviceBlock(t, compose, "xray")) {
+			t.Fatalf("%s: service xray must set XRAY_BUF_SPLICE: disable, otherwise Vision downlink is spliced and its counter grows only when the connection closes", name)
+		}
+	}
+	subs, err := os.ReadFile("../test/subs/docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"xray", "xray-2"} {
+		block := serviceBlock(t, string(subs), name)
+		if !strings.Contains(block, "service: xray") || regexp.MustCompile(`(?m)^    environment:`).MatchString(block) && !want.MatchString(block) {
+			t.Fatalf("test/subs/docker-compose.yml: service %s must extend prod xray and keep its environment", name)
+		}
+	}
+}
