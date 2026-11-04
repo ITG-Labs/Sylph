@@ -127,11 +127,16 @@ func (s *Store) FindPendingPayment(ctx context.Context, userID, planID, amountRu
 		 ORDER BY created_at DESC LIMIT 1`, userID, planID, amountRub, since))
 }
 
+func (s *Store) MarkPaymentPolled(ctx context.Context, paymentID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE payments SET last_polled_at = now() WHERE payment_id = $1 AND status = 'pending'`, paymentID)
+	return err
+}
+
 func (s *Store) ListPendingPayments(ctx context.Context, since time.Time, limit int) ([]model.Payment, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+paymentColumns+` FROM payments
 		 WHERE status = 'pending' AND source = 'yookassa' AND created_at > $1
-		 ORDER BY created_at DESC, id DESC LIMIT $2`, since, limit)
+		 ORDER BY last_polled_at ASC NULLS FIRST, created_at DESC, id DESC LIMIT $2`, since, limit)
 	if err != nil {
 		return nil, err
 	}

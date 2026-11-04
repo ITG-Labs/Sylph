@@ -307,3 +307,46 @@ func TestManualPaymentRefusesSomeoneElsesID(t *testing.T) {
 		t.Fatalf("other user got a period: %+v", ps)
 	}
 }
+
+func TestListPendingPaymentsOrdersLeastRecentlyPolledFirst(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkUser(t, s), mkPlan(t, s)
+	a := mkProviderPayment(t, s, u.ID, p.ID)
+	b := mkProviderPayment(t, s, u.ID, p.ID)
+	c := mkProviderPayment(t, s, u.ID, p.ID)
+	if _, err := s.pool.Exec(ctx, `UPDATE payments SET created_at = now() - interval '3 hours' WHERE payment_id = $1`, a.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE payments SET created_at = now() - interval '1 hour' WHERE payment_id = $1`, b.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().Add(-24 * time.Hour)
+	ids := func(limit int) []string {
+		t.Helper()
+		got, err := s.ListPendingPayments(ctx, since, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, x := range got {
+			out = append(out, x.PaymentID)
+		}
+		return out
+	}
+	if got := ids(10); len(got) != 3 || got[0] != c.PaymentID || got[1] != b.PaymentID || got[2] != a.PaymentID {
+		t.Fatalf("never polled = %v, want newest first", got)
+	}
+	if err := s.MarkPaymentPolled(ctx, c.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkPaymentPolled(ctx, b.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(1); len(got) != 1 || got[0] != a.PaymentID {
+		t.Fatalf("after polling two = %v, want the one never polled", got)
+	}
+	if got := ids(10); got[0] != a.PaymentID || got[1] != c.PaymentID || got[2] != b.PaymentID {
+		t.Fatalf("order = %v, want never polled, then the least recently polled", got)
+	}
+}

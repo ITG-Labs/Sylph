@@ -1488,3 +1488,31 @@ func TestMigration019DownFoldsInbounds(t *testing.T) {
 		t.Fatalf("old rows after up = %q, %v", tag, err)
 	}
 }
+
+func TestMigration021DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(21); err != nil {
+		t.Fatalf("up to 021: %v", err)
+	}
+	if !columnExists(t, pool, "payments", "last_polled_at") {
+		t.Fatal("up 021 did not add last_polled_at")
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 021: %v", err)
+	}
+	if columnExists(t, pool, "payments", "last_polled_at") {
+		t.Fatal("down 021 left the column")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 021 again: %v", err)
+	}
+}

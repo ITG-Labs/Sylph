@@ -22,6 +22,7 @@ const (
 	reuseWindow     = 50 * time.Minute
 	pollWindow      = 24 * time.Hour
 	pollLimit       = 100
+	pollEachBudget  = 5 * time.Second
 	providerTimeout = 25 * time.Second
 )
 
@@ -186,7 +187,16 @@ func (s *Service) PollPayments(ctx context.Context) (PollResult, error) {
 			break
 		}
 		res.Checked++
-		status, applied, err := s.reconcile(ctx, &pending[i], deadline)
+		if err := s.store.MarkPaymentPolled(ctx, pending[i].PaymentID); err != nil {
+			s.log.LogAttrs(ctx, slog.LevelWarn, "payment_poll_mark_failed",
+				slog.String("payment_id", pending[i].PaymentID),
+				slog.String("error", err.Error()))
+		}
+		limit := time.Now().Add(s.pollEach)
+		if limit.After(deadline) {
+			limit = deadline
+		}
+		status, applied, err := s.reconcile(ctx, &pending[i], limit)
 		switch {
 		case err != nil:
 			res.Failed++
