@@ -38,6 +38,7 @@ var shellCommands = []shellCommand{
 	{"stop", "[роль]", "остановить роль", false},
 	{"ip", "[list|add|remove] <IPv4>", "дополнительные IP ноды для выделенных адресов", false},
 	{"bundle", "<роль>", "пакет сертификатов роли (на компьютере с CA)", true},
+	{"renew", "<роль>", "выпустить сертификат роли заново (истекает или отозван)", true},
 	{"certs", "", "сертификаты CA и сроки их действия", true},
 	{"revoke", "<имя>", "отозвать сертификат", true},
 	{"clear", "", "очистить вывод", false},
@@ -163,7 +164,7 @@ func runShell(ctx context.Context, term *ui.UI) int {
 		ui.Dimmed("  введите / для списка команд: /install, /status, /update … · PgUp/PgDn — прокрутка"),
 	}
 	if !m.root {
-		m.log = append(m.log, ui.Dimmed("  без sudo доступны сертификаты (/bundle, /certs, /revoke); для работы с ролями сервера запустите sudo ./sylph"))
+		m.log = append(m.log, ui.Dimmed("  без sudo доступны сертификаты (/bundle, /renew, /certs, /revoke); для работы с ролями сервера запустите sudo ./sylph"))
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithoutSignalHandler())
 	m.sink.p = p
@@ -428,7 +429,7 @@ func (m *shell) suggestions() []suggestion {
 	}
 	var names []string
 	switch name {
-	case "install", "bundle":
+	case "install", "bundle", "renew":
 		names = role.Names()
 	case "start", "stop":
 		names = m.installed
@@ -443,7 +444,7 @@ func (m *shell) suggestions() []suggestion {
 		if r, err := role.Get(n); err == nil {
 			_, desc, _ = strings.Cut(r.Title, " — ")
 		}
-		out = append(out, suggestion{value: "/" + name + " " + n, label: n, desc: desc, more: (name == "bundle" && n == "node") || (name == "ip" && n != "list")})
+		out = append(out, suggestion{value: "/" + name + " " + n, label: n, desc: desc, more: ((name == "bundle" || name == "renew") && n == "node") || (name == "ip" && n != "list")})
 	}
 	return out
 }
@@ -478,7 +479,7 @@ func (m *shell) execute(line string) tea.Cmd {
 	case "help":
 		m.log = append(m.log, helpLines(m.commands(), m.root)...)
 		return nil
-	case "bundle", "certs", "revoke":
+	case "bundle", "renew", "certs", "revoke":
 		if m.root {
 			m.log = append(m.log, ui.StepLine(line, "", errors.New("сертификаты выпускаются только на компьютере с CA и без sudo: ключ CA не должен храниться на сервере")))
 			return nil
@@ -487,6 +488,8 @@ func (m *shell) execute(line string) tea.Cmd {
 	switch args[0] {
 	case "bundle":
 		args = append([]string{"certs", "bundle"}, args[1:]...)
+	case "renew":
+		args = append([]string{"certs", "renew"}, args[1:]...)
 	case "revoke":
 		args = append([]string{"certs", "revoke"}, args[1:]...)
 	case "certs":
@@ -536,7 +539,7 @@ func helpLines(commands []shellCommand, root bool) []string {
 		lines = append(lines, fmt.Sprintf("  %-18s %s", label, ui.Dimmed(c.desc)))
 	}
 	if root {
-		lines = append(lines, ui.Dimmed("  сертификаты (/bundle, /certs, /revoke) выпускаются на компьютере с CA: sylph без sudo"))
+		lines = append(lines, ui.Dimmed("  сертификаты (/bundle, /renew, /certs, /revoke) выпускаются на компьютере с CA: sylph без sudo"))
 	}
 	return append(lines,
 		ui.Dimmed("  флаги такие же, как у отдельных команд: /install panel --dir /srv/panel, /bundle node --name node-1"),

@@ -18,11 +18,15 @@ import (
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/wizard"
 )
 
-const certTTL = 365 * 24 * time.Hour
+const (
+	certTTL        = 365 * 24 * time.Hour
+	certWarnBefore = 30 * 24 * time.Hour
+)
 
 const certsUsage = `sylph certs <команда> — выполняется на компьютере с CA (не на сервере)
 
   bundle <роль> [--name <имя>]   пакет сертификатов роли; при первом запуске создаётся CA
+  renew <роль> [--name <имя>]    выпустить сертификат роли заново (истекает или отозван); старый уходит в архив
   list                           сертификаты CA и сроки их действия
   revoke <имя>                   отозвать сертификат`
 
@@ -37,11 +41,13 @@ func defaultCADir() string {
 func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 	if len(args) == 0 {
 		u.Line(certsUsage)
-		return errors.New("укажите команду: bundle, list или revoke")
+		return errors.New("укажите команду: bundle, renew, list или revoke")
 	}
 	switch args[0] {
 	case "bundle":
 		return certsBundle(ctx, u, args[1:])
+	case "renew":
+		return certsRenew(u, args[1:])
 	case "list":
 		return certsList(u, args[1:])
 	case "revoke":
@@ -50,7 +56,7 @@ func cmdCerts(ctx context.Context, u *ui.UI, args []string) error {
 		u.Line(certsUsage)
 		return nil
 	}
-	return fmt.Errorf("неизвестная команда certs %q: допустимы bundle, list и revoke", args[0])
+	return fmt.Errorf("неизвестная команда certs %q: допустимы bundle, renew, list и revoke", args[0])
 }
 
 func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
@@ -71,27 +77,13 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 	if err != nil {
 		return err
 	}
-	wz := wizardFor(u)
-	leafName := r.Name
-	switch {
-	case r.Name == "node" && *name == "" && u.TTY:
-		if *name, err = wz.Input("Имя ноды", "используется как cert_cn ноды в панели, например node-1", castore.ValidName); err != nil {
-			return err
-		}
-		leafName = *name
-	case r.Name == "node" && *name == "":
-		return errors.New("для ноды укажите имя: --name node-1")
-	case r.Name == "node":
-		leafName = *name
-	case *name != "":
-		return errors.New("--name используется только для node: у остальных ролей имя сертификата совпадает с именем роли")
-	}
-	if err := castore.ValidName(leafName); err != nil {
+	leafName, err := resolveLeafName(u, r, *name)
+	if err != nil {
 		return err
 	}
 
 	u.Banner("пакет сертификатов", "роль "+r.Name+" · CA "+*caDir)
-	if err := ensureCA(ctx, u, wz, *caDir, *yes); err != nil {
+	if err := ensureCA(ctx, u, wizardFor(u), *caDir, *yes); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -102,6 +94,13 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 			return err
 		}
 		if has {
+			warn, err := checkLeaf(*caDir, n, renewCommand(r.Name, leafName), now)
+			if err != nil {
+				return err
+			}
+			if warn != "" {
+				u.Warn(warn)
+			}
 			u.Info("сертификат " + n + " уже существует и будет использован")
 			continue
 		}
@@ -168,6 +167,113 @@ func certsBundle(ctx context.Context, u *ui.UI, args []string) error {
 		"\n\n"+ui.Bold("Далее: ")+"на сервере роли выполните sudo sylph → /install "+r.Name+" и вставьте строку на шаге «Пакет сертификатов»"+
 		"\n"+ui.Dimmed("строка содержит приватный ключ роли: не пересылайте её через мессенджеры; после установки она больше не нужна")+keyNote, ui.Green)
 	u.Line(line)
+	return nil
+}
+
+func resolveLeafName(u *ui.UI, r *role.Role, name string) (string, error) {
+	leafName := r.Name
+	switch {
+	case r.Name == "node" && name == "" && u.TTY:
+		var err error
+		if name, err = wizardFor(u).Input("Имя ноды", "используется как cert_cn ноды в панели, например node-1", castore.ValidName); err != nil {
+			return "", err
+		}
+		leafName = name
+	case r.Name == "node" && name == "":
+		return "", errors.New("для ноды укажите имя: --name node-1")
+	case r.Name == "node":
+		leafName = name
+	case name != "":
+		return "", errors.New("--name используется только для node: у остальных ролей имя сертификата совпадает с именем роли")
+	}
+	if err := castore.ValidName(leafName); err != nil {
+		return "", err
+	}
+	return leafName, nil
+}
+
+func renewCommand(roleName string, leafName string) string {
+	cmd := "sylph certs renew " + roleName
+	if roleName == "node" {
+		cmd += " --name " + leafName
+	}
+	return cmd
+}
+
+func checkLeaf(caDir string, name string, renewCmd string, now time.Time) (string, error) {
+	info, err := castore.Inspect(caDir, name)
+	if err != nil {
+		return "", err
+	}
+	revoked, err := castore.IsRevoked(caDir, info.Serial)
+	if err != nil {
+		return "", err
+	}
+	if revoked {
+		return "", fmt.Errorf("сертификат %s отозван и в пакет не попадёт: выпустите новый командой `%s`", name, renewCmd)
+	}
+	left := info.NotAfter.Sub(now)
+	switch {
+	case left <= 0:
+		return "", fmt.Errorf("срок действия сертификата %s истёк %s: выпустите новый командой `%s`", name, info.NotAfter.Local().Format("02.01.2006"), renewCmd)
+	case left < certWarnBefore:
+		return fmt.Sprintf("сертификат %s истекает %s (осталось %d дн.): выпустите новый командой `%s`", name, info.NotAfter.Local().Format("02.01.2006"), int(left.Hours()/24), renewCmd), nil
+	}
+	return "", nil
+}
+
+func certsRenew(u *ui.UI, args []string) error {
+	fs := newFlags(u, "certs renew", "./sylph certs renew <роль> [флаги]")
+	caDir := fs.String("ca", defaultCADir(), "каталог CA")
+	name := fs.String("name", "", "имя сертификата ноды, например node-1 (только для node)")
+	pos, err := parseWithArgs(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New("укажите роль: ./sylph certs renew <core|panel|bot|subs|node|monitor>")
+	}
+	r, err := role.Get(pos[0])
+	if err != nil {
+		return err
+	}
+	leafName, err := resolveLeafName(u, r, *name)
+	if err != nil {
+		return err
+	}
+	ok, err := castore.Exists(*caDir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("CA в %s не найден: перевыпускать нечего", *caDir)
+	}
+	names := bundle.LeafNames(r.Name, leafName, role.DefaultCoreName)
+	for _, n := range names {
+		has, err := castore.HasLeaf(*caDir, n)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("сертификат %s не найден: сначала выпустите его командой `sylph certs bundle %s`", n, r.Name)
+		}
+	}
+	now := time.Now()
+	for _, n := range names {
+		if err := castore.Renew(*caDir, n, certTTL, now); err != nil {
+			return err
+		}
+		u.OK("выпущен новый сертификат " + n + " до " + now.Add(certTTL).Format("02.01.2006") + ", прежний перенесён в " + filepath.Join(*caDir, "archive"))
+	}
+	next := "далее: sylph certs bundle " + r.Name
+	if r.Name == "node" {
+		next += " --name " + leafName
+	}
+	next += ", затем на сервере роли sudo sylph install " + r.Name + " с новым пакетом"
+	if r.Name != "core" {
+		next += "; если старый сертификат был отозван, ядру нужен свежий revoked.json: sylph certs bundle core и sudo sylph install core"
+	}
+	u.Info(next)
 	return nil
 }
 
@@ -283,12 +389,26 @@ func certsRevoke(u *ui.UI, args []string) error {
 			return wizard.ErrAborted
 		}
 	}
+	info, infoErr := castore.Inspect(*caDir, pos[0])
 	if err := castore.Revoke(*caDir, pos[0]); err != nil {
 		return err
 	}
 	u.OK("сертификат " + pos[0] + " отозван")
 	u.Info("далее: выполните sylph certs bundle core, затем на сервере ядра sudo sylph install core и вставьте новый пакет")
+	if infoErr == nil {
+		u.Info("вернуть эту роль в строй: `" + renewHint(info) + "`, затем sylph certs bundle и установка на сервере")
+	}
 	return nil
+}
+
+func renewHint(info castore.CertInfo) string {
+	switch {
+	case info.Type == "server" || info.Role == mtls.RoleCron:
+		return "sylph certs renew core"
+	case info.Role == mtls.RoleNode:
+		return "sylph certs renew node --name " + info.Name
+	}
+	return "sylph certs renew " + info.Role
 }
 
 func displayPath(path string) string {
