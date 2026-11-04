@@ -230,21 +230,10 @@ func Inspect(dir string, name string) (CertInfo, error) {
 }
 
 func Renew(dir string, name string, ttl time.Duration, now time.Time) error {
-	if err := ValidName(name); err != nil {
-		return err
-	}
-	certPEM, err := os.ReadFile(filepath.Join(dir, certsDir, name, "cert.pem"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("certificate %q not found", name)
-	}
+	info, err := Inspect(dir, name)
 	if err != nil {
 		return err
 	}
-	cert, err := mtls.ParseCertPEM(certPEM)
-	if err != nil {
-		return err
-	}
-	info := certInfo(name, cert)
 	usage := mtls.ClientUsage
 	if info.Type == "server" {
 		usage = mtls.ServerUsage

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func newCA(t *testing.T, issued time.Time) string {
 
 func runCerts(t *testing.T, args ...string) error {
 	t.Helper()
-	return cmdCerts(context.Background(), ui.New(), args)
+	return cmdCerts(context.Background(), &ui.UI{Out: io.Discard}, args)
 }
 
 func TestBundleRefusesRevokedLeafAndPointsToRenew(t *testing.T) {
