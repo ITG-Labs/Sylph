@@ -151,3 +151,44 @@ func (s *Store) ListPendingPayments(ctx context.Context, since time.Time, limit 
 	}
 	return out, rows.Err()
 }
+
+type UnnotifiedPayment struct {
+	PaymentID  string
+	UserID     int64
+	TelegramID int64
+}
+
+func (s *Store) ListUnnotifiedPayments(ctx context.Context, since time.Time, limit int) ([]UnnotifiedPayment, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT p.payment_id, p.user_id, u.telegram_id
+		 FROM payments p JOIN users u ON u.id = p.user_id
+		 WHERE p.status = 'succeeded' AND p.source = 'yookassa' AND p.notified_at IS NULL AND p.paid_at > $1
+		   AND u.telegram_id IS NOT NULL AND u.status = 'active'
+		 ORDER BY p.paid_at, p.id LIMIT $2`, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UnnotifiedPayment
+	for rows.Next() {
+		var p UnnotifiedPayment
+		if err := rows.Scan(&p.PaymentID, &p.UserID, &p.TelegramID); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) MarkPaymentNotified(ctx context.Context, paymentID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE payments SET notified_at = COALESCE(notified_at, now())
+		 WHERE payment_id = $1 AND source = 'yookassa' AND status = 'succeeded'`, paymentID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

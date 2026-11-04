@@ -1516,3 +1516,49 @@ func TestMigration021DownAndUpAgain(t *testing.T) {
 		t.Fatalf("up 021 again: %v", err)
 	}
 }
+
+func TestMigration022DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(21); err != nil {
+		t.Fatalf("up to 021: %v", err)
+	}
+	for _, q := range []string{
+		`INSERT INTO location_groups (name) VALUES ('g')`,
+		`INSERT INTO plans (name, price_rub, period_days, location_group_id) SELECT 'p', 100, 30, id FROM location_groups`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, paid_at) SELECT 'old-paid', u.id, p.id, 100, 'succeeded', 'yookassa', now() FROM users u, plans p`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source) SELECT 'waiting', u.id, p.id, 100, 'pending', 'yookassa' FROM users u, plans p`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 022: %v", err)
+	}
+	if !columnExists(t, pool, "payments", "notified_at") {
+		t.Fatal("up 022 did not add notified_at")
+	}
+	var oldMarked, waitingMarked bool
+	if err := pool.QueryRow(ctx, `SELECT (SELECT notified_at IS NOT NULL FROM payments WHERE payment_id = 'old-paid'), (SELECT notified_at IS NOT NULL FROM payments WHERE payment_id = 'waiting')`).Scan(&oldMarked, &waitingMarked); err != nil || !oldMarked || waitingMarked {
+		t.Fatalf("backfill: paid before the migration marked %v, still pending marked %v, %v", oldMarked, waitingMarked, err)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 022: %v", err)
+	}
+	if columnExists(t, pool, "payments", "notified_at") {
+		t.Fatal("down 022 left the column")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 022 again: %v", err)
+	}
+}

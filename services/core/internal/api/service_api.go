@@ -19,6 +19,8 @@ func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	s.route(mux, "POST /v1/payments", s.handlePayment, mtls.RolePanel)
 	s.route(mux, "POST /v1/payments/create", s.handlePaymentCreate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/payments/{payment_id}/check", s.handlePaymentCheck, mtls.RoleBot, mtls.RolePanel)
+	s.route(mux, "GET /v1/payments/unnotified", s.handlePaymentsUnnotified, mtls.RoleBot)
+	s.route(mux, "POST /v1/payments/{payment_id}/notified", s.handlePaymentNotified, mtls.RoleBot)
 	s.route(mux, "GET /v1/plans", s.handlePlansOnSale, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/rotate", s.handleRotate, mtls.RoleBot, mtls.RolePanel)
 	s.route(mux, "POST /v1/users/{user_id}/devices/reset", s.handleDevicesReset, mtls.RoleBot, mtls.RolePanel)
@@ -191,6 +193,28 @@ func (s *Server) handlePaymentCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handlePaymentsUnnotified(w http.ResponseWriter, r *http.Request) {
+	list, err := s.svc.UnnotifiedPayments(r.Context())
+	if err != nil {
+		s.writePaymentError(w, err, "payment notices")
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(list))
+}
+
+func (s *Server) handlePaymentNotified(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("payment_id")
+	if !validPaymentID(id) {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid payment_id")
+		return
+	}
+	if err := s.svc.MarkPaymentNotified(r.Context(), id); err != nil {
+		s.writePaymentError(w, err, "payment notified")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handlePaymentsPoll(w http.ResponseWriter, r *http.Request) {
