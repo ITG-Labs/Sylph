@@ -72,7 +72,8 @@ func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOl
 		slog.Int64("keys", res.Keys),
 		slog.Int64("daily", res.Daily),
 		slog.Int64("notifications", res.Notifications),
-		slog.Int64("ips", res.IPs))
+		slog.Int64("ips", res.IPs),
+		slog.Bool("partial", res.Partial))
 	return res, nil
 }
 

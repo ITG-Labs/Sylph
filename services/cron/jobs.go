@@ -37,21 +37,45 @@ func (c *CoreClient) expire(ctx context.Context) ([]slog.Attr, error) {
 	return []slog.Attr{slog.Int64("expired", out.Expired)}, nil
 }
 
+const maxCleanupPasses = 30
+
 func (c *CoreClient) cleanup(ctx context.Context, retentionDays, statsRetentionDays, ipRetentionDays int) ([]slog.Attr, error) {
-	var out struct {
-		Deltas        int64 `json:"deltas"`
-		Batches       int64 `json:"batches"`
-		Keys          int64 `json:"keys"`
-		Daily         int64 `json:"daily"`
-		Notifications int64 `json:"notifications"`
-		IPs           int64 `json:"ips"`
+	var total struct {
+		Deltas        int64
+		Batches       int64
+		Keys          int64
+		Daily         int64
+		Notifications int64
+		IPs           int64
 	}
 	body := map[string]int{"older_than_days": retentionDays, "stats_older_than_days": statsRetentionDays, "ip_older_than_days": ipRetentionDays}
-	if err := c.api.Do(ctx, http.MethodPost, "/v1/maintenance/cleanup", body, &out); err != nil {
-		return nil, err
+	passes, partial := 0, false
+	for passes < maxCleanupPasses {
+		var out struct {
+			Deltas        int64 `json:"deltas"`
+			Batches       int64 `json:"batches"`
+			Keys          int64 `json:"keys"`
+			Daily         int64 `json:"daily"`
+			Notifications int64 `json:"notifications"`
+			IPs           int64 `json:"ips"`
+			Partial       bool  `json:"partial"`
+		}
+		if err := c.api.Do(ctx, http.MethodPost, "/v1/maintenance/cleanup", body, &out); err != nil {
+			return nil, err
+		}
+		passes++
+		total.Deltas += out.Deltas
+		total.Batches += out.Batches
+		total.Keys += out.Keys
+		total.Daily += out.Daily
+		total.Notifications += out.Notifications
+		total.IPs += out.IPs
+		if partial = out.Partial; !partial {
+			break
+		}
 	}
-	return []slog.Attr{slog.Int64("deltas", out.Deltas), slog.Int64("batches", out.Batches), slog.Int64("keys", out.Keys), slog.Int64("daily", out.Daily),
-		slog.Int64("notifications", out.Notifications), slog.Int64("ips", out.IPs)}, nil
+	return []slog.Attr{slog.Int64("deltas", total.Deltas), slog.Int64("batches", total.Batches), slog.Int64("keys", total.Keys), slog.Int64("daily", total.Daily),
+		slog.Int64("notifications", total.Notifications), slog.Int64("ips", total.IPs), slog.Int64("passes", int64(passes)), slog.Bool("partial", partial)}, nil
 }
 
 func (c *CoreClient) payments(ctx context.Context) ([]slog.Attr, error) {
