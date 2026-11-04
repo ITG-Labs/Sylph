@@ -52,7 +52,7 @@ services:
   bootstrap:
     <<: *locked
     image: ghcr.io/itg-labs/sylph-agent:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
-    cap_add: [KILL]
+    cap_add: [KILL, NET_ADMIN]
     network_mode: none
     command: ["bootstrap"]
     volumes:
@@ -83,7 +83,7 @@ services:
   agent:
     <<: *locked
     image: ghcr.io/itg-labs/sylph-agent:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
-    cap_add: [KILL]
+    cap_add: [KILL, NET_ADMIN]
     restart: unless-stopped
     network_mode: service:caddy
     pid: service:caddy

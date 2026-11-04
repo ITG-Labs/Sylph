@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -112,6 +113,40 @@ func TestNodeXrayRunsWithoutKernelSplice(t *testing.T) {
 		block := serviceBlock(t, string(subs), name)
 		if !strings.Contains(block, "service: xray") || regexp.MustCompile(`(?m)^    environment:`).MatchString(block) && !want.MatchString(block) {
 			t.Fatalf("test/subs/docker-compose.yml: service %s must extend prod xray and keep its environment", name)
+		}
+	}
+}
+
+func TestAgentImageCapsAreGrantedToEveryServiceOfIt(t *testing.T) {
+	dockerfile, err := os.ReadFile("../agent/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`setcap (\S+)\+ep`).FindSubmatch(dockerfile)
+	if m == nil {
+		t.Fatal("deploy/agent/Dockerfile: no setcap")
+	}
+	caps := strings.Split(strings.ToUpper(strings.ReplaceAll(string(m[1]), "cap_", "")), ",")
+	if !slices.Contains(caps, "NET_ADMIN") {
+		t.Fatalf("agent binary caps = %v: destroying sockets of a removed user needs NET_ADMIN", caps)
+	}
+	compose, err := fs.ReadFile(Files, "node/compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"bootstrap", "agent"} {
+		block := serviceBlock(t, string(compose), name)
+		granted := regexp.MustCompile(`cap_add: \[([^\]]*)\]`).FindStringSubmatch(block)
+		if granted == nil {
+			t.Fatalf("service %s: no cap_add", name)
+		}
+		for _, c := range caps {
+			if !slices.Contains(strings.Split(strings.ReplaceAll(granted[1], " ", ""), ","), c) {
+				t.Fatalf("service %s: cap_add [%s] lacks %s: a binary with a file capability outside the bounding set does not start", name, granted[1], c)
+			}
+		}
+		if !strings.Contains(block, "*locked") {
+			t.Fatalf("service %s must stay on the locked profile with no-new-privileges", name)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
@@ -23,6 +24,7 @@ type Engine struct {
 	routing     *noderoute.Profile
 	serviceKeys []string
 	geo         *SyncGeo
+	sockets     SocketKiller
 }
 
 type NodeDesired struct {
@@ -41,6 +43,7 @@ func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logg
 		logger:  logger,
 		version: -1,
 		desired: map[string]bool{},
+		sockets: netlinkSockets{},
 	}
 }
 
@@ -191,19 +194,21 @@ func (e *Engine) reconcileAll(ctx context.Context, inbounds []Inbound, add bool)
 	if !e.haveDesired {
 		return nil
 	}
+	drop := &sessionDrop{ips: map[netip.Addr]bool{}}
+	defer e.killSessions(ctx, inbounds, drop)
 	var firstErr error
 	for _, in := range inbounds {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.reconcileInbound(ctx, in, add); err != nil && firstErr == nil {
+		if err := e.reconcileInbound(ctx, in, add, drop); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
 }
 
-func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) error {
+func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool, drop *sessionDrop) error {
 	live, err := e.xray.ListUsers(ctx, in.Tag)
 	if err != nil {
 		return fmt.Errorf("list xray users in %s: %w", in.Tag, err)
@@ -217,24 +222,31 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 	for _, uuid := range want {
 		keys[uuid] = true
 	}
-	var firstErr error
+	var gone []string
 	for email := range actual {
 		uuid, wanted := want[email]
 		if legacy, tag := splitEmail(email); !add && tag == "" && keys[legacy] {
 			uuid, wanted = legacy, true
 		}
-		if wanted && !e.blocked[uuid] {
-			continue
+		if !wanted || e.blocked[uuid] {
+			gone = append(gone, email)
 		}
+	}
+	if len(gone) > 0 {
+		e.snapshotOnline(ctx, drop)
+	}
+	var firstErr error
+	for _, email := range gone {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		uuid, _ = splitEmail(email)
+		uuid, _ := splitEmail(email)
 		if err := e.xray.RemoveUser(ctx, in.Tag, email); err != nil {
 			firstErr = e.recordFailure(firstErr, "remove", in.Tag, uuid, err)
 			continue
 		}
 		delete(actual, email)
+		drop.add(email)
 		e.logger.Info("xray_user_removed", "inbound", in.Tag, "key_ref", keyRef(uuid))
 	}
 	if !add {

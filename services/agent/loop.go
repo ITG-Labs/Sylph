@@ -5,9 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
-	"net/netip"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/internal/version"
@@ -107,11 +105,11 @@ func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
 		k := OnlineKey{Key: key}
 		for _, ip := range slices.Sorted(maps.Keys(raw[key])) {
-			addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(ip, "["), "]"))
-			if err != nil || len(k.IPs) >= maxOnlineIPsPerKey {
+			addr, ok := onlineAddr(ip)
+			if !ok || len(k.IPs) >= maxOnlineIPsPerKey {
 				continue
 			}
-			k.IPs = append(k.IPs, OnlineIP{IP: addr.WithZone("").Unmap().String(), AgeSec: min(max(0, now-raw[key][ip]), maxOnlineAgeSec)})
+			k.IPs = append(k.IPs, OnlineIP{IP: addr.String(), AgeSec: min(max(0, now-raw[key][ip]), maxOnlineAgeSec)})
 		}
 		if len(k.IPs) == 0 {
 			continue

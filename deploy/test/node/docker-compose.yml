@@ -32,6 +32,9 @@ services:
       context: .
       dockerfile: agent.Dockerfile
     image: sylph-test-node-agent
+    cap_drop: [ALL]
+    cap_add: [KILL, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
     entrypoint: ["/sylph/sylph-agent", "bootstrap"]
     volumes:
       - xray-config:/etc/xray
@@ -59,8 +62,16 @@ services:
     depends_on:
       roots:
         condition: service_completed_successfully
+  client2:
+    image: ghcr.io/xtls/xray-core:26.10.21
+    command: ["run", "-c", "/etc/sylph/client.json"]
+    volumes:
+      - ./client2.json:/etc/sylph/client.json:ro
   agent:
     image: sylph-test-node-agent
+    cap_drop: [ALL]
+    cap_add: [KILL, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
     network_mode: service:caddy
     pid: service:caddy
     entrypoint: ["/sylph/agent.test", "-test.run", "^TestNodeLive", "-test.v", "-test.count=1"]
@@ -75,6 +86,8 @@ services:
       xray:
         condition: service_started
       client:
+        condition: service_started
+      client2:
         condition: service_started
     profiles: ["test"]
 volumes:

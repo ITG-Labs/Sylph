@@ -34,6 +34,7 @@ type fakeXray struct {
 	ruleCalls   int
 	online      map[string]map[string]int64
 	onlineErr   error
+	onlineHits  int
 }
 
 func newFakeXray() *fakeXray {
@@ -144,6 +145,7 @@ func (f *fakeXray) userCount() int {
 func (f *fakeXray) OnlineIPs(ctx context.Context) (map[string]map[string]int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.onlineHits++
 	if f.onlineErr != nil {
 		return nil, f.onlineErr
 	}
