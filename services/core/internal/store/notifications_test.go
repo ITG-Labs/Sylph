@@ -306,7 +306,7 @@ func TestNotifyCandidatesExpiredAfterCronButNotClosedByHand(t *testing.T) {
 	if _, err := s.BanUser(ctx, banned.ID, "", now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UnbanUser(ctx, banned.ID); err != nil {
+	if _, err := s.UnbanUser(ctx, banned.ID, now); err != nil {
 		t.Fatal(err)
 	}
 	got := candidatesByUser(t, s, now)
