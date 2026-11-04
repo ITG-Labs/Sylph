@@ -35,15 +35,16 @@ var (
 	}
 )
 
-var cleanupStepBudget = 6 * time.Second
+var cleanupStepBudget = 3 * time.Second
 
 func (s *Store) CleanupHistory(ctx context.Context, cutoff time.Time, chunk int) (CleanupResult, error) {
 	var res CleanupResult
 	var err error
-	if res.Notifications, err = s.cleanupNotifications(ctx, cutoff); err != nil {
+	var partial bool
+	if res.Notifications, partial, err = s.cleanupNotifications(ctx, cutoff, chunk); err != nil {
 		return res, err
 	}
-	var partial bool
+	res.Partial = partial
 	if res.Keys, partial, err = s.deleteInChunks(ctx, keysCleanup, cutoff, chunk); err != nil {
 		return res, err
 	}
@@ -60,38 +61,47 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff time.Time, chunk int)
 }
 
 func (s *Store) deleteInChunks(ctx context.Context, q chunkedDelete, cutoff time.Time, chunk int) (int64, bool, error) {
-	stepCtx, cancel := context.WithTimeout(ctx, cleanupStepBudget)
-	defer cancel()
+	deadline := time.Now().Add(cleanupStepBudget)
 	var total int64
 	for {
-		if stepCtx.Err() != nil {
-			return total, ctx.Err() == nil, ctx.Err()
-		}
 		var bound any
-		if err := s.pool.QueryRow(stepCtx, q.bound, cutoff, chunk).Scan(&bound); err != nil {
-			return total, budgetSpent(ctx, stepCtx), budgetErr(ctx, stepCtx, err)
+		if err := s.pool.QueryRow(ctx, q.bound, cutoff, chunk).Scan(&bound); err != nil {
+			return total, false, err
 		}
 		if bound == nil {
 			return total, false, nil
 		}
-		tag, err := s.pool.Exec(stepCtx, q.del, cutoff, bound)
+		tag, err := s.pool.Exec(ctx, q.del, cutoff, bound)
 		if err != nil {
-			return total, budgetSpent(ctx, stepCtx), budgetErr(ctx, stepCtx, err)
+			return total, false, err
 		}
-		if tag.RowsAffected() == 0 {
+		n := tag.RowsAffected()
+		total += n
+		if n < int64(chunk) {
 			return total, false, nil
 		}
-		total += tag.RowsAffected()
+		if !time.Now().Before(deadline) {
+			return total, true, nil
+		}
 	}
 }
 
-func budgetSpent(ctx, stepCtx context.Context) bool {
-	return ctx.Err() == nil && stepCtx.Err() != nil
-}
-
-func budgetErr(ctx, stepCtx context.Context, err error) error {
-	if budgetSpent(ctx, stepCtx) {
-		return nil
+func (s *Store) deleteBudgeted(ctx context.Context, stmt string, chunk int, args ...any) (int64, bool, error) {
+	deadline := time.Now().Add(cleanupStepBudget)
+	args = append(args, chunk)
+	var total int64
+	for {
+		tag, err := s.pool.Exec(ctx, stmt, args...)
+		if err != nil {
+			return total, false, err
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < int64(chunk) {
+			return total, false, nil
+		}
+		if !time.Now().Before(deadline) {
+			return total, true, nil
+		}
 	}
-	return err
 }

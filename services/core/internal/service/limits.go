@@ -58,13 +58,17 @@ func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOl
 		return res, err
 	}
 	if statsOlderThanDays != nil {
-		if res.Daily, err = s.store.CleanupDailyStats(ctx, *statsOlderThanDays); err != nil {
+		var partial bool
+		if res.Daily, partial, err = s.store.CleanupDailyStats(ctx, *statsOlderThanDays, cleanupChunk); err != nil {
 			return res, err
 		}
+		res.Partial = res.Partial || partial
 	}
-	if res.IPs, err = s.store.CleanupOnline(ctx, now.AddDate(0, 0, -ipDays)); err != nil {
+	ipsPartial := false
+	if res.IPs, ipsPartial, err = s.store.CleanupOnline(ctx, now.AddDate(0, 0, -ipDays), cleanupChunk); err != nil {
 		return res, err
 	}
+	res.Partial = res.Partial || ipsPartial
 	s.log.LogAttrs(ctx, slog.LevelInfo, "maintenance_cleanup",
 		slog.Int("older_than_days", olderThanDays),
 		slog.Int64("deltas", res.Deltas),

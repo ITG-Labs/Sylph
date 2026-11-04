@@ -141,3 +141,16 @@ func TestCleanupJobStopsRepeatingAtTheCap(t *testing.T) {
 		t.Fatalf("calls = %d, attrs = %v, err = %v", calls, attrs, err)
 	}
 }
+
+func TestCleanupJobStopsWhenAPassDeletesNothing(t *testing.T) {
+	calls := 0
+	core := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"deltas":0,"partial":true}`)
+	})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30})
+	attrs, err := jobs[1].Do(context.Background())
+	if err != nil || calls != 1 || attrsOf(attrs)["passes"] != 1 {
+		t.Fatalf("calls = %d, attrs = %v, err = %v", calls, attrs, err)
+	}
+}

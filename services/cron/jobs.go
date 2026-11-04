@@ -70,7 +70,8 @@ func (c *CoreClient) cleanup(ctx context.Context, retentionDays, statsRetentionD
 		total.Daily += out.Daily
 		total.Notifications += out.Notifications
 		total.IPs += out.IPs
-		if partial = out.Partial; !partial {
+		partial = out.Partial
+		if !partial || out.Deltas+out.Batches+out.Keys+out.Daily+out.Notifications+out.IPs == 0 {
 			break
 		}
 	}

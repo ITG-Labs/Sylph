@@ -117,11 +117,9 @@ func (s *Store) UserStats(ctx context.Context, userID int64) (UserStats, error) 
 	return out, rows.Err()
 }
 
-func (s *Store) CleanupDailyStats(ctx context.Context, olderThanDays int) (int64, error) {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM traffic_daily WHERE day <= (now() AT TIME ZONE $1)::date - $2::int`, s.statsTZ, olderThanDays)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+func (s *Store) CleanupDailyStats(ctx context.Context, olderThanDays int, chunk int) (int64, bool, error) {
+	return s.deleteBudgeted(ctx,
+		`DELETE FROM traffic_daily WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM traffic_daily WHERE day <= (now() AT TIME ZONE $1)::date - $2::int LIMIT $3))`,
+		chunk, s.statsTZ, olderThanDays)
 }

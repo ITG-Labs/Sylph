@@ -137,15 +137,13 @@ func (s *Store) MarkNotified(ctx context.Context, m NotifyMark) error {
 	return err
 }
 
-func (s *Store) cleanupNotifications(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM notifications_sent n
-		 WHERE n.created_at < $1
-		   AND ((n.paid_until IS NOT NULL AND n.paid_until < now() - interval '24 hours')
-		     OR (n.period_id IS NOT NULL AND NOT EXISTS (
-		         SELECT 1 FROM subscriptions s WHERE s.id = n.period_id AND NOT s.canceled AND s.expires_at > now())))`, cutoff)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+func (s *Store) cleanupNotifications(ctx context.Context, cutoff time.Time, chunk int) (int64, bool, error) {
+	return s.deleteBudgeted(ctx,
+		`DELETE FROM notifications_sent WHERE ctid = ANY(ARRAY(
+		     SELECT n.ctid FROM notifications_sent n
+		     WHERE n.created_at < $1
+		       AND ((n.paid_until IS NOT NULL AND n.paid_until < now() - interval '24 hours')
+		         OR (n.period_id IS NOT NULL AND NOT EXISTS (
+		             SELECT 1 FROM subscriptions s WHERE s.id = n.period_id AND NOT s.canceled AND s.expires_at > now())))
+		     LIMIT $2))`, chunk, cutoff)
 }

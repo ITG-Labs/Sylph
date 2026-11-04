@@ -212,13 +212,11 @@ func (s *Store) OnlineCounts(ctx context.Context) (int, map[int64]int, error) {
 	return total, byNode, err
 }
 
-func (s *Store) CleanupOnline(ctx context.Context, historyCutoff time.Time) (int64, error) {
+func (s *Store) CleanupOnline(ctx context.Context, historyCutoff time.Time, chunk int) (int64, bool, error) {
 	if _, err := s.pool.Exec(ctx, `DELETE FROM online_now WHERE seen_at < now() - interval '1 day'`); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	tag, err := s.pool.Exec(ctx, `DELETE FROM ip_history WHERE last_seen < $1`, historyCutoff)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+	return s.deleteBudgeted(ctx,
+		`DELETE FROM ip_history WHERE ctid = ANY(ARRAY(SELECT ctid FROM ip_history WHERE last_seen < $1 LIMIT $2))`,
+		chunk, historyCutoff)
 }
