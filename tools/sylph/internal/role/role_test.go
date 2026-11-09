@@ -174,8 +174,20 @@ func TestPinOverridesOurVersionsOnly(t *testing.T) {
 	if err := node.Pin(env, "0.3.0"); err != nil {
 		t.Fatal(err)
 	}
-	if env.Get(KeyVersion) != "0.3.0" || env.Get(KeyCaddyVersion) != want || env.Get("XRAY_VERSION") != "26.1.1" {
-		t.Fatalf("pinned: %s=%q %s=%q XRAY_VERSION=%q", KeyVersion, env.Get(KeyVersion), KeyCaddyVersion, env.Get(KeyCaddyVersion), env.Get("XRAY_VERSION"))
+	if env.Get(KeyVersion) != "0.3.0" || env.Get(KeyCaddyVersion) != want || env.Get(KeyXrayVersion) != tmpl.Get(KeyXrayVersion) {
+		t.Fatalf("pinned: %s=%q %s=%q %s=%q", KeyVersion, env.Get(KeyVersion), KeyCaddyVersion, env.Get(KeyCaddyVersion), KeyXrayVersion, env.Get(KeyXrayVersion))
+	}
+	if err := XrayVersion(tmpl.Get(KeyXrayVersion)); err != nil {
+		t.Fatalf("node template %s: %v", KeyXrayVersion, err)
+	}
+	if _, asked := node.Field(KeyXrayVersion); asked {
+		t.Fatalf("%s is pinned by sylph: only its own sylph-xray tags exist, the wizard must not ask for it", KeyXrayVersion)
+	}
+	if pins := node.Pins(); pins[KeyCaddyVersion] != want || pins[KeyXrayVersion] != tmpl.Get(KeyXrayVersion) || len(pins) != 2 {
+		t.Fatalf("node pins = %v", pins)
+	}
+	if pins := PinsOf(env); pins[KeyXrayVersion] != tmpl.Get(KeyXrayVersion) {
+		t.Fatalf("pins of env = %v", pins)
 	}
 	panel, err := Get("panel")
 	if err != nil {
@@ -190,5 +202,8 @@ func TestPinOverridesOurVersionsOnly(t *testing.T) {
 	}
 	if _, ok := pe.Lookup(KeyCaddyVersion); ok || pe.Get(KeyVersion) != "0.3.0" {
 		t.Fatalf("panel env after pin: %v", pe.Keys())
+	}
+	if _, ok := pe.Lookup(KeyXrayVersion); ok || len(panel.Pins()) != 0 {
+		t.Fatalf("panel env after pin: %v, pins %v", pe.Keys(), panel.Pins())
 	}
 }

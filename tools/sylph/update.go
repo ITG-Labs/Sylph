@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -68,7 +69,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		cur := in.Env.Get(role.KeyVersion)
 		mark := cur + " → " + target
 		switch {
-		case cur == target && in.Env.Get(role.KeyCaddyVersion) == pinnedCaddy(in.Role) && runningAt(ctx, in.Dir, target, pinnedCaddy(in.Role)):
+		case cur == target && maps.Equal(role.PinsOf(in.Env), in.Role.Pins()) && runningAt(ctx, in.Dir, target, in.Role.Pins()):
 			mark = cur + ui.Dimmed(" (текущая)")
 		case older(target, cur):
 			mark += ui.Colored(ui.Yellow, " (понижение)")
@@ -350,14 +351,6 @@ func applyUpdate(ctx context.Context, u *ui.UI, p *rolePlan, target string) erro
 		return shown(err)
 	}
 	return waitHealthy(ctx, u, in.Dir)
-}
-
-func pinnedCaddy(r *role.Role) string {
-	tmpl, _, err := r.Template()
-	if err != nil {
-		return ""
-	}
-	return tmpl.Get(role.KeyCaddyVersion)
 }
 
 func older(a string, b string) bool {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,9 @@ import (
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/bundle"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/compose"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/envfile"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/role"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/ui"
 )
 
 func TestImageVersion(t *testing.T) {
@@ -290,7 +293,7 @@ func TestRunningAt(t *testing.T) {
 		"compose ps -a --format json": `{"ID":"a","Service":"core","State":"running","Image":"ghcr.io/itg-labs/sylph-core:0.1.0"}
 {"ID":"b","Service":"postgres","State":"running","Image":"postgres:17-alpine"}`,
 	})
-	if !runningAt(context.Background(), "/x", "0.1.0", "") || runningAt(context.Background(), "/x", "0.2.0", "") {
+	if !runningAt(context.Background(), "/x", "0.1.0", nil) || runningAt(context.Background(), "/x", "0.2.0", nil) {
 		t.Fatal("runningAt must compare sylph image tags")
 	}
 }
@@ -298,13 +301,57 @@ func TestRunningAt(t *testing.T) {
 func TestRunningAtIgnoresCaddyTag(t *testing.T) {
 	fakeDocker(t, map[string]string{
 		"compose ps -a --format json": `{"ID":"a","Service":"agent","State":"running","Image":"ghcr.io/itg-labs/sylph-agent:0.3.0"}
-{"ID":"b","Service":"caddy","State":"running","Image":"ghcr.io/itg-labs/sylph-caddy:2.11.7-l4.0.1.2"}`,
+{"ID":"b","Service":"caddy","State":"running","Image":"ghcr.io/itg-labs/sylph-caddy:2.11.7-l4.0.1.2"}
+{"ID":"c","Service":"xray","State":"running","Image":"ghcr.io/itg-labs/sylph-xray:26.11.9"}`,
 	})
-	if !runningAt(context.Background(), "/x", "0.3.0", "2.11.7-l4.0.1.2") {
-		t.Fatal("caddy has its own tag and must not make the node look outdated")
+	pins := func(caddy, xray string) map[string]string {
+		return map[string]string{role.KeyCaddyVersion: caddy, role.KeyXrayVersion: xray}
 	}
-	if runningAt(context.Background(), "/x", "0.3.0", "2.12.0-l4.0.2.0") {
+	if !runningAt(context.Background(), "/x", "0.3.0", pins("2.11.7-l4.0.1.2", "26.11.9")) {
+		t.Fatal("caddy and xray have their own tags and must not make the node look outdated")
+	}
+	if runningAt(context.Background(), "/x", "0.3.0", pins("2.12.0-l4.0.2.0", "26.11.9")) {
 		t.Fatal("caddy on an older build counted as up to date")
+	}
+	if runningAt(context.Background(), "/x", "0.3.0", pins("2.11.7-l4.0.1.2", "26.12.1")) {
+		t.Fatal("xray on an older version counted as up to date")
+	}
+}
+
+func TestOldNodeMovesToOwnXrayImage(t *testing.T) {
+	r, _ := role.Get("node")
+	tmpl, _, err := r.Template()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := envfile.Parse([]byte("SYLPH_VERSION=0.2.0\nXRAY_VERSION=26.10.21\nCADDY_VERSION=" + tmpl.Get(role.KeyCaddyVersion) + "\nSYLPH_CORE_URL=https://203.0.113.10:443\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := updatedEnv(&ui.UI{Out: io.Discard}, installed{Role: r, Dir: t.TempDir(), Env: old}, "0.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := env.Get(role.KeyXrayVersion), tmpl.Get(role.KeyXrayVersion); got != want {
+		t.Fatalf("XRAY_VERSION after update = %s, want %s: only own sylph-xray tags are published", got, want)
+	}
+	compose, err := r.File("compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION:?") || strings.Contains(string(compose), "xtls/xray-core") {
+		t.Fatal("node compose must run xray from ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION}")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.2.0\nXRAY_VERSION=26.10.21\nCADDY_VERSION="+tmpl.Get(role.KeyCaddyVersion)+"\nSYLPH_CORE_URL=https://203.0.113.10:443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &plan{r: r, dir: dir}
+	if err := p.load("0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.summary(), "xray будет пересоздан") {
+		t.Fatalf("no warning about xray in summary:\n%s", p.summary())
 	}
 }
 

@@ -39,7 +39,7 @@ services:
     volumes:
       - xray-config:/etc/xray
   xray:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     network_mode: service:caddy
     pid: service:caddy
     restart: unless-stopped
@@ -54,7 +54,7 @@ services:
       caddy:
         condition: service_started
   client:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     command: ["run", "-c", "/etc/sylph/client.json"]
     volumes:
       - ./client.json:/etc/sylph/client.json:ro
@@ -63,7 +63,7 @@ services:
       roots:
         condition: service_completed_successfully
   client2:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     command: ["run", "-c", "/etc/sylph/client.json"]
     volumes:
       - ./client2.json:/etc/sylph/client.json:ro

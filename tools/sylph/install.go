@@ -68,6 +68,7 @@ type plan struct {
 	env          *envfile.Env
 	prevVersion  string
 	prevCaddy    string
+	prevXray     string
 	firstInstall bool
 	newBundle    *bundle.Bundle
 	leaves       []bundle.Leaf
@@ -252,6 +253,7 @@ func (p *plan) load(imgVer string) error {
 		}
 		p.prevVersion = old.Get(role.KeyVersion)
 		p.prevCaddy = old.Get(role.KeyCaddyVersion)
+		p.prevXray = old.Get(role.KeyXrayVersion)
 		p.env.Merge(old)
 	}
 	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
@@ -514,8 +516,12 @@ func (p *plan) summary() string {
 		}
 		rows = append(rows, [2]string{"администраторы", admins})
 	}
-	if p.r.Name == "node" && !p.firstInstall && p.prevCaddy != p.env.Get(role.KeyCaddyVersion) {
+	switch {
+	case p.r.Name != "node" || p.firstInstall:
+	case p.prevCaddy != p.env.Get(role.KeyCaddyVersion):
 		rows = append(rows, [2]string{"Caddy", ui.Colored(ui.Yellow, "новая сборка: Caddy и xray будут пересозданы, подключения клиентов прервутся на несколько секунд")})
+	case p.prevXray != p.env.Get(role.KeyXrayVersion):
+		rows = append(rows, [2]string{"xray", ui.Colored(ui.Yellow, "новая версия "+p.env.Get(role.KeyXrayVersion)+": xray будет пересоздан, подключения клиентов прервутся на несколько секунд")})
 	}
 	return ui.KV(rows)
 }

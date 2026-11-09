@@ -1,4 +1,7 @@
-.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db test-xray-up test-xray-down test-xray test-node test-subs
+.PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db xray-image test-xray-up test-xray-down test-xray test-node test-subs
+
+XRAY_VERSION := $(shell sed -n 's/^XRAY_VERSION=//p' deploy/prod/node/.env.example)
+XRAY_IMAGE := ghcr.io/itg-labs/sylph-xray:$(XRAY_VERSION)
 
 PKGS := ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/... ./services/monitor/... ./tools/sylph/...
 
@@ -33,19 +36,22 @@ test-db: test-db-up
 	SYLPH_TEST_DB=postgres://sylph:sylph@localhost:55432/sylph_test go test -race -count=1 $(PKGS); \
 	status=$$?; $(MAKE) test-db-down; exit $$status
 
-test-xray-up:
+xray-image:
+	docker build -q --build-arg XRAY_VERSION=$(XRAY_VERSION) -t $(XRAY_IMAGE) deploy/xray
+
+test-xray-up: xray-image
 	docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
 
 test-xray-down:
 	docker compose -f deploy/test/xray/docker-compose.yml down
 
 test-xray: test-xray-up
-	SYLPH_TEST_XRAY=127.0.0.1:55085 SYLPH_TEST_XRAY_IMAGE=ghcr.io/xtls/xray-core:26.10.21 go test -race -count=1 ./services/agent/...; \
+	SYLPH_TEST_XRAY=127.0.0.1:55085 SYLPH_TEST_XRAY_IMAGE=$(XRAY_IMAGE) go test -race -count=1 ./services/agent/...; \
 	status=$$?; $(MAKE) test-xray-down; exit $$status
 
 NODE_COMPOSE := docker compose -f deploy/test/node/docker-compose.yml
 
-test-node:
+test-node: xray-image
 	mkdir -p deploy/test/node/bin/xray
 	CGO_ENABLED=0 go build -o deploy/test/node/bin/sylph-agent ./services/agent/cmd/agent
 	CGO_ENABLED=0 go test -c -o deploy/test/node/bin/agent.test ./services/agent
@@ -53,11 +59,11 @@ test-node:
 	$(NODE_COMPOSE) run --rm agent; \
 	status=$$?; $(NODE_COMPOSE) --profile test down -v; exit $$status
 
-SUBS_COMPOSE := SYLPH_VERSION=test CADDY_VERSION=test XRAY_VERSION=26.10.21 SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
+SUBS_COMPOSE := SYLPH_VERSION=test CADDY_VERSION=test XRAY_VERSION=$(XRAY_VERSION) SYLPH_CORE_URL=https://core.sylph.internal:8443 docker compose -f deploy/test/subs/docker-compose.yml
 SUBS_BIN := deploy/test/subs/bin
 SUBS_CA := go run ./tools/sylphca issue --dir $(SUBS_BIN)/ca
 
-test-subs:
+test-subs: xray-image
 	mkdir -p $(SUBS_BIN)
 	docker build -q -f deploy/agent/Dockerfile -t sylph-agent:test .
 	CGO_ENABLED=0 go build -o $(SUBS_BIN)/sylph-core ./services/core/cmd/core

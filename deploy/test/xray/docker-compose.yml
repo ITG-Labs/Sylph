@@ -1,6 +1,6 @@
 services:
   xray:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     network_mode: host
     command: ["run", "-c", "/etc/sylph/xray.json"]
     volumes:

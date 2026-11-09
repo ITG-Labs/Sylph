@@ -63,7 +63,7 @@ services:
 
   xray:
     <<: *locked
-    image: ghcr.io/xtls/xray-core:${XRAY_VERSION:?set XRAY_VERSION in .env}
+    image: ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION:?set XRAY_VERSION in .env}
     user: "65532:65532"
     restart: unless-stopped
     network_mode: service:caddy
