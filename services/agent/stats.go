@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/logging"
 )
@@ -21,13 +22,15 @@ type userCounters struct {
 }
 
 type Batch struct {
-	ID     string  `json:"batch_id"`
-	Deltas []Delta `json:"deltas"`
+	ID     string    `json:"batch_id"`
+	From   time.Time `json:"from,omitzero"`
+	Deltas []Delta   `json:"deltas"`
 }
 
 type statsState struct {
-	Counters map[string]*userCounters `json:"counters"`
-	Pending  *Batch                   `json:"pending"`
+	Counters    map[string]*userCounters `json:"counters"`
+	Pending     *Batch                   `json:"pending"`
+	UnsentSince time.Time                `json:"unsent_since,omitzero"`
 }
 
 type StatsCollector struct {
@@ -36,10 +39,11 @@ type StatsCollector struct {
 	path   string
 	state  statsState
 	fresh  bool
+	now    func() time.Time
 }
 
 func NewStatsCollector(xray XrayClient, logger *slog.Logger) *StatsCollector {
-	return &StatsCollector{xray: xray, logger: logger, state: statsState{Counters: map[string]*userCounters{}}}
+	return &StatsCollector{xray: xray, logger: logger, now: time.Now, state: statsState{Counters: map[string]*userCounters{}}}
 }
 
 func (sc *StatsCollector) Load(path string) error {
@@ -103,6 +107,9 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 		st.SeenDown = cur.SeenDown
 	}
 	sc.fresh = false
+	if sc.state.UnsentSince.IsZero() && sc.hasUnsent() {
+		sc.state.UnsentSince = sc.now().UTC()
+	}
 	for email, st := range sc.state.Counters {
 		if st.UnsentUp == 0 && st.UnsentDown == 0 {
 			if _, live := current[email]; !live {
@@ -119,6 +126,15 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 	return sc.state.Pending, nil
 }
 
+func (sc *StatsCollector) hasUnsent() bool {
+	for _, st := range sc.state.Counters {
+		if st.UnsentUp != 0 || st.UnsentDown != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (sc *StatsCollector) freezeBatch() {
 	var deltas []Delta
 	for email, st := range sc.state.Counters {
@@ -131,7 +147,8 @@ func (sc *StatsCollector) freezeBatch() {
 		st.UnsentDown = 0
 	}
 	if len(deltas) > 0 {
-		sc.state.Pending = &Batch{ID: logging.NewRequestID(), Deltas: deltas}
+		sc.state.Pending = &Batch{ID: logging.NewRequestID(), From: sc.state.UnsentSince, Deltas: deltas}
+		sc.state.UnsentSince = time.Time{}
 	}
 }
 

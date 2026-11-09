@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func uplink(uuid string) string {
@@ -265,5 +266,76 @@ func TestEmptyStateFileStillCountsNewCounters(t *testing.T) {
 	deltas := collectAndCommit(t, sc)
 	if len(deltas) != 1 || deltas[0].BytesUp != 300 {
 		t.Fatalf("new counter of a live state = %+v", deltas)
+	}
+}
+
+func TestBatchCarriesTheTimeTrafficStarted(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
+	clock := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	newCollector := func() *StatsCollector {
+		sc := NewStatsCollector(fx, discardLogger())
+		sc.now = func() time.Time { return clock }
+		if err := sc.Load(path); err != nil {
+			t.Fatal(err)
+		}
+		return sc
+	}
+	sc := newCollector()
+	fx.setStats(map[string]int64{})
+	if b := collect(t, sc); b != nil {
+		t.Fatalf("idle collect = %+v", b)
+	}
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 100})
+	first := collect(t, sc)
+	if first == nil || !first.From.Equal(clock) {
+		t.Fatalf("first batch = %+v, want from %v", first, clock)
+	}
+	started := clock
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 150})
+	if again := collect(t, sc); again.ID != first.ID || !again.From.Equal(started) {
+		t.Fatalf("pending batch changed: %+v", again)
+	}
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 200})
+	sc = newCollector()
+	if again := collect(t, sc); again.ID != first.ID || !again.From.Equal(started) {
+		t.Fatalf("pending batch lost its time over a restart: %+v", again)
+	}
+	sc.Commit(first.ID)
+	clock = clock.Add(time.Hour)
+	next := collect(t, sc)
+	if next == nil || !next.From.Equal(started.Add(time.Hour)) || next.Deltas[0].BytesUp != 100 {
+		t.Fatalf("batch after the commit = %+v, want from %v with 100 bytes", next, started.Add(time.Hour))
+	}
+}
+
+func TestIdleTimeIsNotCountedIntoBatchStart(t *testing.T) {
+	fx := newFakeXray()
+	clock := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	sc := NewStatsCollector(fx, discardLogger())
+	sc.now = func() time.Time { return clock }
+	fx.setStats(map[string]int64{})
+	collect(t, sc)
+	clock = clock.Add(6 * time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 5})
+	b := collect(t, sc)
+	if b == nil || !b.From.Equal(clock) {
+		t.Fatalf("batch = %+v, want from %v", b, clock)
+	}
+}
+
+func TestBatchWireFormatCarriesFromOnlyWhenKnown(t *testing.T) {
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	raw, err := json.Marshal(Batch{ID: "b", From: at, Deltas: []Delta{}})
+	if err != nil || string(raw) != `{"batch_id":"b","from":"2026-11-09T12:00:00Z","deltas":[]}` {
+		t.Fatalf("with from: %s, %v", raw, err)
+	}
+	raw, err = json.Marshal(Batch{ID: "b", Deltas: []Delta{}})
+	if err != nil || string(raw) != `{"batch_id":"b","deltas":[]}` {
+		t.Fatalf("without from: %s, %v", raw, err)
 	}
 }

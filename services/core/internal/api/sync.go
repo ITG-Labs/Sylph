@@ -107,7 +107,8 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		BatchID string `json:"batch_id"`
+		BatchID string    `json:"batch_id"`
+		From    time.Time `json:"from"`
 		Deltas  []struct {
 			KeyUUID   string `json:"key_uuid"`
 			Inbound   string `json:"inbound"`
@@ -134,7 +135,7 @@ func (s *Server) handleSyncDeltas(w http.ResponseWriter, r *http.Request) {
 		}
 		deltas = append(deltas, service.TrafficDeltaInput{KeyUUID: d.KeyUUID, Inbound: d.Inbound, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
-	duplicate, err := s.svc.RecordNodeDeltasInput(r.Context(), cn, body.BatchID, deltas)
+	duplicate, err := s.svc.RecordNodeDeltasInput(r.Context(), cn, body.BatchID, body.From, deltas)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")
