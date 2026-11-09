@@ -23,6 +23,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	dir := fs.String("dir", "", "обновить только роль из этого каталога")
 	yes := fs.Bool("yes", false, "не запрашивать подтверждение")
 	ver := fs.String("version", "", "тег образов вместо версии sylph (в этом случае sylph не обновляется)")
+	allowCoreDowngrade := fs.Bool("allow-core-downgrade", false, "разрешить понижение ядра без запроса: база должна быть восстановлена из копии, снятой до обновления")
 	noSelf := fs.Bool("no-self", false, "не загружать новый sylph: обновить роли до версии текущего sylph")
 	pos, err := parseWithArgs(fs, args)
 	if err != nil {
@@ -62,6 +63,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 	var todo []installed
 	marks := map[string]string{}
 	downgrade := false
+	coreDowngrade := false
 	for _, in := range roles {
 		cur := in.Env.Get(role.KeyVersion)
 		mark := cur + " → " + target
@@ -71,6 +73,7 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		case older(target, cur):
 			mark += ui.Colored(ui.Yellow, " (понижение)")
 			downgrade = true
+			coreDowngrade = coreDowngrade || in.Role.Name == "core"
 			todo = append(todo, in)
 		default:
 			todo = append(todo, in)
@@ -109,7 +112,12 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		return nil
 	}
 	if downgrade {
-		u.Warn("понижение версии: миграции базы данных ядра не откатываются; ядро старой версии запустится на более новой схеме и запишет предупреждение в лог, но совместимость схемы не гарантируется, при сбоях верните базу из дампа")
+		u.Warn(downgradeWarning)
+	}
+	if coreDowngrade {
+		if err := confirmCoreDowngrade(u, *allowCoreDowngrade, wizardFor(u).Confirm); err != nil {
+			return err
+		}
 	}
 	cut := false
 	for _, p := range plans {
@@ -139,7 +147,29 @@ func cmdUpdate(ctx context.Context, u *ui.UI, args []string) error {
 		}
 	}
 	u.Line("")
-	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nдля отката используйте sylph предыдущей версии: `sudo ./sylph update --no-self` (в 0.2.x флага нет, используйте `update`)", ui.Green)
+	u.Box("Готово 🎉", "обновлено ролей: "+strconv.Itoa(len(plans))+" · образы "+target+"\nдля отката используйте sylph предыдущей версии: `sudo ./sylph update --no-self` (в 0.2.x флага нет, используйте `update`)\n"+rollbackCaveat, ui.Green)
+	return nil
+}
+
+const (
+	downgradeWarning = "понижение версии: миграции базы данных не откатываются. Ядро запускается на более новой схеме только в релизах, которые это умеют (в логе будет schema_ahead); в более старых оно падает по кругу с ошибкой «no migration found for version N», и работу вернёт только восстановление базы из резервной копии, снятой до обновления"
+	rollbackCaveat   = "если обновление применило миграции базы, откат ядра на релиз без поддержки более новой схемы невозможен без восстановления базы из резервной копии, снятой до обновления"
+)
+
+func confirmCoreDowngrade(u *ui.UI, allowed bool, ask func(title string, description string, def bool) (bool, error)) error {
+	if allowed {
+		return nil
+	}
+	if !u.TTY {
+		return errors.New("понижение ядра без терминала выполняется только с флагом --allow-core-downgrade: " + rollbackCaveat)
+	}
+	ok, err := ask("Понизить версию ядра?", rollbackCaveat, false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return wizard.ErrAborted
+	}
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/role"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/selfupdate"
 	"github.com/ITG-Labs/sylph/tools/sylph/internal/ui"
+	"github.com/ITG-Labs/sylph/tools/sylph/internal/wizard"
 )
 
 type fakeRelease struct {
@@ -282,5 +284,50 @@ func TestCutWarning(t *testing.T) {
 		if _, cut := c.p.cutWarning(); cut != c.cut {
 			t.Fatalf("%s: cut = %v", c.name, cut)
 		}
+	}
+}
+
+func TestDowngradeTextsDoNotPromiseAStart(t *testing.T) {
+	for _, text := range []string{downgradeWarning, rollbackCaveat} {
+		if !strings.Contains(text, "резервной копии") || !strings.Contains(text, "до обновления") {
+			t.Errorf("text names no restore from a pre-update backup: %s", text)
+		}
+	}
+	if !strings.Contains(downgradeWarning, "no migration found for version") || !strings.Contains(downgradeWarning, "только в релизах, которые это умеют") {
+		t.Errorf("warning must say that only newer releases start on a newer schema: %s", downgradeWarning)
+	}
+	if strings.Contains(downgradeWarning, "ядро старой версии запустится") {
+		t.Errorf("warning still promises a start: %s", downgradeWarning)
+	}
+}
+
+func TestCoreDowngradeNeedsExplicitConfirmation(t *testing.T) {
+	asked := 0
+	ask := func(ok bool, err error) func(string, string, bool) (bool, error) {
+		return func(title string, description string, def bool) (bool, error) {
+			asked++
+			if def {
+				t.Error("the confirmation must default to no")
+			}
+			if !strings.Contains(description, "резервной копии") {
+				t.Errorf("description = %q", description)
+			}
+			return ok, err
+		}
+	}
+	plain := &ui.UI{Out: io.Discard}
+	err := confirmCoreDowngrade(plain, false, ask(true, nil))
+	if err == nil || !strings.Contains(err.Error(), "--allow-core-downgrade") || !strings.Contains(err.Error(), "резервной копии") || asked != 0 {
+		t.Fatalf("without a terminal: err = %v, asked = %d", err, asked)
+	}
+	if err := confirmCoreDowngrade(plain, true, ask(false, nil)); err != nil || asked != 0 {
+		t.Fatalf("with the flag: err = %v, asked = %d", err, asked)
+	}
+	tty := &ui.UI{Out: io.Discard, TTY: true}
+	if err := confirmCoreDowngrade(tty, false, ask(false, nil)); !errors.Is(err, wizard.ErrAborted) || asked != 1 {
+		t.Fatalf("declined: err = %v, asked = %d", err, asked)
+	}
+	if err := confirmCoreDowngrade(tty, false, ask(true, nil)); err != nil || asked != 2 {
+		t.Fatalf("accepted: err = %v, asked = %d", err, asked)
 	}
 }
