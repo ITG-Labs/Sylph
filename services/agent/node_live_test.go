@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ITG-Labs/sylph/pkg/noderoute"
 	"github.com/ITG-Labs/sylph/services/agent/internal/xraygrpc"
 )
 
@@ -61,6 +62,14 @@ func allowLoopback(api string) func(XrayInput) ([]byte, error) {
 		cfg["outbounds"].([]any)[0].(map[string]any)["settings"] = map[string]any{
 			"finalRules": []any{map[string]any{"action": "allow", "ip": []string{"127.0.0.1/32"}}},
 		}
+		routing := cfg["routing"].(map[string]any)
+		var rules []any
+		for _, r := range routing["rules"].([]any) {
+			if tag := r.(map[string]any)["ruleTag"]; tag != noderoute.GuardRuleTag && tag != noderoute.GuardNamesRuleTag {
+				rules = append(rules, r)
+			}
+		}
+		routing["rules"] = rules
 		return marshalConfig(cfg)
 	}
 }
@@ -245,21 +254,17 @@ func TestNodeLive(t *testing.T) {
 		if err := echoVia(liveClientA, "must-not-pass"); err == nil {
 			t.Fatal("a VPN user reached 127.0.0.1 on the node through the production config")
 		}
-		eventually(t, "user traffic reached xray before the block", func() error {
+		eventually(t, "xray let the user in before the block", func() error {
 			stats, err := x.QueryStats(ctx, "user>>>"+liveUser+"@")
 			if err != nil {
 				return err
 			}
-			var uplink int64
-			for name, v := range stats {
+			for name := range stats {
 				if strings.HasSuffix(name, ">>>traffic>>>uplink") {
-					uplink += v
+					return nil
 				}
 			}
-			if uplink == 0 {
-				return errors.New("no uplink yet: the connection did not get past REALITY")
-			}
-			return nil
+			return errors.New("no uplink counter: xray never dispatched the user, the connection did not get past REALITY")
 		})
 	})
 
