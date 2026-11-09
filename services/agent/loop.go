@@ -103,10 +103,13 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		ConfigError:    l.node.ConfigError(),
 		RoutingError:   l.rules.Error(),
 		Addresses:      l.egress,
-		Applied:        make([]string, 0, len(l.applied)),
+		Applied:        []string{},
 	}
 	for _, in := range l.applied {
 		hb.Applied = append(hb.Applied, in.Tag)
+	}
+	if l.applied == nil {
+		hb.Applied = append(hb.Applied, l.node.RunningTags()...)
 	}
 	if l.node.geo != nil {
 		if st := l.node.geo.Status(); len(st) > 0 {

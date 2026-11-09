@@ -499,3 +499,18 @@ func TestHeartbeatNamesTheAppliedInbounds(t *testing.T) {
 		t.Fatalf("applied_inbounds = %s, want only what xray runs", got)
 	}
 }
+
+func TestHeartbeatNamesRunningInboundsWhileNothingIsApplied(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1"), syncInbounds: brokenInbounds()}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	preapply(t, loop, mainIn)
+	tick(t, loop)
+	if loop.node.state.Applied != nil {
+		t.Fatalf("applied = %+v, want nothing applied after the refused config", loop.node.state.Applied)
+	}
+	hb, _ := lastHeartbeat(fc)
+	if got, _ := json.Marshal(hb["applied_inbounds"]); string(got) != `["main"]` {
+		t.Fatalf("applied_inbounds = %s, want the inbounds xray still runs", got)
+	}
+}
