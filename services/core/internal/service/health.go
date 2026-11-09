@@ -13,6 +13,7 @@ import (
 
 	"github.com/ITG-Labs/sylph/internal/version"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 	"github.com/ITG-Labs/sylph/services/core/internal/yookassa"
 )
 
@@ -28,7 +29,8 @@ const (
 	cronExpireStale    = 5 * time.Minute
 	yookassaDownAfter  = 5 * time.Minute
 	yookassaStaleAfter = 10 * time.Minute
-	pendingStuckAfter  = time.Hour
+	pendingStuckAfter  = pollWindow
+	addressDelaySec    = 120
 	conflictRecent     = 2 * time.Minute
 	certSoon           = 30 * 24 * time.Hour
 	certUrgent         = 7 * 24 * time.Hour
@@ -132,6 +134,14 @@ func (s *Service) MonitorState(ctx context.Context) (*MonitorState, error) {
 	if err != nil {
 		return nil, err
 	}
+	incidents, err := s.store.MoneyIncidents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	addresses, err := s.store.AddressProblems(ctx)
+	if err != nil {
+		return nil, err
+	}
 	st := &MonitorState{
 		GeneratedAt: now,
 		Problems:    []Problem{},
@@ -148,6 +158,11 @@ func (s *Service) MonitorState(ctx context.Context) (*MonitorState, error) {
 		st.Nodes[n.Status]++
 		for _, p := range s.nodeProblems(n, now) {
 			add(p)
+		}
+	}
+	for _, a := range addresses {
+		if n := nodeByID(nodes, a.NodeID); n != nil && n.Status != NodeOffline && n.Status != NodeDisabled && n.Status != NodeNever {
+			add(addressProblem(n, a))
 		}
 	}
 	cronSilent := false
@@ -173,14 +188,11 @@ func (s *Service) MonitorState(ctx context.Context) (*MonitorState, error) {
 		m.FailedAt.Sub(*m.FailingSince) >= yookassaDownAfter && now.Sub(*m.FailedAt) <= yookassaStaleAfter {
 		add(Problem{Key: "money:yookassa", Category: CategoryMoney, Level: 2, Text: "ЮKassa не отвечает ядру: " + m.Error, Since: m.FailingSince})
 	}
-	if attention.Mismatch > 0 {
-		add(Problem{Key: "money:mismatch", Category: CategoryMoney, Level: 2, Text: fmt.Sprintf("Платежи с несовпавшей суммой (mismatch): %d", attention.Mismatch)})
+	for _, in := range incidents {
+		add(moneyProblem(in))
 	}
 	if attention.StuckPending > 0 {
-		add(Problem{Key: "money:pending", Category: CategoryMoney, Level: 1, Text: fmt.Sprintf("Платежи висят в pending дольше часа: %d", attention.StuckPending)})
-	}
-	if attention.PaidWhileBanned > 0 {
-		add(Problem{Key: "money:banned", Category: CategoryMoney, Level: 1, Text: fmt.Sprintf("Оплаты от забаненных (проведены после бана, не возвращены): %d", attention.PaidWhileBanned)})
+		add(Problem{Key: "money:pending", Category: CategoryMoney, Level: 1, Text: fmt.Sprintf("Платежи висят в pending дольше суток: %d", attention.StuckPending)})
 	}
 	if s.coreCertNotAfter != nil {
 		if p, ok := certProblem("cert:core", "Серт ядра", *s.coreCertNotAfter, now); ok {
@@ -200,6 +212,36 @@ func (s *Service) MonitorState(ctx context.Context) (*MonitorState, error) {
 		return a.Key < b.Key
 	})
 	return st, nil
+}
+
+func nodeByID(nodes []model.Node, id int64) *model.Node {
+	for i := range nodes {
+		if nodes[i].ID == id {
+			return &nodes[i]
+		}
+	}
+	return nil
+}
+
+func addressProblem(n *model.Node, a store.AddressProblem) Problem {
+	what := "пропал с ноды"
+	if a.Status == store.AddressError {
+		what = "не проходит проверку выхода"
+		if a.Error != nil && *a.Error != "" {
+			what += " (" + *a.Error + ")"
+		}
+	}
+	text := fmt.Sprintf("Нода «%s»: выделенный адрес %s %s, пользователей: %d", n.Name, a.IP, what, a.Users)
+	return Problem{Key: fmt.Sprintf("node:%d:address:%s", n.ID, a.IP), Category: CategoryNode, Level: 2, Text: text, DelaySec: addressDelaySec}
+}
+
+func moneyProblem(in store.MoneyIncident) Problem {
+	if in.Kind == store.IncidentMismatch {
+		return Problem{Key: fmt.Sprintf("money:mismatch:%d", in.PaymentID), Category: CategoryMoney, Level: 2,
+			Text: fmt.Sprintf("Платёж №%d (пользователь %d) на %d ₽ с несовпавшей суммой (mismatch)", in.PaymentID, in.UserID, in.AmountRub)}
+	}
+	return Problem{Key: fmt.Sprintf("money:banned:%d", in.PaymentID), Category: CategoryMoney, Level: 1,
+		Text: fmt.Sprintf("Платёж №%d (пользователь %d) на %d ₽ проведён после бана и не возвращён", in.PaymentID, in.UserID, in.AmountRub)}
 }
 
 func (s *Service) nodeProblems(n *model.Node, now time.Time) []Problem {
