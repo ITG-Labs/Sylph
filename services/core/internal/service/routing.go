@@ -393,6 +393,7 @@ func (s *Service) resolveProfile(ctx context.Context, from int64, p *noderoute.P
 	out := *p
 	out.Outbounds = slices.Clone(p.Outbounds)
 	warnings := []ProfileWarning{}
+	dead := map[string]bool{}
 	for i, o := range out.Outbounds {
 		if o.Kind != noderoute.KindCascade || o.Cascade == nil {
 			continue
@@ -406,11 +407,44 @@ func (s *Service) resolveProfile(ctx context.Context, from int64, p *noderoute.P
 				warnings = append(warnings, ProfileWarning{Outbound: o.Tag, NodeID: o.Cascade.NodeID, Problem: problem})
 			}
 			out.Outbounds[i] = noderoute.Outbound{Tag: o.Tag, Kind: noderoute.KindBlock}
+			dead[o.Tag] = true
 			continue
 		}
 		out.Outbounds[i] = noderoute.Outbound{Tag: o.Tag, Kind: noderoute.KindProxy, Proxy: proxy}
 	}
+	if len(dead) > 0 && len(out.Balancers) > 0 {
+		pruneBalancers(&out, dead)
+	}
 	return &out, warnings, nil
+}
+
+func pruneBalancers(p *noderoute.Profile, dead map[string]bool) {
+	replaced := map[string]string{}
+	kept := []noderoute.Balancer{}
+	for _, b := range p.Balancers {
+		alive := slices.DeleteFunc(slices.Clone(b.Outbounds), func(tag string) bool { return dead[tag] })
+		if len(alive) == 0 && b.Fallback != "" && !dead[b.Fallback] {
+			alive = []string{b.Fallback}
+		}
+		switch {
+		case len(alive) == 1:
+			replaced[b.Tag] = alive[0]
+			continue
+		case len(alive) > 1:
+			b.Outbounds = alive
+		}
+		kept = append(kept, b)
+	}
+	p.Balancers = kept
+	if to, ok := replaced[p.Default]; ok {
+		p.Default = to
+	}
+	p.Rules = slices.Clone(p.Rules)
+	for i := range p.Rules {
+		if to, ok := replaced[p.Rules[i].To]; ok {
+			p.Rules[i].To = to
+		}
+	}
 }
 
 func (s *Service) nodeRouting(ctx context.Context, node *model.Node) (*noderoute.Profile, *SyncGeo, error) {
