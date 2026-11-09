@@ -28,6 +28,15 @@ func (e *DirtyMigrationError) Error() string {
 		e.Version, e.Version, e.Version-1)
 }
 
+type SchemaAheadError struct {
+	Database uint
+	Known    uint
+}
+
+func (e *SchemaAheadError) Error() string {
+	return fmt.Sprintf("the database schema is at version %d, newer than the latest migration this build knows (%d): it was migrated by a newer release; migrations are skipped", e.Database, e.Known)
+}
+
 var ErrForceRefused = errors.New("force refused")
 
 type MigrationStatus struct {
@@ -48,6 +57,11 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, dir st
 		return err
 	}
 	defer closeDB()
+	if cur, dirty, err := m.Version(); err == nil && !dirty {
+		if _, latest, err := knownVersions(fsys, dir); err == nil && int(cur) > latest {
+			return &SchemaAheadError{Database: cur, Known: uint(latest)}
+		}
+	}
 	finished := make(chan struct{})
 	done := make(chan struct{})
 	sent := false

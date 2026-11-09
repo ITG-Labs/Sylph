@@ -1658,6 +1658,51 @@ func TestApplyMigrationsReportsDirtyVersionAndForceRecovers(t *testing.T) {
 	}
 }
 
+func TestApplyMigrationsReportsADatabaseAheadOfTheBinary(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatal(err)
+	}
+	older := fstest.MapFS{}
+	for name, f := range slowMigrations() {
+		if !strings.Contains(name, "003_") {
+			older[name] = f
+		}
+	}
+	err := applyMigrations(context.Background(), pool, older, "m")
+	var ahead *SchemaAheadError
+	if !errors.As(err, &ahead) || ahead.Database != 3 || ahead.Known != 2 {
+		t.Fatalf("err = %v, want SchemaAheadError database 3, known 2", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 3 {
+		t.Fatalf("state = %+v, %v: an older binary must leave the schema alone", st, err)
+	}
+	if !tableExists(t, pool, "gs_c") {
+		t.Fatal("the newer schema was changed")
+	}
+}
+
+func TestApplyMigrationsDirtyDatabaseAheadStaysDirty(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatal(err)
+	}
+	setDirty(t, pool, true)
+	older := fstest.MapFS{}
+	for name, f := range slowMigrations() {
+		if !strings.Contains(name, "003_") {
+			older[name] = f
+		}
+	}
+	err := applyMigrations(context.Background(), pool, older, "m")
+	var dirty *DirtyMigrationError
+	if !errors.As(err, &dirty) {
+		t.Fatalf("err = %v, want DirtyMigrationError", err)
+	}
+}
+
 func TestMigrationStateOfAnEmptyDatabase(t *testing.T) {
 	pool := testPool(t)
 	resetSchema(t, pool)

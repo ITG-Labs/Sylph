@@ -72,7 +72,12 @@ func run(logger *slog.Logger) error {
 			logger.Info("migrations_interrupted", slog.String("error", err.Error()))
 			return nil
 		}
-		return fmt.Errorf("migrations: %w", err)
+		var ahead *store.SchemaAheadError
+		if !errors.As(err, &ahead) {
+			return fmt.Errorf("migrations: %w", err)
+		}
+		logger.Warn("schema_ahead", slog.Uint64("database", uint64(ahead.Database)), slog.Uint64("known", uint64(ahead.Known)),
+			slog.String("error", ahead.Error()))
 	}
 	logger.Info("db_ready")
 
