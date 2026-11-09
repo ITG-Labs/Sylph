@@ -235,3 +235,90 @@ func TestBatchWithoutOrWithBadSpentTimeIsChargedToTheCurrentPeriod(t *testing.T)
 		t.Fatalf("old period used %d, want 0", got)
 	}
 }
+
+func TestLateBatchGoesToThePeriodClosedByAPaidPlanChange(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	node := deltaNode(t, s)
+	u, key := userWithKey(t, s)
+	planA, planB := mkPlan(t, s), mkPlan(t, s)
+	now := time.Now()
+	first := pay(t, s, u.ID, planA.ID, now.Add(-3*time.Hour))
+	second := pay(t, s, u.ID, planB.ID, now.Add(-time.Hour))
+	if !second.StartsNow {
+		t.Fatal("the other plan must start at once")
+	}
+	delta := []model.TrafficDelta{{KeyUUID: key, Inbound: "main", BytesUp: 70}}
+	if _, err := s.RecordDeltaBatchFrom(ctx, node.ID, "before-payment", now.Add(-2*time.Hour), delta); err != nil {
+		t.Fatal(err)
+	}
+	if got := periodUsed(t, s, first.PeriodID); got != 70 {
+		t.Fatalf("period closed by the payment used %d, want 70", got)
+	}
+	if got := periodUsed(t, s, second.PeriodID); got != 0 {
+		t.Fatalf("new period used %d, want 0", got)
+	}
+	if _, err := s.RecordDeltaBatchFrom(ctx, node.ID, "after-payment", now.Add(-30*time.Minute), delta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordDeltaBatch(ctx, node.ID, "now", delta); err != nil {
+		t.Fatal(err)
+	}
+	if got := periodUsed(t, s, second.PeriodID); got != 140 {
+		t.Fatalf("new period used %d, want 140", got)
+	}
+	if got := periodUsed(t, s, first.PeriodID); got != 70 {
+		t.Fatalf("closed period changed to %d", got)
+	}
+}
+
+func TestLateBatchGoesToThePeriodThatExpiredByItself(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	node := deltaNode(t, s)
+	u, key := userWithKey(t, s)
+	plan := mkPlan(t, s)
+	now := time.Now()
+	first := pay(t, s, u.ID, plan.ID, now.AddDate(0, 0, -31))
+	second := pay(t, s, u.ID, plan.ID, now.Add(-time.Hour))
+	if n, err := s.ExpireOverdue(ctx, now); err != nil || n != 1 {
+		t.Fatalf("expired %d, %v", n, err)
+	}
+	delta := []model.TrafficDelta{{KeyUUID: key, Inbound: "main", BytesUp: 5}}
+	if _, err := s.RecordDeltaBatchFrom(ctx, node.ID, "in-expired", now.AddDate(0, 0, -1).Add(-time.Hour), delta); err != nil {
+		t.Fatal(err)
+	}
+	if got := periodUsed(t, s, first.PeriodID); got != 5 {
+		t.Fatalf("expired period used %d, want 5", got)
+	}
+	if got := periodUsed(t, s, second.PeriodID); got != 0 {
+		t.Fatalf("current period used %d, want 0", got)
+	}
+}
+
+func TestLateBatchIsNotMovedToABannedPeriod(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	node := deltaNode(t, s)
+	u, key := userWithKey(t, s)
+	plan := mkPlan(t, s)
+	now := time.Now()
+	banned := pay(t, s, u.ID, plan.ID, now.Add(-3*time.Hour))
+	if _, err := s.BanUser(ctx, u.ID, "abuse", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UnbanUser(ctx, u.ID, now.Add(-30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	fresh := pay(t, s, u.ID, plan.ID, now.Add(-10*time.Minute))
+	delta := []model.TrafficDelta{{KeyUUID: key, Inbound: "main", BytesUp: 9}}
+	if _, err := s.RecordDeltaBatchFrom(ctx, node.ID, "banned-window", now.Add(-2*time.Hour), delta); err != nil {
+		t.Fatal(err)
+	}
+	if got := periodUsed(t, s, banned.PeriodID); got != 0 {
+		t.Fatalf("banned period used %d, want 0", got)
+	}
+	if got := periodUsed(t, s, fresh.PeriodID); got != 9 {
+		t.Fatalf("fresh period used %d, want 9", got)
+	}
+}

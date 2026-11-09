@@ -199,9 +199,9 @@ func lockActivePeriods(ctx context.Context, tx pgx.Tx, users []int64, at time.Ti
 	rows, err := tx.Query(ctx,
 		`SELECT s.user_id, s.id, s.plan_id FROM subscriptions s
 		 WHERE s.id IN (SELECT DISTINCT ON (user_id) id FROM subscriptions
-		                WHERE user_id = ANY($1) AND NOT canceled AND starts_at <= $2 AND expires_at > $2
+		                WHERE user_id = ANY($1) AND (NOT canceled OR (NOT closed_manually AND expires_at <= now())) AND starts_at <= $2 AND expires_at > $2
 		                ORDER BY user_id, starts_at DESC, id DESC)
-		   AND NOT s.canceled AND s.starts_at <= $2 AND s.expires_at > $2
+		   AND (NOT s.canceled OR (NOT s.closed_manually AND s.expires_at <= now())) AND s.starts_at <= $2 AND s.expires_at > $2
 		 ORDER BY s.user_id FOR UPDATE OF s`, users, at)
 	if err != nil {
 		return nil, err
