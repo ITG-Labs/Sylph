@@ -24,12 +24,14 @@ const (
 	xrayRestartWait  = 30 * time.Second
 	xrayRestartPoll  = 200 * time.Millisecond
 	rejectionTTL     = time.Hour
+	maxXrayPause     = 24 * time.Hour
 )
 
 type rejection struct {
 	Hash  string    `json:"hash"`
 	Error string    `json:"error"`
 	At    time.Time `json:"at,omitzero"`
+	Fails int       `json:"fails,omitempty"`
 }
 
 type nodeState struct {
@@ -108,18 +110,49 @@ func (n *NodeConfig) Load() error {
 	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys, Egress: st.AppliedEgress}) {
 		st.Applied, st.AppliedRouting, st.AppliedServiceKeys, st.AppliedEgress = nil, nil, nil, nil
 	}
-	if n.fresh(st.XrayRejected) {
+	stamped := false
+	for _, r := range []*rejection{st.XrayRejected, st.CaddyRejected} {
+		if r != nil && r.At.IsZero() {
+			r.At, stamped = n.now(), true
+		}
+	}
+	if n.freshXray(st.XrayRejected) {
 		n.xrayErr = st.XrayRejected.Error
 	}
-	if n.fresh(st.CaddyRejected) {
+	if n.freshCaddy(st.CaddyRejected) {
 		n.caddyErr = st.CaddyRejected.Error
 	}
 	n.state = st
+	if stamped {
+		n.saveState()
+	}
 	return nil
 }
 
-func (n *NodeConfig) fresh(r *rejection) bool {
+func xrayRetryPause(fails int) time.Duration {
+	pause := rejectionTTL
+	for i := 1; i < fails && pause < maxXrayPause; i++ {
+		pause *= 2
+	}
+	return min(pause, maxXrayPause)
+}
+
+func (n *NodeConfig) freshXray(r *rejection) bool {
+	return r != nil && n.now().Sub(r.At) < xrayRetryPause(r.Fails)
+}
+
+func (n *NodeConfig) freshCaddy(r *rejection) bool {
 	return r != nil && n.now().Sub(r.At) < rejectionTTL
+}
+
+func (n *NodeConfig) rejectXray(sum, msg string) {
+	fails := 1
+	if r := n.state.XrayRejected; r != nil && r.Hash == sum {
+		fails = r.Fails + 1
+	}
+	n.state.XrayRejected = &rejection{Hash: sum, Error: msg, At: n.now(), Fails: fails}
+	n.saveState()
+	n.xrayErr = msg
 }
 
 func (n *NodeConfig) onDisk(d NodeDesired) bool {
@@ -255,7 +288,7 @@ func (n *NodeConfig) ensureCaddy(ctx context.Context, applied []Inbound) {
 		return
 	}
 	sum := configHash(want)
-	if r := n.state.CaddyRejected; n.fresh(r) && r.Hash == sum {
+	if r := n.state.CaddyRejected; n.freshCaddy(r) && r.Hash == sum {
 		n.caddyErr = r.Error
 		return
 	}
@@ -311,7 +344,7 @@ func truncate(s string, max int) string {
 }
 
 func (n *NodeConfig) ensureXray(ctx context.Context, desired NodeDesired, want []byte, sum string, geoChanged time.Time) {
-	if r := n.state.XrayRejected; n.fresh(r) && r.Hash == sum {
+	if r := n.state.XrayRejected; n.freshXray(r) && r.Hash == sum {
 		n.xrayErr = r.Error
 		return
 	}
@@ -403,13 +436,11 @@ func (n *NodeConfig) rollbackXray(ctx context.Context, sum string) {
 	}
 	back := n.waitRestarted(ctx, started)
 	if !back {
-		n.failXray("xray_restart_failed", fmt.Errorf("xray did not come up within %s, neither with the new config nor after the rollback", n.restartWait))
+		n.rejectXray(sum, fmt.Sprintf("xray_restart_failed: xray did not come up within %s, neither with the new config nor after the rollback", n.restartWait))
 		n.logger.Error("xray_config_unconfirmed", "config", sum[:12])
 		return
 	}
-	n.state.XrayRejected = &rejection{Hash: sum, Error: msg, At: n.now()}
-	n.saveState()
-	n.xrayErr = msg
+	n.rejectXray(sum, msg)
 	n.logger.Error("xray_config_rejected", "config", sum[:12], "xray_back", back)
 }
 
