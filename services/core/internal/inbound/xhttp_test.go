@@ -286,6 +286,29 @@ func TestLinkExtraDropsServerOnlyFields(t *testing.T) {
 	}
 }
 
+func TestLinkExtraJSONDuplicatesSessionFieldsUnderOldNames(t *testing.T) {
+	x := XHTTP{Path: "/p", Extra: ownerExtra()}
+	raw, err := x.LinkExtraJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["sessionIDPlacement"] != "query" || got["sessionIDKey"] != "sid" || got["sessionPlacement"] != "query" || got["sessionKey"] != "sid" {
+		t.Fatalf("link extra = %s", raw)
+	}
+	plain := XHTTP{Path: "/p", Extra: Extra{SeqPlacement: "query"}}
+	raw, err = plain.LinkExtraJSON()
+	if err != nil || string(raw) != `{"seqPlacement":"query"}` {
+		t.Fatalf("without session fields = %s, %v", raw, err)
+	}
+	if raw, _ := (&XHTTP{}).LinkExtraJSON(); string(raw) != "{}" {
+		t.Fatalf("empty = %s", raw)
+	}
+}
+
 func TestExtraJSONUsesXrayNamesAndOmitsDefaults(t *testing.T) {
 	raw, err := json.Marshal(ownerExtra())
 	if err != nil {

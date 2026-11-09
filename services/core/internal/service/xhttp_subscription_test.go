@@ -63,8 +63,11 @@ func TestSubscriptionXHTTPConnections(t *testing.T) {
 	if err := json.Unmarshal(c.Extra, &extra); err != nil {
 		t.Fatal(err)
 	}
-	if len(extra) != 9 || extra["xPaddingKey"] != "_ym_d" || extra["noSSEHeader"] != nil {
+	if len(extra) != 11 || extra["xPaddingKey"] != "_ym_d" || extra["noSSEHeader"] != nil {
 		t.Fatalf("extra = %s", c.Extra)
+	}
+	if extra["sessionIDPlacement"] != "query" || extra["sessionIDKey"] != "sid" || extra["sessionPlacement"] != "query" || extra["sessionKey"] != "sid" {
+		t.Fatalf("extra must carry the session fields under both the new and the pre-rename names: %s", c.Extra)
 	}
 	r := conns["nl · XHTTP"]
 	if r.Address != "nl.example.com" || r.Transport != "xhttp" || r.Security != "reality" || r.Flow != "" || r.Path != "/sync" ||
