@@ -28,6 +28,7 @@ func TestFilesCarryEveryRole(t *testing.T) {
 
 var caddyBuilds = map[string]string{
 	"2.11.7-l4.0.1.2": "7c7d67a5a51c660c35e34a327f42f4018ff4b9ab032e20120c0d15fef2875b0e",
+	"2.11.8-l4.0.1.2": "f5ca72461ae4d8034be5d7c475fcc2b5d6e1c4cee6bb2ecc375944f48111d14f",
 }
 
 func TestCaddyTagFollowsItsBuild(t *testing.T) {
