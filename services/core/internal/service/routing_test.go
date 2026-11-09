@@ -229,6 +229,35 @@ func TestCascadeToItselfIsRefused(t *testing.T) {
 	mustField(t, err, "doc.outbounds[2].cascade.node_id")
 }
 
+func TestExitAddressChangeBumpsCascadingNode(t *testing.T) {
+	f := setupCascade(t)
+	ctx := context.Background()
+	before, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := "node-y2.example.com"
+	if _, err := f.svc.UpdateNode(ctx, f.y.ID, NodePatch{Address: &addr}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UsersVersion <= before.UsersVersion {
+		t.Fatal("changing the exit address did not bump the cascading node")
+	}
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, before.UsersVersion, AgentCaps{PerInbound: true})
+	if err != nil || resp.Routing == nil {
+		t.Fatalf("sync: %v", err)
+	}
+	for _, o := range resp.Routing.Outbounds {
+		if o.Tag == "to-exit" && (o.Proxy == nil || o.Proxy.Address != addr) {
+			t.Fatalf("cascade outbound = %+v", o)
+		}
+	}
+}
+
 func TestCascadeToUnavailableNodeBecomesBlock(t *testing.T) {
 	f := setupCascade(t)
 	ctx := context.Background()

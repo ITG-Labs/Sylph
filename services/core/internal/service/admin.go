@@ -388,6 +388,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if err != nil {
 		return nil, err
 	}
+	oldAddress := n.Address
 	if patch.Name != nil {
 		if err := validName("name", *patch.Name); err != nil {
 			return nil, err
@@ -407,7 +408,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if patch.GroupIDs != nil {
 		n.GroupIDs = nonNilIDs(*patch.GroupIDs)
 	}
-	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != n.Address)
+	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != oldAddress)
 	if patch.Enabled != nil {
 		n.Enabled = *patch.Enabled
 	}
