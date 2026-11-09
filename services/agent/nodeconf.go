@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
+	"github.com/ITG-Labs/sylph/pkg/xrayver"
 )
 
 const (
@@ -203,6 +204,12 @@ func (n *NodeConfig) ApplyDesired(ctx context.Context, d NodeDesired) []Inbound 
 	n.settled = false
 	if d.Inbounds == nil {
 		return n.state.Applied
+	}
+	if n.cfg.XrayVersion != "" {
+		if err := xrayver.Check(n.cfg.XrayVersion); err != nil {
+			n.failXray("xray_version_unsupported", err)
+			return n.state.Applied
+		}
 	}
 	want, err := n.buildXray(n.input(d))
 	switch {

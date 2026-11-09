@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ITG-Labs/sylph/pkg/xrayver"
 )
 
 var (
@@ -172,6 +174,9 @@ func BotUsername(s string) error {
 func XrayVersion(s string) error {
 	if !versionPattern.MatchString(s) {
 		return errors.New("укажите версию xray в формате 26.10.21")
+	}
+	if xrayver.Older(s, xrayver.Min) {
+		return fmt.Errorf("версия xray ниже %s: в ней нет блокировки локальных адресов в freedom, и пользователи смогут обращаться к API ноды", xrayver.Min)
 	}
 	return nil
 }

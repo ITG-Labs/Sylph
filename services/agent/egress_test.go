@@ -124,19 +124,19 @@ func TestBuildXrayEgressWithoutProfile(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Outbounds) != 2 || cfg.Outbounds[0]["tag"] != "direct" || cfg.Outbounds[1]["tag"] != "_egress-203-0-113-7-direct" ||
-		cfg.Outbounds[1]["sendThrough"] != "172.31.226.10" {
+	if len(cfg.Outbounds) != 3 || cfg.Outbounds[0]["tag"] != "direct" || cfg.Outbounds[1]["tag"] != "_egress-203-0-113-7-direct" ||
+		cfg.Outbounds[1]["sendThrough"] != "172.31.226.10" || cfg.Outbounds[2]["tag"] != noderoute.GuardOutboundTag {
 		t.Fatalf("outbounds = %v", cfg.Outbounds)
 	}
-	if len(cfg.Routing.Rules) != 1 || cfg.Routing.Rules[0]["outboundTag"] != "_egress-203-0-113-7-direct" ||
-		!reflect.DeepEqual(cfg.Routing.Rules[0]["user"], []any{"k1", "k2", "k3"}) {
+	if len(cfg.Routing.Rules) != 3 || cfg.Routing.Rules[2]["outboundTag"] != "_egress-203-0-113-7-direct" ||
+		!reflect.DeepEqual(cfg.Routing.Rules[2]["user"], []any{"k1", "k2", "k3"}) {
 		t.Fatalf("rules = %v", cfg.Routing.Rules)
 	}
 	plain, err := BuildXray(testInbounds("main"), "127.0.0.1:10085")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(plain), "routing") || strings.Contains(string(plain), "_egress") {
+	if strings.Contains(string(plain), "_egress") {
 		t.Fatalf("config without egress changed: %s", plain)
 	}
 }

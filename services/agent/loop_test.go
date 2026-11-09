@@ -246,14 +246,14 @@ func TestHeartbeatReportsXrayState(t *testing.T) {
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	preapply(t, loop, testInbounds("alpha", "beta"))
 	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
-	loop.cfg.XrayVersion = "25.9.11"
+	loop.cfg.XrayVersion = "26.10.21"
 	loop.started = time.Now().Add(-2 * time.Minute)
 	tick(t, loop)
 	hb, beats := lastHeartbeat(fc)
 	if beats != 1 {
 		t.Fatalf("heartbeats = %d", beats)
 	}
-	if hb["agent_version"] != version.Version || hb["xray_version"] != "25.9.11" {
+	if hb["agent_version"] != version.Version || hb["xray_version"] != "26.10.21" {
 		t.Fatalf("versions = %v", hb)
 	}
 	if hb["active_users"] != float64(2) {

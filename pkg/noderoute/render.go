@@ -55,6 +55,17 @@ func EgressDirect(name, sendThrough string) map[string]any {
 		"settings": map[string]any{"targetStrategy": directStrategies["ipv4"]}}
 }
 
+func GuardRules() []any {
+	return []any{
+		map[string]any{"ruleTag": GuardRuleTag, "ip": guardNets, "outboundTag": GuardOutboundTag},
+		map[string]any{"ruleTag": GuardNamesRuleTag, "domain": guardNames, "outboundTag": GuardOutboundTag},
+	}
+}
+
+func GuardOutbound() map[string]any {
+	return map[string]any{"tag": GuardOutboundTag, "protocol": "blackhole"}
+}
+
 type Static struct {
 	Outbounds   []map[string]any
 	Routing     map[string]any
@@ -107,10 +118,7 @@ func Render(in RenderInput) (Static, error) {
 			out.Outbounds = append(out.Outbounds, o)
 		}
 	}
-	rules := []any{
-		map[string]any{"ruleTag": GuardRuleTag, "ip": guardNets, "outboundTag": GuardOutboundTag},
-		map[string]any{"ruleTag": GuardNamesRuleTag, "domain": guardNames, "outboundTag": GuardOutboundTag},
-	}
+	rules := GuardRules()
 	if len(in.ServiceKeys) > 0 {
 		out.Outbounds = append(out.Outbounds, map[string]any{"tag": ServiceOutboundTag, "protocol": "freedom"})
 		rules = append(rules, map[string]any{"ruleTag": ServiceRuleTag, "user": in.ServiceKeys, "outboundTag": ServiceOutboundTag})
@@ -134,7 +142,7 @@ func Render(in RenderInput) (Static, error) {
 	if p.isBalancer(p.Default) {
 		rules = append(rules, map[string]any{"ruleTag": DefaultRuleTag, "network": "tcp,udp", "balancerTag": p.Default})
 	}
-	out.Outbounds = append(out.Outbounds, map[string]any{"tag": GuardOutboundTag, "protocol": "blackhole"})
+	out.Outbounds = append(out.Outbounds, GuardOutbound())
 	routing := map[string]any{"domainStrategy": strategy, "rules": rules}
 	var subjects []string
 	if len(p.Balancers) > 0 {

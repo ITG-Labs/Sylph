@@ -126,7 +126,7 @@ func TestValidators(t *testing.T) {
 		{"ChatIDs", ChatIDs, []string{"1", "1, 2", "-100123"}, []string{"", " , ", "1,x"}},
 		{"SecretKey", SecretKey, []string{"live_abcdefghijk", "test_abc-def_ghijk"}, []string{"abc", "live_"}},
 		{"BotUsername", BotUsername, []string{"", "sylph_bot", "SylphBot"}, []string{"@sylph_bot", "sylph", "1bot"}},
-		{"XrayVersion", XrayVersion, []string{"26.10.10"}, []string{"v26.10.10", "26.10"}},
+		{"XrayVersion", XrayVersion, []string{"26.10.10", "26.10.21", "27.1.1"}, []string{"v26.10.10", "26.10", "26.10.9", "26.3.27", "25.12.31"}},
 		{"IPv4Subnet", IPv4Subnet, []string{"172.30.10.0/24"}, []string{"172.30.10.1/24", "fd00::/64", "x"}},
 		{"AdminName", AdminName, []string{"Владелец", "ops"}, []string{"", " a", "a,b"}},
 	}
