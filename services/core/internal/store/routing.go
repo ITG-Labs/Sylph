@@ -101,6 +101,9 @@ func (s *Store) UpdateProfile(ctx context.Context, id int64, name string, doc js
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockLinks(ctx, tx); err != nil {
+		return nil, err
+	}
 	var current int64
 	err = tx.QueryRow(ctx, `SELECT revision FROM routing_profiles WHERE id = $1 FOR UPDATE`, id).Scan(&current)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -118,6 +121,9 @@ func (s *Store) UpdateProfile(ctx context.Context, id int64, name string, doc js
 		return nil, mapWriteErr(err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id = $1))`, id); err != nil {
+		return nil, err
+	}
+	if err := refreshLinks(ctx, tx); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -159,11 +165,18 @@ func (s *Store) DeleteProfile(ctx context.Context, id int64) error {
 type linkPair struct{ from, to int64 }
 
 func (s *Store) RefreshLinks(ctx context.Context) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
+	return s.withTx(ctx, func(tx pgx.Tx) error { return refreshLinks(ctx, tx) })
+}
+
+func lockLinks(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('sylph_node_links'))`); err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	_, err := tx.Exec(ctx, `SELECT 1 FROM nodes ORDER BY id FOR NO KEY UPDATE`)
+	return err
+}
+
+func refreshLinks(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('sylph_node_links'))`); err != nil {
 		return err
 	}
@@ -241,7 +254,7 @@ func (s *Store) RefreshLinks(ctx context.Context) error {
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *Store) ServiceKeys(ctx context.Context, toNodeID int64) ([]string, error) {
@@ -275,14 +288,6 @@ func (s *Store) BumpNodes(ctx context.Context, ids []int64) error {
 		return nil
 	}
 	return bumpNodes(ctx, s.pool, ids)
-}
-
-func (s *Store) BumpProfileNodes(ctx context.Context, profileIDs []int64) error {
-	if len(profileIDs) == 0 {
-		return nil
-	}
-	_, err := s.pool.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id = ANY($1)))`, profileIDs)
-	return err
 }
 
 func (s *Store) BumpNodesCascadingTo(ctx context.Context, nodeID int64) error {
@@ -367,10 +372,23 @@ func (s *Store) GetGeoSource(ctx context.Context, id int64) (*GeoSource, error) 
 	return scanGeo(s.pool.QueryRow(ctx, `SELECT `+geoColumns+` FROM geo_sources WHERE id = $1`, id))
 }
 
-func (s *Store) UpdateGeoSource(ctx context.Context, g GeoSource) (*GeoSource, error) {
-	return scanGeo(s.pool.QueryRow(ctx,
-		`UPDATE geo_sources SET name = $2, kind = $3, url = $4, sha256_url = $5, updated_at = now() WHERE id = $1 RETURNING `+geoColumns,
-		g.ID, g.Name, g.Kind, g.URL, g.SHA256URL))
+func (s *Store) UpdateGeoSource(ctx context.Context, g GeoSource, bumpProfileIDs []int64) (*GeoSource, error) {
+	var out *GeoSource
+	err := s.withTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		out, err = scanGeo(tx.QueryRow(ctx,
+			`UPDATE geo_sources SET name = $2, kind = $3, url = $4, sha256_url = $5, updated_at = now() WHERE id = $1 RETURNING `+geoColumns,
+			g.ID, g.Name, g.Kind, g.URL, g.SHA256URL))
+		if err != nil || len(bumpProfileIDs) == 0 {
+			return err
+		}
+		_, err = tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT id FROM nodes WHERE profile_id = ANY($1)))`, bumpProfileIDs)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) DeleteGeoSource(ctx context.Context, id int64) error {

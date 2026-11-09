@@ -59,12 +59,26 @@ func (s *Store) CreateNode(ctx context.Context, n *model.Node) error {
 	return tx.Commit(ctx)
 }
 
+type NodeEffects struct {
+	RefreshLinks  bool
+	BumpCascading bool
+}
+
 func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
+	return s.UpdateNodeWith(ctx, n, NodeEffects{})
+}
+
+func (s *Store) UpdateNodeWith(ctx context.Context, n *model.Node, fx NodeEffects) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if fx.RefreshLinks || fx.BumpCascading {
+		if err := lockLinks(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if n.GroupIDs != nil {
 		if err := setNodeGroups(ctx, tx, n.ID, n.GroupIDs); err != nil {
 			return err
@@ -81,6 +95,16 @@ func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
 	}
 	if err != nil {
 		return mapWriteErr(err)
+	}
+	if fx.RefreshLinks {
+		if err := refreshLinks(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if fx.BumpCascading {
+		if _, err := tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT from_node_id FROM node_links WHERE to_node_id = $1))`, n.ID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

@@ -195,7 +195,7 @@ func TestGeoSources(t *testing.T) {
 		t.Fatalf("duplicate: %v", err)
 	}
 	g.URL = "https://mirror.example.com/geosite.dat"
-	upd, err := s.UpdateGeoSource(ctx, *g)
+	upd, err := s.UpdateGeoSource(ctx, *g, nil)
 	if err != nil || upd.URL != g.URL || !upd.UpdatedAt.After(g.CreatedAt.Add(-time.Second)) {
 		t.Fatalf("update = %+v %v", upd, err)
 	}

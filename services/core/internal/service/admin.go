@@ -422,21 +422,12 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		profileChanged = !slices.Equal(ptrSlice(n.ProfileID), ptrSlice(patch.ProfileID.Value))
 		n.ProfileID = patch.ProfileID.Value
 	}
-	if err := s.store.UpdateNode(ctx, n); err != nil {
+	fx := store.NodeEffects{RefreshLinks: profileChanged || (patch.Enabled != nil && exitChanged), BumpCascading: exitChanged}
+	if err := s.store.UpdateNodeWith(ctx, n, fx); err != nil {
 		if errors.Is(err, store.ErrInvalidReference) && patch.GroupIDs != nil {
 			return nil, fieldErr("group_ids", "group not found")
 		}
 		return nil, referenceOr(err, "profile_id", "profile not found")
-	}
-	if profileChanged || (patch.Enabled != nil && exitChanged) {
-		if err := s.store.RefreshLinks(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if exitChanged {
-		if err := s.store.BumpNodesCascadingTo(ctx, id); err != nil {
-			return nil, err
-		}
 	}
 	return s.GetNode(ctx, id)
 }

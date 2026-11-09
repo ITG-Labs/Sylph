@@ -300,9 +300,6 @@ func (s *Service) UpdateProfile(ctx context.Context, id int64, name string, doc 
 	if err != nil {
 		return nil, conflictOr(err, "name", "profile already exists")
 	}
-	if err := s.store.RefreshLinks(ctx); err != nil {
-		return nil, err
-	}
 	return s.profileView(ctx, row)
 }
 
@@ -588,14 +585,13 @@ func (s *Service) UpdateGeoSource(ctx context.Context, id int64, in GeoSourceInp
 	if len(users) > 0 && in.Kind != current.Kind {
 		return nil, &ConflictError{Field: "kind", Message: "routing profiles use this source as " + current.Kind}
 	}
-	g, err := s.store.UpdateGeoSource(ctx, store.GeoSource{ID: id, Name: in.Name, Kind: in.Kind, URL: in.URL, SHA256URL: in.SHA256URL})
+	var bump []int64
+	if in.URL != current.URL || in.SHA256URL != current.SHA256URL {
+		bump = users
+	}
+	g, err := s.store.UpdateGeoSource(ctx, store.GeoSource{ID: id, Name: in.Name, Kind: in.Kind, URL: in.URL, SHA256URL: in.SHA256URL}, bump)
 	if err != nil {
 		return nil, conflictOr(err, "name", "geo source already exists")
-	}
-	if in.URL != current.URL || in.SHA256URL != current.SHA256URL {
-		if err := s.store.BumpProfileNodes(ctx, users); err != nil {
-			return nil, err
-		}
 	}
 	return g, nil
 }
