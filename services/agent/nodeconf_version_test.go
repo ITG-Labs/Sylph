@@ -31,3 +31,26 @@ func TestApplyAcceptsSupportedXrayVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyBelowTheMinimumVersionStillRestoresCaddy(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	r.cfg.XrayVersion = "26.10.21"
+	r.node.ApplyDesired(context.Background(), NodeDesired{Inbounds: mainIn})
+	kills := r.proc.killCount()
+	r.caddy.mu.Lock()
+	r.caddy.current = nil
+	r.caddy.mu.Unlock()
+	r.cfg.XrayVersion = "26.3.27"
+	r.node.ApplyDesired(context.Background(), NodeDesired{Inbounds: mainIn})
+	e := r.node.ConfigError()
+	if e == nil || !strings.Contains(*e, "xray_version_unsupported") {
+		t.Fatalf("config_error = %v", e)
+	}
+	current, _, _ := r.caddy.state()
+	if !sameJSON(current, r.caddyWant(mainIn)) {
+		t.Fatalf("a restarted caddy got no routes: %s", current)
+	}
+	if r.proc.killCount() != kills {
+		t.Fatal("xray was restarted although its version is refused")
+	}
+}

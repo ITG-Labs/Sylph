@@ -205,25 +205,31 @@ func (n *NodeConfig) ApplyDesired(ctx context.Context, d NodeDesired) []Inbound 
 	if d.Inbounds == nil {
 		return n.state.Applied
 	}
-	if n.cfg.XrayVersion != "" {
-		if err := xrayver.Check(n.cfg.XrayVersion); err != nil {
-			n.failXray("xray_version_unsupported", err)
-			return n.state.Applied
-		}
-	}
-	want, err := n.buildXray(n.input(d))
-	switch {
-	case errors.Is(err, errRouting):
-		n.failXray("routing_invalid", err)
+	switch err := n.versionError(); {
 	case err != nil:
-		n.failXray("inbounds_invalid", err)
+		n.failXray("xray_version_unsupported", err)
 	default:
-		n.ensureRouted(ctx, d, want)
+		want, err := n.buildXray(n.input(d))
+		switch {
+		case errors.Is(err, errRouting):
+			n.failXray("routing_invalid", err)
+		case err != nil:
+			n.failXray("inbounds_invalid", err)
+		default:
+			n.ensureRouted(ctx, d, want)
+		}
 	}
 	if n.state.Applied != nil && ctx.Err() == nil {
 		n.ensureCaddy(ctx, n.state.Applied)
 	}
 	return n.state.Applied
+}
+
+func (n *NodeConfig) versionError() error {
+	if n.cfg.XrayVersion == "" {
+		return nil
+	}
+	return xrayver.Check(n.cfg.XrayVersion)
 }
 
 func (n *NodeConfig) AppliedEgress() []noderoute.Egress {
