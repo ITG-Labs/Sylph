@@ -142,7 +142,7 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 	}
 	out := make(map[string]map[string]int64, len(resp.GetUsers()))
 	var failed error
-	for _, name := range resp.GetUsers() {
+	for i, name := range resp.GetUsers() {
 		parts := strings.Split(name, ">>>")
 		if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
 			continue
@@ -151,6 +151,9 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 		ips, err := c.stats.GetStatsOnlineIpList(callCtx, &statscmd.GetStatsRequest{Name: name})
 		cancel()
 		if err != nil {
+			if code := status.Code(err); code == codes.DeadlineExceeded || code == codes.Unavailable || ctx.Err() != nil {
+				return out, fmt.Errorf("xray online ips: walk stopped at %d of %d users: %w", i, len(resp.GetUsers()), err)
+			}
 			failed = err
 			continue
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -448,5 +449,34 @@ func TestHeartbeatReportsOnline(t *testing.T) {
 	fx.online = map[string]map[string]int64{"key-c": many}
 	if hb = loop.heartbeat(context.Background()); len((*hb.Online)[0].IPs) != maxOnlineIPsPerKey {
 		t.Fatalf("ips per key not capped: %d", len((*hb.Online)[0].IPs))
+	}
+}
+
+func TestOnlineWalksHaveABudget(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn}
+	loop, e := testLoop(t, fx, httptestOf(fc, t).URL)
+	loop.cfg.SyncInterval = 30 * time.Second
+	tick(t, loop)
+	fx.mu.Lock()
+	fx.online = map[string]map[string]int64{userEmail("u-1", "main"): {"203.0.113.7": 1}}
+	fx.onlineLeft = nil
+	fx.mu.Unlock()
+	loop.heartbeat(context.Background())
+	e.sockets = &fakeSockets{}
+	e.setDesired(nil)
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	fx.mu.Lock()
+	left := slices.Clone(fx.onlineLeft)
+	fx.mu.Unlock()
+	if len(left) != 2 {
+		t.Fatalf("online walks = %d, want the heartbeat and the session snapshot", len(left))
+	}
+	for i, d := range left {
+		if d <= 0 || d > maxOnlineWalk {
+			t.Fatalf("walk %d ran with %v left, want a deadline within %v", i, d, maxOnlineWalk)
+		}
 	}
 }

@@ -17,7 +17,15 @@ const (
 	maxOnlineIPsPerKey = 32
 	maxOnlineReport    = 20000
 	maxOnlineAgeSec    = 30 * 24 * 3600
+	maxOnlineWalk      = 10 * time.Second
 )
+
+func onlineBudget(cfg *Config) time.Duration {
+	if half := cfg.SyncInterval / 2; half > 0 && half < maxOnlineWalk {
+		return half
+	}
+	return maxOnlineWalk
+}
 
 type Loop struct {
 	engine  *Engine
@@ -93,6 +101,8 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 }
 
 func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
+	ctx, cancel := context.WithTimeout(ctx, onlineBudget(l.cfg))
+	defer cancel()
 	raw, err := l.xray.OnlineIPs(ctx)
 	if err != nil {
 		l.logger.Error("heartbeat_xray_probe_failed", "probe", "online", "error", err.Error())

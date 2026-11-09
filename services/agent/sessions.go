@@ -61,10 +61,11 @@ func (e *Engine) snapshotOnline(ctx context.Context, drop *sessionDrop) {
 		return
 	}
 	drop.taken = true
+	ctx, cancel := context.WithTimeout(ctx, onlineBudget(e.cfg))
+	defer cancel()
 	online, err := e.xray.OnlineIPs(ctx)
 	if err != nil {
-		e.logger.Error("sessions_online_failed", "error", err.Error())
-		return
+		e.logger.Error("sessions_online_failed", "error", err.Error(), "users", len(online))
 	}
 	drop.online = online
 }
