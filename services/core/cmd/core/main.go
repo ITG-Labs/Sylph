@@ -162,7 +162,7 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-const migrateUsage = "usage: migrate status | migrate force <version>"
+const migrateUsage = "usage: migrate status | migrate force [--unsafe] <version>"
 
 func runMigrateCommand(args []string, out io.Writer) error {
 	dbURL := os.Getenv("SYLPH_DB_URL")
@@ -192,12 +192,20 @@ func migrateCommand(pool *pgxpool.Pool, args []string, out io.Writer) error {
 			fmt.Fprintf(out, "version %d\n", st.Version)
 		}
 		return nil
-	case len(args) == 2 && args[0] == "force":
-		version, err := strconv.Atoi(args[1])
+	case len(args) >= 2 && len(args) <= 3 && args[0] == "force":
+		unsafe := false
+		rest := args[1:]
+		if len(rest) == 2 {
+			if rest[0] != "--unsafe" {
+				return errors.New(migrateUsage)
+			}
+			unsafe, rest = true, rest[1:]
+		}
+		version, err := strconv.Atoi(rest[0])
 		if err != nil || version < 0 {
 			return errors.New(migrateUsage)
 		}
-		if err := store.ForceMigrationVersion(pool, version); err != nil {
+		if err := store.ForceMigrationVersion(pool, version, unsafe); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "version set to %d, dirty flag cleared\n", version)

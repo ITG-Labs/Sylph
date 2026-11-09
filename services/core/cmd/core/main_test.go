@@ -278,13 +278,29 @@ func TestMigrateCommandStatusAndForce(t *testing.T) {
 		t.Fatalf("dirty status = %q, %v", out.String(), err)
 	}
 	out.Reset()
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version - 2)}, &out); err == nil {
+		t.Fatal("force two versions back on a dirty database was accepted")
+	}
+	if err := migrateCommand(pool, []string{"force", "--unsafe", strconv.Itoa(version + 1)}, &out); err == nil {
+		t.Fatal("force to an unknown version was accepted")
+	}
 	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version)}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if st, err := store.MigrationState(pool); err != nil || st.Dirty || int(st.Version) != version {
 		t.Fatalf("after force = %+v, %v", st, err)
 	}
-	for _, bad := range [][]string{nil, {"force"}, {"force", "x"}, {"force", "-2"}, {"drop"}, {"status", "extra"}} {
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version - 2)}, &out); err == nil || !strings.Contains(err.Error(), "--unsafe") {
+		t.Fatalf("force on a clean database: err = %v, want a refusal mentioning --unsafe", err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"force", "--unsafe", strconv.Itoa(version - 2)}, &out); err != nil {
+		t.Fatalf("unsafe force: %v", err)
+	}
+	if st, err := store.MigrationState(pool); err != nil || int(st.Version) != version-2 {
+		t.Fatalf("after unsafe force = %+v, %v", st, err)
+	}
+	for _, bad := range [][]string{nil, {"force"}, {"force", "x"}, {"force", "-2"}, {"force", "--unsafe"}, {"force", "--bogus", "3"}, {"drop"}, {"status", "extra"}} {
 		if err := migrateCommand(pool, bad, &out); err == nil {
 			t.Errorf("args %v accepted", bad)
 		}

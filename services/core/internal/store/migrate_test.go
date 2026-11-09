@@ -1647,7 +1647,7 @@ func TestApplyMigrationsReportsDirtyVersionAndForceRecovers(t *testing.T) {
 	if err != nil || !st.Dirty || st.Version != latest {
 		t.Fatalf("state = %+v, %v", st, err)
 	}
-	if err := ForceMigrationVersion(pool, int(latest)); err != nil {
+	if err := ForceMigrationVersion(pool, int(latest), false); err != nil {
 		t.Fatal(err)
 	}
 	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != latest {
@@ -1663,6 +1663,110 @@ func TestMigrationStateOfAnEmptyDatabase(t *testing.T) {
 	resetSchema(t, pool)
 	st, err := MigrationState(pool)
 	if err != nil || st.Dirty || st.Version != 0 {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+}
+
+func latestVersion(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var v int
+	if err := pool.QueryRow(context.Background(), `SELECT version FROM schema_migrations`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func setDirty(t *testing.T, pool *pgxpool.Pool, dirty bool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `UPDATE schema_migrations SET dirty = $1`, dirty); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestForceMigrationVersionRefusesACleanDatabase(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	for _, v := range []int{latest - 2, latest - 1, latest, 0} {
+		err := ForceMigrationVersion(pool, v, false)
+		if !errors.Is(err, ErrForceRefused) || !strings.Contains(err.Error(), "--unsafe") {
+			t.Errorf("force %d on a clean database: err = %v, want ErrForceRefused mentioning --unsafe", v, err)
+		}
+	}
+	if got := latestVersion(t, pool); got != latest {
+		t.Fatalf("version = %d after refused forces, want %d", got, latest)
+	}
+	if err := ForceMigrationVersion(pool, latest-2, true); err != nil {
+		t.Fatalf("unsafe force: %v", err)
+	}
+	if got := latestVersion(t, pool); got != latest-2 {
+		t.Fatalf("version = %d after unsafe force, want %d", got, latest-2)
+	}
+}
+
+func TestForceMigrationVersionOnADirtyDatabaseAllowsOnlyTheVersionOrItsPredecessor(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	setDirty(t, pool, true)
+	for _, v := range []int{latest - 2, latest + 1, 0} {
+		if err := ForceMigrationVersion(pool, v, false); !errors.Is(err, ErrForceRefused) {
+			t.Errorf("force %d on a database dirty at %d: err = %v, want ErrForceRefused", v, latest, err)
+		}
+	}
+	if st, err := MigrationState(pool); err != nil || !st.Dirty || int(st.Version) != latest {
+		t.Fatalf("state after refused forces = %+v, %v", st, err)
+	}
+	if err := ForceMigrationVersion(pool, latest-1, false); err != nil {
+		t.Fatalf("force predecessor: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || int(st.Version) != latest-1 {
+		t.Fatalf("state after force predecessor = %+v, %v", st, err)
+	}
+}
+
+func TestForceMigrationVersionRejectsUnknownVersionsEvenWhenUnsafe(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	for _, dirty := range []bool{false, true} {
+		setDirty(t, pool, dirty)
+		for _, unsafe := range []bool{false, true} {
+			for _, v := range []int{latest + 1, 99999, -1, -2} {
+				err := ForceMigrationVersion(pool, v, unsafe)
+				if !errors.Is(err, ErrForceRefused) || !strings.Contains(err.Error(), "no migration") {
+					t.Errorf("force %d (dirty %v, unsafe %v): err = %v, want an unknown version refusal", v, dirty, unsafe, err)
+				}
+			}
+		}
+	}
+	if got := latestVersion(t, pool); got != latest {
+		t.Fatalf("version = %d, want %d", got, latest)
+	}
+}
+
+func TestForceMigrationVersionToZeroOnDatabaseDirtyAtTheFirstMigration(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE schema_migrations SET version = 1, dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ForceMigrationVersion(pool, 0, false); err != nil {
+		t.Fatalf("force 0 on a database dirty at 1: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 0 {
 		t.Fatalf("state = %+v, %v", st, err)
 	}
 }
