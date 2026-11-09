@@ -25,6 +25,8 @@ import (
 
 var errInvalidUserID = errors.New("invalid user id")
 
+const maxRecvBytes = 64 << 20
+
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Client struct {
@@ -49,6 +51,7 @@ func dial(target string, timeout time.Duration, opts ...grpc.DialOption) (*Clien
 			Backoff:           backoff.Config{BaseDelay: 200 * time.Millisecond, Multiplier: 1.6, Jitter: 0.2, MaxDelay: 500 * time.Millisecond},
 			MinConnectTimeout: timeout,
 		}),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxRecvBytes)),
 	}, opts...)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {

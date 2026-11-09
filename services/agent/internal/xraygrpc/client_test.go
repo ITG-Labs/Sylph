@@ -3,6 +3,7 @@ package xraygrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -412,5 +413,23 @@ func TestDialRejectsNonPositiveTimeout(t *testing.T) {
 		if _, err := Dial("127.0.0.1:10085", d); err == nil {
 			t.Fatalf("timeout %v accepted", d)
 		}
+	}
+}
+
+func TestLargeAnswersPassTheReceiveLimit(t *testing.T) {
+	fx := &fakeXray{}
+	for i := range 60000 {
+		uuid := fmt.Sprintf("6f1c2c1e-3b1a-4c55-9d5e-%012d", i)
+		fx.stats = append(fx.stats, &statscmd.Stat{Name: "user>>>" + uuid + "@main>>>traffic>>>uplink", Value: int64(i)})
+		fx.users = append(fx.users, &protocol.User{Email: uuid + "@main"})
+	}
+	c := startFake(t, fx, 5*time.Second)
+	got, err := c.QueryStats(context.Background(), "user>>>")
+	if err != nil || len(got) != 60000 {
+		t.Fatalf("stats = %d, err = %v", len(got), err)
+	}
+	users, err := c.ListUsers(context.Background(), "main")
+	if err != nil || len(users) != 60000 {
+		t.Fatalf("users = %d, err = %v", len(users), err)
 	}
 }
