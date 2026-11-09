@@ -203,6 +203,10 @@ func (e *Engine) LoadState(path string) error {
 
 func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	resp, err := e.core.SyncUsers(ctx, e.version)
+	return e.take(resp, err)
+}
+
+func (e *Engine) take(resp *SyncResp, err error) (*SyncResp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sync: %w", err)
 	}

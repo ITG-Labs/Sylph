@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
@@ -173,47 +174,81 @@ func (r probeResult) bad() bool {
 	return r.err != "" && (r.fails == 0 || r.fails >= egressProbeFails)
 }
 
+func (r probeResult) due(now time.Time) bool {
+	ttl := egressProbeEvery
+	if r.err != "" {
+		ttl = egressProbeRetry
+	}
+	return now.Sub(r.at) >= ttl
+}
+
 type EgressChecker struct {
 	addrs []EgressAddr
+	mu    sync.Mutex
+	bg    sync.WaitGroup
 	cache map[string]probeResult
+	busy  map[string]bool
 	now   func() time.Time
 	retry time.Duration
 }
 
 func NewEgressChecker(addrs []EgressAddr) *EgressChecker {
-	return &EgressChecker{addrs: addrs, cache: map[string]probeResult{}, now: time.Now, retry: 2 * time.Second}
+	return &EgressChecker{addrs: addrs, cache: map[string]probeResult{}, busy: map[string]bool{}, now: time.Now, retry: 2 * time.Second}
 }
 
 func (c *EgressChecker) Status(ctx context.Context) []AddressStatus {
 	out := egressStatus(c.addrs)
+	var first sync.WaitGroup
+	c.mu.Lock()
 	for i := range out {
-		st := &out[i]
+		st := out[i]
 		if !st.OK {
 			delete(c.cache, st.IP)
 			continue
 		}
 		r, ok := c.cache[st.IP]
-		ttl := egressProbeEvery
-		if r.err != "" {
-			ttl = egressProbeRetry
+		known := ok && r.source == st.Source
+		if known && (c.busy[st.IP] || !r.due(c.now())) {
+			continue
 		}
-		if !ok || r.source != st.Source || c.now().Sub(r.at) >= ttl {
-			msg, network := c.probe(ctx, st.Source, st.IP)
-			next := probeResult{source: st.Source, err: msg, at: c.now()}
-			if network {
-				next.fails = 1
-				if ok && r.source == st.Source {
-					next.fails = r.fails + 1
-				}
-			}
-			r = next
-			c.cache[st.IP] = r
+		c.busy[st.IP] = true
+		at := c.now()
+		run := func() { c.record(ctx, st.IP, st.Source, at) }
+		if known {
+			c.bg.Go(run)
+		} else {
+			first.Go(run)
 		}
-		if r.bad() {
+	}
+	c.mu.Unlock()
+	first.Wait()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range out {
+		st := &out[i]
+		if r, ok := c.cache[st.IP]; st.OK && ok && r.source == st.Source && r.bad() {
 			st.OK, st.Error = false, r.err
 		}
 	}
 	return out
+}
+
+func (c *EgressChecker) record(ctx context.Context, ip, source string, at time.Time) {
+	msg, network := c.probe(ctx, source, ip)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.busy, ip)
+	if ctx.Err() != nil {
+		return
+	}
+	next := probeResult{source: source, err: msg, at: at}
+	if network {
+		next.fails = 1
+		if prev, ok := c.cache[ip]; ok && prev.source == source {
+			next.fails = prev.fails + 1
+		}
+	}
+	c.cache[ip] = next
 }
 
 func (c *EgressChecker) probe(ctx context.Context, source, ip string) (string, bool) {

@@ -45,6 +45,7 @@ type Loop struct {
 	xrayStart  time.Time
 	lastRefill time.Time
 	refillGap  time.Duration
+	watch      <-chan time.Time
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
@@ -54,7 +55,11 @@ func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, n
 
 func (l *Loop) RunOnce(ctx context.Context) error {
 	l.reportTraffic(ctx)
-	_, syncErr := l.engine.SyncOnce(ctx)
+	var resp *SyncResp
+	var fetchErr error
+	version := l.engine.version
+	l.await(ctx, func() { resp, fetchErr = l.engine.core.SyncUsers(ctx, version) })
+	_, syncErr := l.engine.take(resp, fetchErr)
 	if syncErr != nil {
 		l.logger.Error("sync_failed", "error", syncErr.Error())
 	}
@@ -62,10 +67,32 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	if applyErr != nil {
 		l.logger.Error("reconcile_failed", "error", applyErr.Error())
 	}
-	if err := l.core.Heartbeat(ctx, l.heartbeat(ctx)); err != nil {
-		l.logger.Error("heartbeat_failed", "error", err.Error())
+	hb := l.heartbeat(ctx)
+	var hbErr error
+	l.await(ctx, func() { hbErr = l.core.Heartbeat(ctx, hb) })
+	if hbErr != nil {
+		l.logger.Error("heartbeat_failed", "error", hbErr.Error())
 	}
 	return errors.Join(syncErr, applyErr)
+}
+
+func (l *Loop) await(ctx context.Context, call func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		call()
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			<-done
+			return
+		case <-l.watch:
+			l.watchXray(ctx)
+		}
+	}
 }
 
 func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
@@ -223,7 +250,8 @@ func (l *Loop) reportTraffic(ctx context.Context) {
 	if batch == nil {
 		return
 	}
-	duplicate, err := l.core.ReportDeltas(ctx, batch)
+	var duplicate bool
+	l.await(ctx, func() { duplicate, err = l.core.ReportDeltas(ctx, batch) })
 	if err != nil {
 		l.logger.Error("deltas_report_failed", "error", err.Error(), "batch_id", batch.ID, "count", len(batch.Deltas))
 		return
@@ -235,12 +263,12 @@ func (l *Loop) reportTraffic(ctx context.Context) {
 func (l *Loop) Run(ctx context.Context) error {
 	ticker := time.NewTicker(l.cfg.SyncInterval)
 	defer ticker.Stop()
-	var watch <-chan time.Time
 	if l.cfg.XrayWatch > 0 {
 		w := time.NewTicker(l.cfg.XrayWatch)
 		defer w.Stop()
-		watch = w.C
+		l.watch = w.C
 	}
+	defer func() { l.watch = nil }()
 	for {
 		if err := l.RunOnce(ctx); err != nil && ctx.Err() == nil {
 			l.logger.Debug("loop_tick_incomplete", "error", err.Error())
@@ -251,8 +279,13 @@ func (l *Loop) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
+				select {
+				case <-l.watch:
+					l.watchXray(ctx)
+				default:
+				}
 				break wait
-			case <-watch:
+			case <-l.watch:
 				l.watchXray(ctx)
 			}
 		}

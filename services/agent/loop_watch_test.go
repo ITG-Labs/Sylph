@@ -21,8 +21,13 @@ func waitUntil(t *testing.T, within time.Duration, what string, ok func() bool) 
 func runWatchedLoop(t *testing.T, fx *fakeXray, gap time.Duration) (*fakeCore, func()) {
 	t.Helper()
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, syncInbounds: mainIn}
+	return runWatchedLoopWith(t, fx, fc, gap, time.Hour)
+}
+
+func runWatchedLoopWith(t *testing.T, fx *fakeXray, fc *fakeCore, gap, every time.Duration) (*fakeCore, func()) {
+	t.Helper()
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
-	loop.cfg.SyncInterval = time.Hour
+	loop.cfg.SyncInterval = every
 	loop.cfg.XrayWatch = 10 * time.Millisecond
 	loop.refillGap = gap
 	ctx, cancel := context.WithCancel(context.Background())
@@ -152,4 +157,16 @@ func TestRunWatchLeavesAHealthyXrayAlone(t *testing.T) {
 	if fx.listHits != lists || fx.uptimeHits < probes+3 {
 		t.Fatalf("healthy xray was reconciled again: lists %d → %d, uptime probes %d → %d", lists, fx.listHits, probes, fx.uptimeHits)
 	}
+}
+
+func TestRunRefillsXrayWhileTheCoreHangs(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}, {UUID: "u-2"}}, syncInbounds: mainIn, gate: make(chan struct{})}
+	_, stop := runWatchedLoopWith(t, fx, fc, 0, 20*time.Millisecond)
+	defer stop()
+	defer close(fc.gate)
+	fc.stall.Store(true)
+	waitUntil(t, 2*time.Second, "a pass stuck on the core", func() bool { return fc.stalled.Load() > 0 })
+	crashXray(fx, time.Second, 0)
+	waitUntil(t, time.Second, "users back while the core does not answer", func() bool { return fx.hasUser("main", "u-1") && fx.hasUser("main", "u-2") })
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -140,12 +141,21 @@ func TestBuildXrayEgressWithoutProfile(t *testing.T) {
 	}
 }
 
+func settled(c *EgressChecker) []AddressStatus {
+	c.Status(context.Background())
+	c.wait()
+	return c.Status(context.Background())
+}
+
 func fakeProbe(t *testing.T, seen map[string]string) *int {
 	t.Helper()
 	prev := egressProbe
 	t.Cleanup(func() { egressProbe = prev })
 	calls := 0
+	var mu sync.Mutex
 	egressProbe = func(ctx context.Context, source string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		calls++
 		ip, ok := seen[source]
 		if !ok {
@@ -241,12 +251,12 @@ func TestEgressCheckerProbesFromTheSource(t *testing.T) {
 		t.Fatalf("probes repeated within the cache: %d", *calls)
 	}
 	now = now.Add(egressProbeRetry)
-	c.Status(context.Background())
+	settled(c)
 	if *calls != 7 {
 		t.Fatalf("failing addresses not re-probed after a minute, or the working one re-probed early: %d probes", *calls)
 	}
 	now = now.Add(egressProbeEvery)
-	st = c.Status(context.Background())
+	st = settled(c)
 	if *calls != 11 {
 		t.Fatalf("working address not re-probed after five minutes: %d probes", *calls)
 	}
@@ -369,19 +379,19 @@ func TestEgressProbeFailuresCountOnlyInARow(t *testing.T) {
 	c.now = func() time.Time { return now }
 	c.retry = time.Millisecond
 	for round := 1; round < egressProbeFails; round++ {
-		if st := c.Status(context.Background()); !st[0].OK {
+		if st := settled(c); !st[0].OK {
 			t.Fatalf("round %d: a working address dropped after %d failed probes: %+v", round, round, st[0])
 		}
 		now = now.Add(egressProbeRetry)
 	}
 	seen["172.31.226.10"] = "203.0.113.7"
-	if st := c.Status(context.Background()); !st[0].OK {
+	if st := settled(c); !st[0].OK {
 		t.Fatalf("address not ok after the probe passed: %+v", st[0])
 	}
 	delete(seen, "172.31.226.10")
 	for round := 1; round <= egressProbeFails; round++ {
 		now = now.Add(egressProbeEvery)
-		st := c.Status(context.Background())
+		st := settled(c)
 		if round < egressProbeFails && !st[0].OK {
 			t.Fatalf("failures before the success were counted: dropped at round %d", round)
 		}
@@ -391,7 +401,78 @@ func TestEgressProbeFailuresCountOnlyInARow(t *testing.T) {
 	}
 	seen["172.31.226.10"] = "198.51.100.99"
 	now = now.Add(egressProbeRetry)
-	if st := c.Status(context.Background()); st[0].OK || !strings.Contains(st[0].Error, "egress_probe_mismatch") {
+	if st := settled(c); st[0].OK || !strings.Contains(st[0].Error, "egress_probe_mismatch") {
 		t.Fatalf("mismatch not applied at once: %+v", st[0])
+	}
+}
+
+func (c *EgressChecker) wait() { c.bg.Wait() }
+
+func TestEgressReprobeDoesNotHoldTheCaller(t *testing.T) {
+	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.226.10/24"}})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	stall := false
+	prev := egressProbe
+	t.Cleanup(func() { egressProbe = prev })
+	egressProbe = func(ctx context.Context, source string) (string, error) {
+		mu.Lock()
+		wait := stall
+		mu.Unlock()
+		if wait {
+			<-release
+			return "", errors.New("dial tcp 1.1.1.1:443: i/o timeout")
+		}
+		return "203.0.113.7", nil
+	}
+	now := time.Now()
+	c := NewEgressChecker([]EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}})
+	c.now = func() time.Time { return now }
+	c.retry = time.Millisecond
+	if st := c.Status(context.Background()); !st[0].OK {
+		t.Fatalf("first probe = %+v", st[0])
+	}
+	mu.Lock()
+	stall = true
+	mu.Unlock()
+	now = now.Add(egressProbeEvery)
+	start := time.Now()
+	st := c.Status(context.Background())
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("a due re-probe held the caller for %v", elapsed)
+	}
+	if !st[0].OK {
+		t.Fatalf("cached verdict lost while the re-probe runs: %+v", st[0])
+	}
+	if again := c.Status(context.Background()); !again[0].OK {
+		t.Fatalf("second call during the re-probe = %+v", again[0])
+	}
+	close(release)
+	c.wait()
+	if r := c.cache["203.0.113.7"]; r.fails != 1 {
+		t.Fatalf("background probe not recorded once: %+v", r)
+	}
+}
+
+func TestEgressFirstProbesRunTogether(t *testing.T) {
+	ifaces := map[string][]string{}
+	var addrs []EgressAddr
+	for i := range 5 {
+		ifaces[fmt.Sprintf("egress%d", i)] = []string{fmt.Sprintf("172.31.%d.10/24", i)}
+		addrs = append(addrs, EgressAddr{IP: fmt.Sprintf("203.0.113.%d", i+1), Iface: fmt.Sprintf("egress%d", i)})
+	}
+	fakeInterfaces(t, ifaces)
+	prev := egressProbe
+	t.Cleanup(func() { egressProbe = prev })
+	egressProbe = func(ctx context.Context, source string) (string, error) {
+		time.Sleep(150 * time.Millisecond)
+		return "", errors.New("dial tcp 1.1.1.1:443: i/o timeout")
+	}
+	c := NewEgressChecker(addrs)
+	c.retry = time.Millisecond
+	start := time.Now()
+	c.Status(context.Background())
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Fatalf("five first probes took %v, want them side by side", elapsed)
 	}
 }
