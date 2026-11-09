@@ -5,4 +5,5 @@ FROM caddy:2.11.8
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
 COPY caddy.json /etc/caddy/caddy.json
 RUN mkdir -p /run/caddy-admin
+ENV GODEBUG=multipathtcp=0
 CMD ["caddy", "run", "--config", "/etc/caddy/caddy.json"]

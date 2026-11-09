@@ -28,7 +28,7 @@ func TestFilesCarryEveryRole(t *testing.T) {
 
 var caddyBuilds = map[string]string{
 	"2.11.7-l4.0.1.2": "7c7d67a5a51c660c35e34a327f42f4018ff4b9ab032e20120c0d15fef2875b0e",
-	"2.11.8-l4.0.1.2": "f5ca72461ae4d8034be5d7c475fcc2b5d6e1c4cee6bb2ecc375944f48111d14f",
+	"2.11.8-l4.0.1.2": "b194484ff91e4a6d972f56545419bcb74350434ca709e4b8c80683f8c15d56cf",
 }
 
 func TestCaddyTagFollowsItsBuild(t *testing.T) {
@@ -224,6 +224,80 @@ func TestAgentImageCapsAreGrantedToEveryServiceOfIt(t *testing.T) {
 		}
 		if !strings.Contains(block, "*locked") {
 			t.Fatalf("service %s must stay on the locked profile with no-new-privileges", name)
+		}
+	}
+}
+
+func imageGodebug(t *testing.T, image string) (string, bool) {
+	t.Helper()
+	name, _, _ := strings.Cut(image, ":")
+	dockerfiles := map[string]string{
+		"ghcr.io/itg-labs/sylph-caddy":   "../caddy/Dockerfile",
+		"ghcr.io/itg-labs/sylph-panel":   "../panel/Dockerfile",
+		"ghcr.io/itg-labs/sylph-core":    "../service.Dockerfile",
+		"ghcr.io/itg-labs/sylph-subs":    "../service.Dockerfile",
+		"ghcr.io/itg-labs/sylph-bot":     "../service.Dockerfile",
+		"ghcr.io/itg-labs/sylph-cron":    "../service.Dockerfile",
+		"ghcr.io/itg-labs/sylph-monitor": "../service.Dockerfile",
+	}
+	if name == "caddy" {
+		return "", true
+	}
+	path, ok := dockerfiles[name]
+	if !ok {
+		return "", false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages := regexp.MustCompile(`(?m)^FROM `).Split(string(data), -1)
+	if m := regexp.MustCompile(`GODEBUG=(\S+)`).FindStringSubmatch(stages[len(stages)-1]); m != nil {
+		return strings.Trim(m[1], `"'\`), true
+	}
+	return "", true
+}
+
+func TestGoListenersRunWithoutMPTCP(t *testing.T) {
+	public := map[string]bool{}
+	for _, role := range []string{"core", "panel", "bot", "subs", "node", "monitor"} {
+		compose, err := fs.ReadFile(Files, role+"/compose.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := regexp.MustCompile(`(?ms)^services:\n(.*?)(?:^\S|\z)`).FindStringSubmatch(string(compose))
+		if body == nil {
+			t.Fatalf("%s/compose.yml: no services", role)
+		}
+		for _, m := range regexp.MustCompile(`(?m)^  ([a-z0-9-]+):$`).FindAllStringSubmatch(body[1], -1) {
+			name := m[1]
+			block := serviceBlock(t, string(compose), name)
+			im := regexp.MustCompile(`(?m)^    image: (\S+)`).FindStringSubmatch(block)
+			if im == nil {
+				t.Fatalf("%s/%s: no image", role, name)
+			}
+			published := regexp.MustCompile(`(?m)^    ports:`).MatchString(block)
+			godebug, golang := imageGodebug(t, im[1])
+			if !golang {
+				if published {
+					t.Fatalf("%s/%s publishes a port from %s: tell this test whether it is a Go program and where its GODEBUG comes from", role, name, im[1])
+				}
+				continue
+			}
+			if env := regexp.MustCompile(`(?m)^      GODEBUG: ["']?([^"'\s]+)["']?$`).FindStringSubmatch(block); env != nil {
+				godebug = env[1]
+			}
+			if !slices.Contains(strings.Split(godebug, ","), "multipathtcp=0") {
+				t.Fatalf("%s/%s (%s): GODEBUG=%q lacks multipathtcp=0: Go 1.24+ accepts MPTCP on listening sockets by default", role, name, im[1], godebug)
+			}
+			if published {
+				public[role+"/"+name] = true
+			}
+		}
+	}
+	for _, want := range []string{"core/core", "panel/caddy", "bot/caddy", "subs/caddy", "node/caddy"} {
+		if !public[want] {
+			t.Fatalf("%s: expected a published Go listener, got %v", want, public)
 		}
 	}
 }

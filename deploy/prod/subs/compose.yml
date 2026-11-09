@@ -50,6 +50,7 @@ services:
     ports:
       - "${SYLPH_HTTPS_PORT:-443}:443"
     environment:
+      GODEBUG: multipathtcp=0
       SYLPH_SUBS_DOMAIN: ${SYLPH_SUBS_DOMAIN:?set SYLPH_SUBS_DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
