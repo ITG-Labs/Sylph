@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/ITG-Labs/sylph/services/core/internal/inbound"
 )
@@ -29,6 +30,7 @@ func xhttpSubFixture(t *testing.T) (*subFixture, int64) {
 	if _, err := f.svc.CreateInbound(ctx, n.ID, rx); err != nil {
 		t.Fatal(err)
 	}
+	f.beat(t, "nl", nil, `{"static.example.ru":{"not_after":"`+time.Now().Add(60*24*time.Hour).UTC().Format(time.RFC3339)+`"}}`)
 	return f, n.ID
 }
 

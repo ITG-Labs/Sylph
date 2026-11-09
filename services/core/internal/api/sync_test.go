@@ -137,7 +137,7 @@ func TestHeartbeatEndpoint(t *testing.T) {
 	if err := svc.UpsertNode(ctx, n); err != nil {
 		t.Fatal(err)
 	}
-	body := map[string]any{"agent_version": "0.1.0", "xray_version": "25.1.1", "agent_uptime_sec": 3600, "xray_uptime_sec": 86400, "active_users": 412}
+	body := map[string]any{"agent_version": "0.1.0", "xray_version": "25.1.1", "agent_uptime_sec": 3600, "xray_uptime_sec": 86400, "active_users": 412, "applied_inbounds": []string{"main"}}
 	if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusOK {
 		t.Fatalf("status = %d", status)
 	}
@@ -183,6 +183,9 @@ func TestHeartbeatValidation(t *testing.T) {
 		"negative xray uptime":  {"agent_version": "v", "xray_uptime_sec": -1},
 		"negative users":        {"agent_version": "v", "active_users": -1},
 		"users overflow int":    {"agent_version": "v", "active_users": int64(math.MaxInt32) + 1},
+		"empty applied tag":     {"agent_version": "v", "applied_inbounds": []string{""}},
+		"long applied tag":      {"agent_version": "v", "applied_inbounds": []string{strings.Repeat("a", 65)}},
+		"too many applied":      {"agent_version": "v", "applied_inbounds": make([]string, 257)},
 	}
 	for name, body := range cases {
 		if status := postJSON(t, client, ts.URL+"/v1/sync/heartbeat", body, nil); status != http.StatusBadRequest {

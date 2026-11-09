@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/mtls"
 	"github.com/ITG-Labs/sylph/services/core/internal/model"
@@ -122,6 +123,25 @@ func (e *adminEnv) createNode(t *testing.T, cn string, groupID *int64) int64 {
 	}
 	r.decode(t, &n)
 	return n.ID
+}
+
+func (e *adminEnv) nodeReady(t *testing.T, cn string, nodeID int64, tlsDomains ...string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := store.NewStore(e.pool).TouchNodeSync(ctx, nodeID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]any{}
+	for _, d := range tlsDomains {
+		status[d] = map[string]any{"not_after": time.Now().Add(60 * 24 * time.Hour).UTC()}
+	}
+	raw, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.NodeHeartbeat(ctx, cn, model.NodeHeartbeat{AgentVersion: "test", TLSStatus: raw}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func realityBody(tag string, sni string) map[string]any {

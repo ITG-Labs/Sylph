@@ -138,9 +138,13 @@ func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.N
 	_, err := s.pool.Exec(ctx,
 		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
 		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9,
-		 cert_not_after = COALESCE($10, cert_not_after), tls_status = $11
+		 cert_not_after = COALESCE($10, cert_not_after), tls_status = $11::jsonb, applied_inbounds = $12,
+		 tls_ready = CASE WHEN jsonb_typeof($11::jsonb) = 'object' THEN ARRAY(
+		     SELECT e.key FROM jsonb_each($11::jsonb) e
+		     WHERE (e.value->>'not_after' IS NOT NULL AND coalesce(e.value->>'error', '') = '' AND (e.value->>'not_after')::timestamptz > now())
+		        OR (e.value->>'not_after' IS NULL AND e.key = ANY(coalesce(nodes.tls_ready, '{}')))) END
 		 WHERE id = $1`,
-		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter, nullJSON(hb.TLSStatus))
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter, nullJSON(hb.TLSStatus), hb.Applied)
 	return err
 }
 

@@ -230,13 +230,15 @@ type Endpoint struct {
 
 func (s *Store) ListPeriodEndpoints(ctx context.Context, periodID int64) ([]Endpoint, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT n.name, n.address, n.last_sync_at IS NULL OR n.agent_xhttp, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
+		`SELECT n.name, n.address, n.agent_xhttp, i.id, i.node_id, i.tag, i.port, i.protocol, i.transport, i.security, i.label, i.settings, i.created_at
 		 FROM subscriptions sub
 		 JOIN plan_inbounds pi ON pi.plan_id = sub.plan_id
 		 JOIN period_pools x ON x.period_id = sub.id AND x.pool_id IS NOT DISTINCT FROM pi.pool_id
 		 JOIN node_inbounds i ON i.id = pi.inbound_id
 		 JOIN nodes n ON n.id = i.node_id
-		 WHERE sub.id = $1 AND n.enabled AND n.address <> ''
+		 WHERE sub.id = $1 AND n.enabled AND n.address <> '' AND n.last_sync_at IS NOT NULL
+		   AND (n.applied_inbounds IS NULL OR i.tag = ANY(n.applied_inbounds))
+		   AND (i.security <> 'tls' OR i.settings->'tls'->>'domain' = ANY(n.tls_ready))
 		   AND (x.limit_bytes IS NULL OR x.used_bytes < x.limit_bytes)
 		 ORDER BY n.name, n.id, i.tag`,
 		periodID)

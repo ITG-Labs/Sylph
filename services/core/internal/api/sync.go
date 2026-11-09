@@ -21,7 +21,11 @@ const maxDeltaBytes = 1 << 50
 
 const maxConfigErrorRunes = 512
 
-const maxTLSDomains = 64
+const (
+	maxTLSDomains      = 64
+	maxAppliedInbounds = 256
+	maxAppliedTag      = 64
+)
 
 const (
 	maxHeartbeatBytes  = 4 << 20
@@ -167,6 +171,7 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 			NotAfter *time.Time `json:"not_after,omitempty"`
 			Error    string     `json:"error,omitempty"`
 		} `json:"tls_status"`
+		Applied   *[]string `json:"applied_inbounds"`
 		Addresses *[]struct {
 			IP    string `json:"ip"`
 			OK    bool   `json:"ok"`
@@ -213,6 +218,19 @@ func (s *Server) handleSyncHeartbeat(w http.ResponseWriter, r *http.Request) {
 			body.TLSStatus[domain] = st
 		}
 		hb.TLSStatus, _ = json.Marshal(body.TLSStatus)
+	}
+	if body.Applied != nil {
+		if len(*body.Applied) > maxAppliedInbounds {
+			writeError(w, http.StatusBadRequest, "bad_request", "too many applied_inbounds")
+			return
+		}
+		for _, tag := range *body.Applied {
+			if tag == "" || len(tag) > maxAppliedTag {
+				writeError(w, http.StatusBadRequest, "bad_request", "applied_inbounds tag must be 1 to 64 bytes")
+				return
+			}
+		}
+		hb.Applied = body.Applied
 	}
 	if body.Addresses != nil {
 		list := *body.Addresses

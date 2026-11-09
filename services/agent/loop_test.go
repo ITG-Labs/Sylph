@@ -480,3 +480,22 @@ func TestOnlineWalksHaveABudget(t *testing.T) {
 		}
 	}
 }
+
+func TestHeartbeatNamesTheAppliedInbounds(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1"), syncInbounds: mainIn}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	if data, _ := json.Marshal(loop.heartbeat(context.Background())); !strings.Contains(string(data), `"applied_inbounds":[]`) {
+		t.Fatalf("nothing applied yet, want an empty list: %s", data)
+	}
+	tick(t, loop)
+	setCore(fc, func(f *fakeCore) {
+		f.syncVersion = 2
+		f.syncInbounds = brokenInbounds()
+	})
+	tick(t, loop)
+	hb, _ := lastHeartbeat(fc)
+	if got, _ := json.Marshal(hb["applied_inbounds"]); string(got) != `["main"]` {
+		t.Fatalf("applied_inbounds = %s, want only what xray runs", got)
+	}
+}

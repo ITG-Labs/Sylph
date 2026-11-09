@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -86,7 +88,101 @@ func (f *subFixture) node(t *testing.T, cn string, groupID *int64, enabled bool,
 			t.Fatal(err)
 		}
 	}
+	if err := f.svc.store.TouchNodeSync(ctx, n.ID, true, true); err != nil {
+		t.Fatal(err)
+	}
 	return n
+}
+
+func (f *subFixture) beat(t *testing.T, cn string, applied *[]string, tls string) {
+	t.Helper()
+	hb := model.NodeHeartbeat{AgentVersion: "test", Applied: applied}
+	if tls != "" {
+		hb.TLSStatus = json.RawMessage(tls)
+	}
+	if err := f.svc.NodeHeartbeat(context.Background(), cn, hb); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *subFixture) names(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, c := range f.view(t, "hw-1").Connections {
+		out = append(out, c.Name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func TestSubscriptionSkipsNodeThatNeverSynced(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	ctx := context.Background()
+	n := &model.Node{CertCN: "fresh", Name: "fresh", Address: "fresh.example.com", Enabled: true, GroupIDs: []int64{f.group.ID}}
+	if err := f.svc.CreateNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	spec := inbound.Spec{Tag: "main", Port: 443, Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"main.fresh.example.org"}}}
+	if _, err := f.svc.CreateInbound(ctx, n.ID, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.names(t); len(got) != 0 {
+		t.Fatalf("a node whose agent never synced is offered: %v", got)
+	}
+	if err := f.svc.store.TouchNodeSync(ctx, n.ID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.names(t); !slices.Equal(got, []string{"fresh"}) {
+		t.Fatalf("synced node = %v", got)
+	}
+}
+
+func TestSubscriptionOffersOnlyAppliedInbounds(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	f.node(t, "nl", &f.group.ID, true, "main", "extra")
+	both := []string{"nl · L-extra", "nl · L-main"}
+	if got := f.names(t); !slices.Equal(got, both) {
+		t.Fatalf("agent without the applied list = %v", got)
+	}
+	f.beat(t, "nl", &[]string{"main"}, "")
+	if got := f.names(t); !slices.Equal(got, []string{"nl"}) {
+		t.Fatalf("inbound the agent has not applied is offered: %v", got)
+	}
+	f.beat(t, "nl", &[]string{}, "")
+	if got := f.names(t); len(got) != 0 {
+		t.Fatalf("nothing applied, offered %v", got)
+	}
+	f.beat(t, "nl", &[]string{"extra", "main"}, "")
+	if got := f.names(t); !slices.Equal(got, both) {
+		t.Fatalf("both applied = %v", got)
+	}
+}
+
+func TestSubscriptionOffersTLSOnlyWithACertificate(t *testing.T) {
+	f, _ := xhttpSubFixture(t)
+	f.beat(t, "nl", nil, "")
+	cdn := "nl · CDN"
+	if got := f.viewXHTTP(t, true); len(got) != 2 || got[cdn].Name != "" {
+		t.Fatalf("tls inbound offered before its certificate was seen: %+v", got)
+	}
+	future := time.Now().Add(60 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	f.beat(t, "nl", nil, `{"static.example.ru":{"not_after":"`+future+`"}}`)
+	if got := f.viewXHTTP(t, true); got[cdn].Name == "" {
+		t.Fatalf("tls inbound with a valid certificate hidden: %+v", got)
+	}
+	f.beat(t, "nl", nil, `{"static.example.ru":{"error":"no certificate: dial tcp 127.0.0.1:443: i/o timeout"}}`)
+	if got := f.viewXHTTP(t, true); got[cdn].Name == "" {
+		t.Fatalf("a failed probe of a working certificate hid the inbound: %+v", got)
+	}
+	f.beat(t, "nl", nil, `{"static.example.ru":{"not_after":"`+past+`","error":"certificate expired"}}`)
+	if got := f.viewXHTTP(t, true); got[cdn].Name != "" {
+		t.Fatalf("tls inbound with an expired certificate offered: %+v", got)
+	}
+	f.beat(t, "nl", nil, `{"static.example.ru":{"error":"no certificate"}}`)
+	if got := f.viewXHTTP(t, true); got[cdn].Name != "" {
+		t.Fatalf("a failed probe brought back an expired certificate: %+v", got)
+	}
 }
 
 func TestSubscriptionUnknownToken(t *testing.T) {
@@ -354,6 +450,9 @@ func TestSubscriptionConnectionNamesAreUnique(t *testing.T) {
 		}
 		spec := inbound.Spec{Tag: tag, Port: 443, Label: label, Reality: &inbound.Reality{Dest: "x.example.org:443", ServerNames: []string{tag + "." + cn + ".example.org"}}}
 		if _, err := f.svc.CreateInbound(ctx, n.ID, spec); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.svc.store.TouchNodeSync(ctx, n.ID, true, true); err != nil {
 			t.Fatal(err)
 		}
 	}

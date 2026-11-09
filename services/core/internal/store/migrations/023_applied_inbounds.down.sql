@@ -1,0 +1,1 @@
+ALTER TABLE nodes DROP COLUMN IF EXISTS tls_ready, DROP COLUMN IF EXISTS applied_inbounds;
