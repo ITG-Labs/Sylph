@@ -535,7 +535,6 @@ func display(f role.Field, v string) string {
 }
 
 func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactive bool) error {
-	wasRunning := projectRunning(ctx, p.dir)
 	if _, err := u.Step(ctx, "Каталог роли", func(ctx context.Context, set func(string)) (string, error) {
 		created := !exists(p.dir)
 		if err := os.MkdirAll(p.dir, 0o755); err != nil {
@@ -564,11 +563,9 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		return shown(err)
 	}
 
-	certsChanged := false
 	if p.newBundle != nil {
 		if _, err := u.Step(ctx, "Сертификаты", func(ctx context.Context, set func(string)) (string, error) {
 			changed, err := writeCerts(p.dir, p.newBundle)
-			certsChanged = changed
 			if err != nil {
 				return "", err
 			}
@@ -603,9 +600,9 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		return shown(err)
 	}
 
-	if wasRunning && (certsChanged || len(p.newAdmins) > 0) {
+	if stale := staleReaders(ctx, p.dir, p.r); len(stale) > 0 {
 		if _, err := u.Step(ctx, "Перезапуск", func(ctx context.Context, set func(string)) (string, error) {
-			return strings.Join(p.r.CertReaders, ", "), compose.Restart(ctx, p.dir, p.r.CertReaders...)
+			return strings.Join(stale, ", "), compose.Restart(ctx, p.dir, stale...)
 		}); err != nil {
 			return shown(err)
 		}
