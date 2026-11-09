@@ -279,3 +279,35 @@ func TestTakenTrialDeviceWinsOverDeviceLimit(t *testing.T) {
 		t.Fatalf("taken trial device on a full account = %v, %v; want trial taken, not over limit", v, err)
 	}
 }
+
+func TestKnownDevicesBeyondLoweredLimitAreRefused(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkTgUser(t, s, 5110)
+	wide := 3
+	for _, hw := range []string{"hw-1", "hw-2", "hw-3"} {
+		if ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: hw}, &wide); err != nil || !ok {
+			t.Fatalf("%s under the wide limit = %v, %v", hw, ok, err)
+		}
+	}
+	narrow := 1
+	for _, c := range []struct {
+		hw   string
+		want bool
+	}{{"hw-1", true}, {"hw-2", false}, {"hw-3", false}, {"hw-4", false}} {
+		ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: c.hw}, &narrow)
+		if err != nil || ok != c.want {
+			t.Fatalf("%s under the narrow limit = %v, %v, want %v", c.hw, ok, err, c.want)
+		}
+	}
+	two := 2
+	if ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: "hw-2"}, &two); err != nil || !ok {
+		t.Fatalf("second device under limit 2 = %v, %v", ok, err)
+	}
+	if ok, err := s.RegisterDevice(ctx, u.ID, DeviceInfo{HWID: "hw-3"}, &two); err != nil || ok {
+		t.Fatalf("third device under limit 2 = %v, %v", ok, err)
+	}
+	if n, _ := s.CountDevices(ctx, u.ID); n != 3 {
+		t.Fatalf("refused devices must stay recorded untouched: %d", n)
+	}
+}
