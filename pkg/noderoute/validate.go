@@ -569,6 +569,40 @@ func domainCodeOK(code string) bool {
 	return geoCodeOK(code) && !strings.HasPrefix(code, "!")
 }
 
+func negatedDomain(v string) bool {
+	prefix, rest, ok := splitPrefix(v)
+	if !ok || !strings.HasPrefix(rest, "!") {
+		return false
+	}
+	switch prefix {
+	case "full", "domain", "keyword", "regexp":
+		return false
+	}
+	return true
+}
+
+func (p *Profile) DropNegatedDomains() []string {
+	var dropped []string
+	rules := p.Rules[:0:0]
+	for _, r := range p.Rules {
+		kept := r.Domain[:0:0]
+		for _, v := range r.Domain {
+			if negatedDomain(v) {
+				dropped = append(dropped, v)
+				continue
+			}
+			kept = append(kept, v)
+		}
+		if len(kept) == 0 && len(r.Domain) > 0 {
+			continue
+		}
+		r.Domain = kept
+		rules = append(rules, r)
+	}
+	p.Rules = rules
+	return dropped
+}
+
 func checkPorts(s string) error {
 	for part := range strings.SplitSeq(s, ",") {
 		lo, hi, isRange := strings.Cut(strings.TrimSpace(part), "-")

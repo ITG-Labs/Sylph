@@ -112,3 +112,35 @@ func TestGeoSourceChangeIsAllOrNothing(t *testing.T) {
 		t.Fatal("the repeated request did not bump the node")
 	}
 }
+
+func TestSyncSurvivesAStoredProfileWithADomainNegation(t *testing.T) {
+	svc, logs := setupServiceWithLogs(t)
+	ctx := context.Background()
+	n, _ := realityNode(t, svc, "node-s")
+	d := basicDoc()
+	d["rules"] = []any{
+		map[string]any{"domain": []string{"geosite:!cn", "example.com"}, "to": "direct"},
+		map[string]any{"domain": []string{"my-src:!ru"}, "to": "block"},
+		map[string]any{"protocol": []string{"bittorrent"}, "to": "block"},
+	}
+	row, err := svc.store.CreateProfile(ctx, "legacy", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE nodes SET profile_id = $2 WHERE id = $1`, n.ID, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateProfile(ctx, "again", docOf(t, d)); err == nil {
+		t.Fatal("a negated domain rule was saved")
+	}
+	resp, err := svc.SyncNodeUsers(ctx, n.CertCN, 0, AgentCaps{PerInbound: true})
+	if err != nil {
+		t.Fatalf("sync fails for a stored profile with a negated domain: %v", err)
+	}
+	if resp.Routing == nil || len(resp.Routing.Rules) != 2 || len(resp.Routing.Rules[0].Domain) != 1 || resp.Routing.Rules[0].Domain[0] != "domain:example.com" {
+		t.Fatalf("routing = %+v", resp.Routing)
+	}
+	if !logs.has("profile_domain_negation_skipped") {
+		t.Fatalf("no warning in the log: %s", logs.String())
+	}
+}

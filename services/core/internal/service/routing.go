@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/netaddr"
@@ -422,6 +424,10 @@ func (s *Service) nodeRouting(ctx context.Context, node *model.Node) (*noderoute
 	p, err := parseProfile(row.Doc)
 	if err != nil {
 		return nil, nil, err
+	}
+	if dropped := p.DropNegatedDomains(); len(dropped) > 0 {
+		s.log.LogAttrs(ctx, slog.LevelWarn, "profile_domain_negation_skipped", slog.Int64("profile_id", row.ID),
+			slog.Int64("node_id", node.ID), slog.String("rules", strings.Join(dropped, ", ")))
 	}
 	resolved, _, err := s.resolveProfile(ctx, node.ID, p)
 	if err != nil {

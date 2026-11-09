@@ -234,3 +234,19 @@ func TestNegationIsAllowedForIPSourcesOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestDropNegatedDomains(t *testing.T) {
+	p := Profile{Rules: []Rule{
+		{Domain: []string{"example.com", "my-src:!ru", "geosite:!cn"}, To: "a"},
+		{Domain: []string{"my-src:!ru"}, IP: []string{"10.0.0.0/8"}, To: "b"},
+		{Domain: []string{"regexp:!x", "full:a.example.com"}, To: "c"},
+		{IP: []string{"my-ips:!ru"}, To: "d"},
+	}}
+	dropped := p.DropNegatedDomains()
+	if strings.Join(dropped, ",") != "my-src:!ru,geosite:!cn,my-src:!ru" || len(p.Rules) != 3 {
+		t.Fatalf("dropped %v, rules %+v", dropped, p.Rules)
+	}
+	if strings.Join(p.Rules[0].Domain, ",") != "example.com" || p.Rules[1].To != "c" || strings.Join(p.Rules[1].Domain, ",") != "regexp:!x,full:a.example.com" || p.Rules[2].To != "d" {
+		t.Fatalf("rules %+v", p.Rules)
+	}
+}
