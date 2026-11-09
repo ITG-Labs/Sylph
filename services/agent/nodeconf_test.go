@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -76,12 +77,13 @@ func (p *fakeProc) killCount() int {
 }
 
 type fakeCaddy struct {
-	mu       sync.Mutex
-	current  []byte
-	reject   string
-	dropLoad bool
-	loads    int
-	loadedAt time.Time
+	mu           sync.Mutex
+	current      []byte
+	reject       string
+	rejectStatus int
+	dropLoad     bool
+	loads        int
+	loadedAt     time.Time
 }
 
 func (f *fakeCaddy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +106,11 @@ func (f *fakeCaddy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if f.reject != "" {
-			w.WriteHeader(http.StatusBadRequest)
+			status := http.StatusBadRequest
+			if f.rejectStatus != 0 {
+				status = f.rejectStatus
+			}
+			w.WriteHeader(status)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": f.reject})
 			return
 		}
@@ -349,6 +355,55 @@ func TestRejectedConfigIsNotRetriedUntilInboundsChange(t *testing.T) {
 	}
 	if restarted.ConfigError() != nil {
 		t.Fatalf("config_error = %q after a good apply", *restarted.ConfigError())
+	}
+}
+
+func TestXrayThatNeverCameBackIsNotARejection(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	r.node.Apply(ctx, mainIn)
+	var down atomic.Bool
+	down.Store(true)
+	r.proc.broken = down.Load
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if r.node.state.XrayRejected != nil {
+		t.Fatal("an xray that stayed down was recorded as a rejection of the config")
+	}
+	if e := r.node.ConfigError(); e == nil || strings.HasPrefix(*e, "xray_config_rejected") {
+		t.Fatalf("config_error = %v", e)
+	}
+	down.Store(false)
+	r.fx.set(func(f *fakeXray) { f.uptimeErr = nil; f.uptime = time.Hour })
+	fixed := testInbounds("main", "second")
+	if got := r.node.Apply(ctx, fixed); !reflect.DeepEqual(got, fixed) || r.node.ConfigError() != nil {
+		t.Fatalf("the same config was not retried: %+v, %v", got, r.node.ConfigError())
+	}
+}
+
+func TestXrayRejectionExpires(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	now := time.Now()
+	r.node.now = func() time.Time { return now }
+	r.node.Apply(ctx, mainIn)
+	var first atomic.Bool
+	first.Store(true)
+	r.proc.broken = func() bool { return first.CompareAndSwap(true, false) }
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if r.node.state.XrayRejected == nil {
+		t.Fatal("no rejection recorded")
+	}
+	kills := r.proc.killCount()
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if r.proc.killCount() != kills {
+		t.Fatal("a fresh rejection was retried")
+	}
+	now = now.Add(rejectionTTL + time.Minute)
+	r.age(2 * time.Hour)
+	r.fx.set(func(f *fakeXray) { f.uptime = time.Hour })
+	fixed := testInbounds("main", "second")
+	if got := r.node.Apply(ctx, fixed); !reflect.DeepEqual(got, fixed) || r.node.ConfigError() != nil {
+		t.Fatalf("an old rejection blocks the config: %+v, %v", got, r.node.ConfigError())
 	}
 }
 

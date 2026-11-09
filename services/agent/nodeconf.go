@@ -23,11 +23,13 @@ const (
 	xraySettleUptime = 10 * time.Second
 	xrayRestartWait  = 30 * time.Second
 	xrayRestartPoll  = 200 * time.Millisecond
+	rejectionTTL     = time.Hour
 )
 
 type rejection struct {
-	Hash  string `json:"hash"`
-	Error string `json:"error"`
+	Hash  string    `json:"hash"`
+	Error string    `json:"error"`
+	At    time.Time `json:"at,omitzero"`
 }
 
 type nodeState struct {
@@ -50,6 +52,7 @@ type NodeConfig struct {
 	settle      time.Duration
 	restartWait time.Duration
 	poll        time.Duration
+	now         func() time.Time
 	state       nodeState
 	geoNames    []string
 	settled     bool
@@ -69,6 +72,7 @@ func NewNodeConfig(cfg *Config, xray XrayClient, caddy CaddyAPI, logger *slog.Lo
 		settle:      xraySettleUptime,
 		restartWait: xrayRestartWait,
 		poll:        xrayRestartPoll,
+		now:         time.Now,
 	}
 	if cfg.GeoDir != "" {
 		n.geo = NewGeoManager(cfg.GeoDir, cfg.GeoStatePath, logger)
@@ -104,14 +108,18 @@ func (n *NodeConfig) Load() error {
 	if st.Applied != nil && !n.onDisk(NodeDesired{Inbounds: st.Applied, Routing: st.AppliedRouting, ServiceKeys: st.AppliedServiceKeys, Egress: st.AppliedEgress}) {
 		st.Applied, st.AppliedRouting, st.AppliedServiceKeys, st.AppliedEgress = nil, nil, nil, nil
 	}
-	if st.XrayRejected != nil {
+	if n.fresh(st.XrayRejected) {
 		n.xrayErr = st.XrayRejected.Error
 	}
-	if st.CaddyRejected != nil {
+	if n.fresh(st.CaddyRejected) {
 		n.caddyErr = st.CaddyRejected.Error
 	}
 	n.state = st
 	return nil
+}
+
+func (n *NodeConfig) fresh(r *rejection) bool {
+	return r != nil && n.now().Sub(r.At) < rejectionTTL
 }
 
 func (n *NodeConfig) onDisk(d NodeDesired) bool {
@@ -247,7 +255,7 @@ func (n *NodeConfig) ensureCaddy(ctx context.Context, applied []Inbound) {
 		return
 	}
 	sum := configHash(want)
-	if r := n.state.CaddyRejected; r != nil && r.Hash == sum {
+	if r := n.state.CaddyRejected; n.fresh(r) && r.Hash == sum {
 		n.caddyErr = r.Error
 		return
 	}
@@ -266,8 +274,12 @@ func (n *NodeConfig) ensureCaddy(ctx context.Context, applied []Inbound) {
 			n.failCaddy("caddy_unreachable", err)
 			return
 		}
+		if rejected.Status < 400 || rejected.Status >= 500 {
+			n.failCaddy("caddy_load_failed", err)
+			return
+		}
 		msg := "caddy_config_rejected: " + truncate(rejected.Message, 300)
-		n.state.CaddyRejected = &rejection{Hash: sum, Error: msg}
+		n.state.CaddyRejected = &rejection{Hash: sum, Error: msg, At: n.now()}
 		n.saveState()
 		n.caddyErr = msg
 		n.logger.Error("caddy_config_rejected", "config", sum[:12], "status", rejected.Status, "error", truncate(rejected.Message, 300))
@@ -299,7 +311,7 @@ func truncate(s string, max int) string {
 }
 
 func (n *NodeConfig) ensureXray(ctx context.Context, desired NodeDesired, want []byte, sum string, geoChanged time.Time) {
-	if r := n.state.XrayRejected; r != nil && r.Hash == sum {
+	if r := n.state.XrayRejected; n.fresh(r) && r.Hash == sum {
 		n.xrayErr = r.Error
 		return
 	}
@@ -390,7 +402,12 @@ func (n *NodeConfig) rollbackXray(ctx context.Context, sum string) {
 		_ = n.proc.Terminate(pid)
 	}
 	back := n.waitRestarted(ctx, started)
-	n.state.XrayRejected = &rejection{Hash: sum, Error: msg}
+	if !back {
+		n.failXray("xray_restart_failed", fmt.Errorf("xray did not come up within %s, neither with the new config nor after the rollback", n.restartWait))
+		n.logger.Error("xray_config_unconfirmed", "config", sum[:12])
+		return
+	}
+	n.state.XrayRejected = &rejection{Hash: sum, Error: msg, At: n.now()}
 	n.saveState()
 	n.xrayErr = msg
 	n.logger.Error("xray_config_rejected", "config", sum[:12], "xray_back", back)

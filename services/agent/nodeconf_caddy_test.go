@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,6 +111,42 @@ func TestCaddyFollowsRunningInboundsAfterXrayRejection(t *testing.T) {
 	current, loads, _ := r.caddy.state()
 	if loads != 1 || !sameJSON(current, r.caddyWant(mainIn)) {
 		t.Fatalf("caddy moved to inbounds xray does not run: loads %d", loads)
+	}
+}
+
+func TestCaddyServerErrorIsRetried(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	r.caddy.set(func(f *fakeCaddy) {
+		f.rejectStatus = http.StatusInternalServerError
+		f.reject = "loading new config: temporary failure"
+	})
+	r.node.Apply(ctx, mainIn)
+	if r.node.state.CaddyRejected != nil {
+		t.Fatal("a 5xx answer was recorded as a rejection")
+	}
+	if e := r.node.ConfigError(); e == nil || strings.HasPrefix(*e, "caddy_config_rejected") {
+		t.Fatalf("config_error = %v", e)
+	}
+	r.caddy.set(func(f *fakeCaddy) { f.reject = "" })
+	r.node.Apply(ctx, mainIn)
+	if _, loads, _ := r.caddy.state(); loads != 1 || r.node.ConfigError() != nil {
+		t.Fatalf("caddy not loaded after a server error: loads %d, err %v", loads, r.node.ConfigError())
+	}
+}
+
+func TestCaddyRejectionExpires(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	now := time.Now()
+	r.node.now = func() time.Time { return now }
+	r.caddy.set(func(f *fakeCaddy) { f.reject = "loading new config: layer4: bad route" })
+	r.node.Apply(ctx, mainIn)
+	r.caddy.set(func(f *fakeCaddy) { f.reject = "" })
+	now = now.Add(rejectionTTL + time.Minute)
+	r.node.Apply(ctx, mainIn)
+	if _, loads, _ := r.caddy.state(); loads != 1 || r.node.ConfigError() != nil {
+		t.Fatalf("an old caddy rejection blocks the config: loads %d, err %v", loads, r.node.ConfigError())
 	}
 }
 
