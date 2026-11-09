@@ -221,6 +221,60 @@ func siteDatCode(t *testing.T, code, domain string) []byte {
 	return data
 }
 
+func TestGeoRetriesARefreshOfAnExistingFileAfterAPause(t *testing.T) {
+	v1, v2 := siteDat(t, "one.example"), siteDat(t, "two.example")
+	srv := newGeoServer(t, map[string][]byte{"ru.dat": v1})
+	g := testGeo(t, srv)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	g.now = func() time.Time { return now }
+	ctx := context.Background()
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/ru.dat"}}}
+	g.Ensure(ctx, geo, nil)
+	delete(srv.files, "ru.dat")
+	geo.Generation = 2
+	g.Ensure(ctx, geo, nil)
+	if st := g.Status()["ru"]; st.Error == "" || st.SHA256 != sumOf(v1) {
+		t.Fatalf("status after a failed refresh = %+v", st)
+	}
+	srv.files["ru.dat"] = v2
+	srv.hits["ru.dat"] = &atomic.Int32{}
+	g.Ensure(ctx, geo, nil)
+	if srv.hits["ru.dat"].Load() != 0 {
+		t.Fatal("retried a failed refresh without a pause")
+	}
+	now = now.Add(g.retry + time.Second)
+	g.Ensure(ctx, geo, nil)
+	got, err := os.ReadFile(g.path("ru"))
+	if err != nil || !bytes.Equal(got, v2) || g.Status()["ru"].Error != "" {
+		t.Fatalf("the refresh was lost after a temporary failure: %+v", g.Status()["ru"])
+	}
+	g.Ensure(ctx, geo, nil)
+	if srv.hits["ru.dat"].Load() != 1 {
+		t.Fatal("a refreshed source is downloaded again")
+	}
+}
+
+func TestGeoRetriesAChangedURLAfterAPause(t *testing.T) {
+	v1, v2 := siteDat(t, "one.example"), siteDat(t, "two.example")
+	srv := newGeoServer(t, map[string][]byte{"old.dat": v1})
+	g := testGeo(t, srv)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	g.now = func() time.Time { return now }
+	ctx := context.Background()
+	geo := &SyncGeo{Generation: 1, Sources: []GeoSource{{Name: "ru", Kind: "domain", URL: srv.URL + "/old.dat"}}}
+	g.Ensure(ctx, geo, nil)
+	geo.Sources[0].URL = srv.URL + "/new.dat"
+	g.Ensure(ctx, geo, nil)
+	srv.files["new.dat"] = v2
+	srv.hits["new.dat"] = &atomic.Int32{}
+	now = now.Add(g.retry + time.Second)
+	g.Ensure(ctx, geo, nil)
+	got, err := os.ReadFile(g.path("ru"))
+	if err != nil || !bytes.Equal(got, v2) {
+		t.Fatalf("the new source was never taken: %+v", g.Status()["ru"])
+	}
+}
+
 func TestGeoKeepsTheOldBaseWhenTagsOfTheRulesAreGone(t *testing.T) {
 	v1 := siteDat(t, "example.ru")
 	srv := newGeoServer(t, map[string][]byte{"ru.dat": v1})

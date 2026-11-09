@@ -388,6 +388,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if err != nil {
 		return nil, err
 	}
+	oldAddress := n.Address
 	if patch.Name != nil {
 		if err := validName("name", *patch.Name); err != nil {
 			return nil, err
@@ -407,7 +408,7 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 	if patch.GroupIDs != nil {
 		n.GroupIDs = nonNilIDs(*patch.GroupIDs)
 	}
-	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != n.Address)
+	exitChanged := (patch.Enabled != nil && *patch.Enabled != n.Enabled) || (patch.Address != nil && *patch.Address != oldAddress)
 	if patch.Enabled != nil {
 		n.Enabled = *patch.Enabled
 	}
@@ -421,21 +422,12 @@ func (s *Service) UpdateNode(ctx context.Context, id int64, patch NodePatch) (*m
 		profileChanged = !slices.Equal(ptrSlice(n.ProfileID), ptrSlice(patch.ProfileID.Value))
 		n.ProfileID = patch.ProfileID.Value
 	}
-	if err := s.store.UpdateNode(ctx, n); err != nil {
+	fx := store.NodeEffects{RefreshLinks: profileChanged || (patch.Enabled != nil && exitChanged), BumpCascading: exitChanged}
+	if err := s.store.UpdateNodeWith(ctx, n, fx); err != nil {
 		if errors.Is(err, store.ErrInvalidReference) && patch.GroupIDs != nil {
 			return nil, fieldErr("group_ids", "group not found")
 		}
 		return nil, referenceOr(err, "profile_id", "profile not found")
-	}
-	if profileChanged || (patch.Enabled != nil && exitChanged) {
-		if err := s.store.RefreshLinks(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if exitChanged {
-		if err := s.store.BumpNodesCascadingTo(ctx, id); err != nil {
-			return nil, err
-		}
 	}
 	return s.GetNode(ctx, id)
 }
@@ -699,6 +691,11 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 		if err := inboundGuard(&spec)(others); err != nil {
 			return nil, err
 		}
+		if spec.Tag != current.Tag {
+			if err := s.tagFreeOfRules(ctx, current.NodeID, current.Tag); err != nil {
+				return nil, err
+			}
+		}
 		return modelOf(current.NodeID, &spec)
 	})
 	if err != nil {
@@ -708,6 +705,13 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 }
 
 func (s *Service) DeleteInbound(ctx context.Context, id int64) error {
+	current, err := s.store.GetInbound(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.tagFreeOfRules(ctx, current.NodeID, current.Tag); err != nil {
+		return err
+	}
 	return s.store.DeleteInbound(ctx, id)
 }
 

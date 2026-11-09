@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -27,9 +28,19 @@ type fakeCore struct {
 	syncExtra       map[string]any
 	perInbound      bool
 	xhttp           bool
+	gate            chan struct{}
+	stall           atomic.Bool
+	stalled         atomic.Int32
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if f.stall.Load() {
+		f.stalled.Add(1)
+		select {
+		case <-f.gate:
+		case <-r.Context().Done():
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch r.URL.Path {

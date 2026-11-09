@@ -17,7 +17,7 @@ func TestRootShellHidesCertCommands(t *testing.T) {
 	m.root = true
 	m.input.SetValue("/")
 	for _, s := range m.suggestions() {
-		if s.value == "/bundle" || s.value == "/revoke" || s.value == "/certs" {
+		if s.value == "/bundle" || s.value == "/renew" || s.value == "/revoke" || s.value == "/certs" {
 			t.Fatalf("root shell offers %s", s.value)
 		}
 	}

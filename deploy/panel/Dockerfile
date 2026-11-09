@@ -18,6 +18,7 @@ RUN GOWORK=off CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/IT
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/sylph-panel /sylph-panel
+ENV GODEBUG=multipathtcp=0
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/sylph-panel"]

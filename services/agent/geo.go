@@ -50,7 +50,14 @@ type geoEntry struct {
 	DownloadedAt time.Time `json:"downloaded_at,omitzero"`
 	Error        string    `json:"error,omitempty"`
 	TriedAt      time.Time `json:"tried_at,omitzero"`
+	TriedURL     string    `json:"tried_url,omitempty"`
+	TriedSumURL  string    `json:"tried_sha256_url,omitempty"`
+	TriedGen     int64     `json:"tried_generation,omitempty"`
 }
+
+type missingTagsError string
+
+func (e missingTagsError) Error() string { return string(e) }
 
 type GeoManager struct {
 	dir       string
@@ -185,15 +192,21 @@ func (g *GeoManager) Ensure(ctx context.Context, geo *SyncGeo, need map[string][
 		if exists && sameSource && e.Generation >= geo.Generation {
 			continue
 		}
-		if !exists && sameSource && e.Error != "" && g.now().Sub(e.TriedAt) < g.retry {
+		sameTry := e.TriedURL == src.URL && e.TriedSumURL == src.SHA256URL && e.TriedGen == geo.Generation
+		if e.Error != "" && g.now().Sub(e.TriedAt) < g.retry && (sameTry || (!exists && sameSource)) {
 			continue
 		}
 		sum, size, err := g.download(ctx, src, need[src.Name])
 		next := geoEntry{URL: src.URL, SHA256URL: src.SHA256URL, Generation: geo.Generation, TriedAt: g.now()}
 		if err != nil {
+			var tags missingTagsError
 			next.Error = truncate(err.Error(), 300)
 			if exists {
 				next.SHA256, next.Size, next.DownloadedAt = e.SHA256, e.Size, e.DownloadedAt
+				if !errors.As(err, &tags) {
+					next.URL, next.SHA256URL, next.Generation = e.URL, e.SHA256URL, e.Generation
+					next.TriedURL, next.TriedSumURL, next.TriedGen = src.URL, src.SHA256URL, geo.Generation
+				}
 			}
 			g.logger.Error("geo_download_failed", "source", src.Name, "error", next.Error)
 		} else {
@@ -358,7 +371,7 @@ func (g *GeoManager) download(ctx context.Context, src GeoSource, need []string)
 		}
 	}
 	if len(missing) > 0 {
-		return "", 0, fmt.Errorf("the new file has no tags %s that the rules use: the old file is kept", strings.Join(missing, ", "))
+		return "", 0, missingTagsError(fmt.Sprintf("the new file has no tags %s that the rules use: the old file is kept", strings.Join(missing, ", ")))
 	}
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return "", 0, err

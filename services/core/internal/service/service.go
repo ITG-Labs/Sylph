@@ -18,6 +18,7 @@ type Service struct {
 	returnURL   string
 	createLocks [64]sync.Mutex
 	pollBudget  time.Duration
+	pollEach    time.Duration
 	nodeOffline time.Duration
 	nodeStale   time.Duration
 	botUsername string
@@ -41,7 +42,7 @@ func (s *Service) withLinks(invites ...*model.Invite) {
 }
 
 func NewService(st *store.Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log, pollBudget: 20 * time.Second, nodeOffline: DefaultNodeOffline, nodeStale: DefaultNodeSyncStale}
+	return &Service{store: st, log: log, pollBudget: 20 * time.Second, pollEach: pollEachBudget, nodeOffline: DefaultNodeOffline, nodeStale: DefaultNodeSyncStale}
 }
 
 func (s *Service) UpsertNode(ctx context.Context, n *model.Node) error {

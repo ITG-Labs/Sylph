@@ -54,6 +54,7 @@ type Role struct {
 const (
 	KeyVersion      = "SYLPH_VERSION"
 	KeyCaddyVersion = "CADDY_VERSION"
+	KeyXrayVersion  = "XRAY_VERSION"
 	KeyCoreURL      = "SYLPH_CORE_URL"
 	KeyCoreName     = "SYLPH_CORE_NAME"
 	KeyPort         = "SYLPH_HTTPS_PORT"
@@ -187,9 +188,9 @@ var all = []*Role{
 		CertReaders: []string{"agent"},
 		Fields: []Field{
 			coreURL,
-			{Key: "XRAY_VERSION", Title: "Версия xray-core", Description: "агент формирует конфигурацию для этой версии", Validate: XrayVersion},
 			coreName, httpsPort, logLevel,
 		},
+		check: checkNode,
 	},
 	{
 		Name:        "monitor",
@@ -271,10 +272,30 @@ func (r *Role) Pin(env *envfile.Env, version string) error {
 		return err
 	}
 	env.Set(KeyVersion, version)
-	if v, ok := tmpl.Lookup(KeyCaddyVersion); ok {
-		env.Set(KeyCaddyVersion, v)
+	for k, v := range PinsOf(tmpl) {
+		env.Set(k, v)
 	}
 	return nil
+}
+
+var pinnedKeys = []string{KeyCaddyVersion, KeyXrayVersion}
+
+func PinsOf(env *envfile.Env) map[string]string {
+	pins := map[string]string{}
+	for _, k := range pinnedKeys {
+		if v, ok := env.Lookup(k); ok {
+			pins[k] = v
+		}
+	}
+	return pins
+}
+
+func (r *Role) Pins() map[string]string {
+	tmpl, _, err := r.Template()
+	if err != nil {
+		return map[string]string{}
+	}
+	return PinsOf(tmpl)
 }
 
 func (r *Role) Field(key string) (Field, bool) {
@@ -346,6 +367,13 @@ func (f Field) Check(v string) error {
 func checkCore(env *envfile.Env) []error {
 	if err := ValidPassword(env.Get(KeyPassword)); err != nil {
 		return []error{fmt.Errorf("%s: %w", KeyPassword, err)}
+	}
+	return nil
+}
+
+func checkNode(env *envfile.Env) []error {
+	if err := XrayVersion(env.Get(KeyXrayVersion)); err != nil {
+		return []error{fmt.Errorf("%s: %w", KeyXrayVersion, err)}
 	}
 	return nil
 }

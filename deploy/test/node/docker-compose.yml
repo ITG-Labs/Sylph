@@ -8,7 +8,7 @@ services:
     volumes:
       - ./pebble/pebble-config.json:/etc/pebble/pebble-config.json:ro
   roots:
-    image: curlimages/curl:8.17.0
+    image: curlimages/curl:8.23.0
     user: root
     command: ["sh", "-c", "until curl -sfk https://pebble:15000/roots/0 -o /roots/root.pem; do sleep 1; done"]
     volumes:
@@ -32,15 +32,20 @@ services:
       context: .
       dockerfile: agent.Dockerfile
     image: sylph-test-node-agent
+    cap_drop: [ALL]
+    cap_add: [KILL, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
     entrypoint: ["/sylph/sylph-agent", "bootstrap"]
     volumes:
       - xray-config:/etc/xray
   xray:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     network_mode: service:caddy
     pid: service:caddy
     restart: unless-stopped
     command: ["run", "-c", "/etc/xray/config.json"]
+    environment:
+      XRAY_BUF_SPLICE: disable
     volumes:
       - xray-config:/etc/xray:ro
     depends_on:
@@ -49,7 +54,7 @@ services:
       caddy:
         condition: service_started
   client:
-    image: ghcr.io/xtls/xray-core:26.10.21
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
     command: ["run", "-c", "/etc/sylph/client.json"]
     volumes:
       - ./client.json:/etc/sylph/client.json:ro
@@ -57,8 +62,16 @@ services:
     depends_on:
       roots:
         condition: service_completed_successfully
+  client2:
+    image: ghcr.io/itg-labs/sylph-xray:26.11.9
+    command: ["run", "-c", "/etc/sylph/client.json"]
+    volumes:
+      - ./client2.json:/etc/sylph/client.json:ro
   agent:
     image: sylph-test-node-agent
+    cap_drop: [ALL]
+    cap_add: [KILL, NET_ADMIN]
+    security_opt: [no-new-privileges:true]
     network_mode: service:caddy
     pid: service:caddy
     entrypoint: ["/sylph/agent.test", "-test.run", "^TestNodeLive", "-test.v", "-test.count=1"]
@@ -73,6 +86,8 @@ services:
       xray:
         condition: service_started
       client:
+        condition: service_started
+      client2:
         condition: service_started
     profiles: ["test"]
 volumes:

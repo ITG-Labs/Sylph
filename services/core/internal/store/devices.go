@@ -65,15 +65,15 @@ func (s *Store) registerDevice(ctx context.Context, userID int64, d DeviceInfo, 
 		}
 	}
 	if limit != nil {
-		var known bool
-		var count int
+		var rank, count int
 		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM devices WHERE user_id = $1 AND fingerprint = $2),
+			`SELECT COALESCE((SELECT r FROM (SELECT fingerprint, row_number() OVER (ORDER BY first_seen, id) AS r
+			                                 FROM devices WHERE user_id = $1) o WHERE fingerprint = $2), 0),
 			        (SELECT count(*) FROM devices WHERE user_id = $1)`,
-			userID, d.HWID).Scan(&known, &count); err != nil {
+			userID, d.HWID).Scan(&rank, &count); err != nil {
 			return 0, err
 		}
-		if !known && count >= *limit {
+		if (rank == 0 && count >= *limit) || rank > *limit {
 			return DeviceOverLimit, nil
 		}
 	}

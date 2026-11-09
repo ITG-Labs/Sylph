@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -227,6 +228,35 @@ func TestCascadeToItselfIsRefused(t *testing.T) {
 	}
 	_, err = f.svc.UpdateProfile(ctx, view.ID, view.Name, docOf(t, cascadeDocTo(f.x.ID)), view.Revision)
 	mustField(t, err, "doc.outbounds[2].cascade.node_id")
+}
+
+func TestExitAddressChangeBumpsCascadingNode(t *testing.T) {
+	f := setupCascade(t)
+	ctx := context.Background()
+	before, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := "node-y2.example.com"
+	if _, err := f.svc.UpdateNode(ctx, f.y.ID, NodePatch{Address: &addr}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := f.svc.store.GetNode(ctx, f.x.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UsersVersion <= before.UsersVersion {
+		t.Fatal("changing the exit address did not bump the cascading node")
+	}
+	resp, err := f.svc.SyncNodeUsers(ctx, f.x.CertCN, before.UsersVersion, AgentCaps{PerInbound: true})
+	if err != nil || resp.Routing == nil {
+		t.Fatalf("sync: %v", err)
+	}
+	for _, o := range resp.Routing.Outbounds {
+		if o.Tag == "to-exit" && (o.Proxy == nil || o.Proxy.Address != addr) {
+			t.Fatalf("cascade outbound = %+v", o)
+		}
+	}
 }
 
 func TestCascadeToUnavailableNodeBecomesBlock(t *testing.T) {
@@ -579,5 +609,114 @@ func TestSecretIsNotKeptWhenRealityKeyChanges(t *testing.T) {
 		change()
 		_, err := svc.UpdateProfile(ctx, v.ID, "p", docOf(t, d), v.Revision)
 		mustField(t, err, "doc.outbounds[2].proxy.uuid")
+	}
+}
+
+func TestInboundReferencedByProfileRulesCannotLoseItsTag(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n, in := realityNode(t, svc, "node-r")
+	spare, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "spare", Port: 443, Transport: "xhttp", Label: "S",
+		Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"a.example.org"}}, XHTTP: &inbound.XHTTP{Path: "/a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := basicDoc()
+	d["rules"] = []any{map[string]any{"inbound": []string{"main"}, "to": "block"}}
+	p, err := svc.CreateProfile(ctx, "by-inbound", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateNode(ctx, n.ID, NodePatch{ProfileID: Optional[int64]{Set: true, Value: &p.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	renamed := "main-2"
+	_, err = svc.UpdateInbound(ctx, in.ID, InboundPatch{Tag: &renamed})
+	mustConflict(t, err, "tag")
+	mustConflict(t, svc.DeleteInbound(ctx, in.ID), "tag")
+	label := "Renamed label"
+	if _, err := svc.UpdateInbound(ctx, in.ID, InboundPatch{Label: &label}); err != nil {
+		t.Fatalf("a change that keeps the tag must pass: %v", err)
+	}
+	other := "spare-2"
+	if _, err := svc.UpdateInbound(ctx, spare.ID, InboundPatch{Tag: &other}); err != nil {
+		t.Fatalf("an unreferenced tag must be renamable: %v", err)
+	}
+	if err := svc.DeleteInbound(ctx, spare.ID); err != nil {
+		t.Fatalf("an unreferenced inbound must be deletable: %v", err)
+	}
+	if _, err := svc.UpdateNode(ctx, n.ID, NodePatch{ProfileID: Optional[int64]{Set: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateInbound(ctx, in.ID, InboundPatch{Tag: &renamed}); err != nil {
+		t.Fatalf("rename after the profile is detached: %v", err)
+	}
+	if err := svc.DeleteInbound(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnavailableCascadeLeavesTheBalancer(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	x, _ := realityNode(t, svc, "node-x")
+	exits := map[string]*model.Node{}
+	d := basicDoc()
+	var members []string
+	for _, name := range []string{"a", "b", "c"} {
+		n, _ := realityNode(t, svc, "exit-"+name)
+		exits[name] = n
+		d["outbounds"] = append(d["outbounds"].([]any), map[string]any{"tag": "to-" + name, "kind": "cascade", "cascade": map[string]any{"node_id": n.ID}})
+		members = append(members, "to-"+name)
+	}
+	d["balancers"] = []any{map[string]any{"tag": "pool", "strategy": "random", "outbounds": members}}
+	d["rules"] = []any{map[string]any{"name": "ru", "domain": []string{"example.ru"}, "to": "pool"}}
+	d["default"] = "pool"
+	p, err := svc.CreateProfile(ctx, "pool", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateNode(ctx, x.ID, NodePatch{ProfileID: Optional[int64]{Set: true, Value: &p.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	routing := func() *noderoute.Profile {
+		t.Helper()
+		resp, err := svc.SyncNodeUsers(ctx, x.CertCN, 0, AgentCaps{PerInbound: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := noderoute.ValidateResolved(resp.Routing); err != nil {
+			t.Fatalf("resolved routing is invalid: %v", err)
+		}
+		return resp.Routing
+	}
+	off := false
+	if _, err := svc.UpdateNode(ctx, exits["a"].ID, NodePatch{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	r := routing()
+	if len(r.Balancers) != 1 || !reflect.DeepEqual(r.Balancers[0].Outbounds, []string{"to-b", "to-c"}) || r.Default != "pool" {
+		t.Fatalf("balancer still sends a share of traffic to the blackholed exit: %+v default %q", r.Balancers, r.Default)
+	}
+	if _, err := svc.UpdateNode(ctx, exits["b"].ID, NodePatch{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	r = routing()
+	if len(r.Balancers) != 0 || r.Default != "to-c" || r.Rules[len(r.Rules)-1].To != "to-c" {
+		t.Fatalf("one live exit left, want it in place of the balancer: balancers %+v default %q rules %+v", r.Balancers, r.Default, r.Rules)
+	}
+	if _, err := svc.UpdateNode(ctx, exits["c"].ID, NodePatch{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	r = routing()
+	if len(r.Balancers) != 1 || len(r.Balancers[0].Outbounds) != 3 || r.Default != "pool" {
+		t.Fatalf("no live exit and no fallback, want the profile as written: %+v default %q", r.Balancers, r.Default)
+	}
+	d["balancers"] = []any{map[string]any{"tag": "pool", "strategy": "random", "outbounds": members, "fallback": "block"}}
+	if _, err := svc.UpdateProfile(ctx, p.ID, "pool", docOf(t, d), p.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if r = routing(); len(r.Balancers) != 0 || r.Default != "block" {
+		t.Fatalf("no live exit, want the fallback in place of the balancer: %+v default %q", r.Balancers, r.Default)
 	}
 }

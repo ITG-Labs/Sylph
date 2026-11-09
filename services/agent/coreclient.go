@@ -79,6 +79,7 @@ type Heartbeat struct {
 	Addresses      []AddressStatus       `json:"addresses"`
 	Online         *[]OnlineKey          `json:"online,omitempty"`
 	TLSStatus      map[string]CertStatus `json:"tls_status,omitempty"`
+	Applied        []string              `json:"applied_inbounds"`
 }
 
 type OnlineKey struct {

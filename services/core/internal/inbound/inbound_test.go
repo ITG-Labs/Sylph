@@ -116,6 +116,10 @@ func TestNormalizeRejects(t *testing.T) {
 		{"dest without port", func(s *Spec) { s.Reality.Dest = "www.example.com" }, "reality.dest"},
 		{"dest bad port", func(s *Spec) { s.Reality.Dest = "www.example.com:0" }, "reality.dest"},
 		{"dest bad host", func(s *Spec) { s.Reality.Dest = "-bad-.com:443" }, "reality.dest"},
+		{"dest dotless host", func(s *Spec) { s.Reality.Dest = "intranet:443" }, "reality.dest"},
+		{"dest local zone", func(s *Spec) { s.Reality.Dest = "site.local:443" }, "reality.dest"},
+		{"dest internal zone", func(s *Spec) { s.Reality.Dest = "git.corp.internal:443" }, "reality.dest"},
+		{"dest lan zone", func(s *Spec) { s.Reality.Dest = "nas.lan:443" }, "reality.dest"},
 		{"no server names", func(s *Spec) { s.Reality.ServerNames = nil }, "reality.server_names"},
 		{"ip server name", func(s *Spec) { s.Reality.ServerNames = []string{"1.2.3.4"} }, "reality.server_names"},
 		{"dotless server name", func(s *Spec) { s.Reality.ServerNames = []string{"localhost"} }, "reality.server_names"},
@@ -256,7 +260,7 @@ func TestDestRejectsNumericShorthandsThatResolversTurnIntoIPs(t *testing.T) {
 	for _, dest := range []string{
 		"127.1:443", "2130706433:443", "0x7f000001:443", "0x7f.0.0.1:443", "0177.0.0.1:443", "127.0.0.01:443",
 		"10.1:443", "192.168.1:443", "1.1:443",
-		"localhost.localdomain:443", "ip6-localhost:443", "ip6-loopback:443",
+		"localhost.localdomain:443", "ip6-localhost:443", "ip6-loopback:443", "decoy:443",
 		"[::127.0.0.1]:443", "[::ffff:0:127.0.0.1]:443", "[64:ff9b::7f00:1]:443", "[64:ff9b::a00:1]:443",
 	} {
 		s := validSpec()
@@ -265,7 +269,7 @@ func TestDestRejectsNumericShorthandsThatResolversTurnIntoIPs(t *testing.T) {
 			t.Errorf("dest %s accepted: %v", dest, err)
 		}
 	}
-	for _, dest := range []string{"decoy:443", "mask.test:443", "xn--80ak6aa92e.com:443", "[64:ff9b::808:808]:443"} {
+	for _, dest := range []string{"mask.test:443", "xn--80ak6aa92e.com:443", "[64:ff9b::808:808]:443"} {
 		s := validSpec()
 		s.Reality.Dest = dest
 		if err := Normalize(&s); err != nil {

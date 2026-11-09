@@ -1,6 +1,7 @@
 package inbound
 
 import (
+	"encoding/json"
 	"math"
 	"math/big"
 	"net"
@@ -152,6 +153,17 @@ func (x *XHTTP) LinkExtra() Extra {
 	e := x.Extra
 	e.NoSSEHeader, e.ScMaxBufferedPosts, e.ScStreamUpServerSecs, e.ServerMaxHeaderBytes = false, 0, "", 0
 	return e
+}
+
+type linkExtra struct {
+	Extra
+	SessionPlacement string `json:"sessionPlacement,omitempty"`
+	SessionKey       string `json:"sessionKey,omitempty"`
+}
+
+func (x *XHTTP) LinkExtraJSON() ([]byte, error) {
+	e := x.LinkExtra()
+	return json.Marshal(linkExtra{Extra: e, SessionPlacement: e.SessionIDPlacement, SessionKey: e.SessionIDKey})
 }
 
 func PathPrefix(path string) string {

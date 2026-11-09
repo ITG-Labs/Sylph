@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
@@ -20,9 +21,12 @@ type Engine struct {
 	haveDesired bool
 	inbounds    []Inbound
 	users       []SyncUser
+	left        map[string]map[string]bool
 	routing     *noderoute.Profile
 	serviceKeys []string
 	geo         *SyncGeo
+	sockets     SocketKiller
+	gateways    func() (map[netip.Addr]bool, error)
 }
 
 type NodeDesired struct {
@@ -35,12 +39,14 @@ type NodeDesired struct {
 
 func NewEngine(cfg *Config, core *CoreClient, xray XrayClient, logger *slog.Logger) *Engine {
 	return &Engine{
-		cfg:     cfg,
-		core:    core,
-		xray:    xray,
-		logger:  logger,
-		version: -1,
-		desired: map[string]bool{},
+		cfg:      cfg,
+		core:     core,
+		xray:     xray,
+		logger:   logger,
+		version:  -1,
+		desired:  map[string]bool{},
+		sockets:  netlinkSockets{},
+		gateways: nodeGateways,
 	}
 }
 
@@ -122,6 +128,46 @@ func (e *Engine) desiredOn(tag string) map[string]string {
 	return out
 }
 
+func (e *Engine) knows(tag string) bool {
+	return e.inbounds == nil || slices.ContainsFunc(e.inbounds, func(in Inbound) bool { return in.Tag == tag })
+}
+
+func (e *Engine) rememberLeft(next []Inbound) {
+	for _, in := range e.inbounds {
+		if slices.ContainsFunc(next, func(n Inbound) bool { return n.Tag == in.Tag }) {
+			continue
+		}
+		if e.left == nil {
+			e.left = map[string]map[string]bool{}
+		}
+		on := map[string]bool{}
+		for _, uuid := range e.desiredOn(in.Tag) {
+			on[uuid] = true
+		}
+		e.left[in.Tag] = on
+	}
+	for _, in := range next {
+		delete(e.left, in.Tag)
+	}
+}
+
+func (e *Engine) wantOn(tag string) (map[string]string, bool) {
+	if e.knows(tag) {
+		return e.desiredOn(tag), true
+	}
+	left, remembered := e.left[tag]
+	out := map[string]string{}
+	for _, u := range e.users {
+		if !remembered || left[u.UUID] {
+			out[userEmail(u.UUID, tag)] = u.UUID
+		}
+	}
+	for _, k := range e.serviceKeys {
+		out[k] = k
+	}
+	return out, remembered
+}
+
 func (e *Engine) PlanUsers() map[int64][]string {
 	out := map[int64][]string{}
 	for _, u := range e.users {
@@ -157,12 +203,17 @@ func (e *Engine) LoadState(path string) error {
 
 func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	resp, err := e.core.SyncUsers(ctx, e.version)
+	return e.take(resp, err)
+}
+
+func (e *Engine) take(resp *SyncResp, err error) (*SyncResp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sync: %w", err)
 	}
 	if resp.Users == nil {
 		return resp, nil
 	}
+	e.rememberLeft(resp.Inbounds)
 	e.setRouting(resp.Routing, resp.ServiceKeys, resp.Geo)
 	e.setDesired(resp.Users)
 	e.inbounds = resp.Inbounds
@@ -191,19 +242,28 @@ func (e *Engine) reconcileAll(ctx context.Context, inbounds []Inbound, add bool)
 	if !e.haveDesired {
 		return nil
 	}
+	drop := &sessionDrop{ips: map[netip.Addr]bool{}}
+	defer e.killSessions(ctx, inbounds, drop)
+	if add {
+		for tag := range e.left {
+			if !slices.ContainsFunc(inbounds, func(in Inbound) bool { return in.Tag == tag }) {
+				delete(e.left, tag)
+			}
+		}
+	}
 	var firstErr error
 	for _, in := range inbounds {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.reconcileInbound(ctx, in, add); err != nil && firstErr == nil {
+		if err := e.reconcileInbound(ctx, in, add, drop); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
 }
 
-func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) error {
+func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool, drop *sessionDrop) error {
 	live, err := e.xray.ListUsers(ctx, in.Tag)
 	if err != nil {
 		return fmt.Errorf("list xray users in %s: %w", in.Tag, err)
@@ -212,29 +272,43 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool) err
 	for _, email := range live {
 		actual[email] = true
 	}
-	want := e.desiredOn(in.Tag)
+	want, known := e.wantOn(in.Tag)
+	add = add && known
 	keys := make(map[string]bool, len(want))
 	for _, uuid := range want {
 		keys[uuid] = true
 	}
-	var firstErr error
+	var gone []string
 	for email := range actual {
 		uuid, wanted := want[email]
 		if legacy, tag := splitEmail(email); !add && tag == "" && keys[legacy] {
 			uuid, wanted = legacy, true
 		}
-		if wanted && !e.blocked[uuid] {
-			continue
+		if !wanted || e.blocked[uuid] {
+			gone = append(gone, email)
 		}
+	}
+	revoked := func(email string) bool {
+		uuid, _ := splitEmail(email)
+		return !keys[uuid]
+	}
+	if slices.ContainsFunc(gone, revoked) {
+		e.snapshotOnline(ctx, drop)
+	}
+	var firstErr error
+	for _, email := range gone {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		uuid, _ = splitEmail(email)
+		uuid, _ := splitEmail(email)
 		if err := e.xray.RemoveUser(ctx, in.Tag, email); err != nil {
 			firstErr = e.recordFailure(firstErr, "remove", in.Tag, uuid, err)
 			continue
 		}
 		delete(actual, email)
+		if revoked(email) {
+			drop.add(email)
+		}
 		e.logger.Info("xray_user_removed", "inbound", in.Tag, "key_ref", keyRef(uuid))
 	}
 	if !add {

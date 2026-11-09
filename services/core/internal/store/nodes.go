@@ -59,12 +59,26 @@ func (s *Store) CreateNode(ctx context.Context, n *model.Node) error {
 	return tx.Commit(ctx)
 }
 
+type NodeEffects struct {
+	RefreshLinks  bool
+	BumpCascading bool
+}
+
 func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
+	return s.UpdateNodeWith(ctx, n, NodeEffects{})
+}
+
+func (s *Store) UpdateNodeWith(ctx context.Context, n *model.Node, fx NodeEffects) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if fx.RefreshLinks || fx.BumpCascading {
+		if err := lockLinks(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if n.GroupIDs != nil {
 		if err := setNodeGroups(ctx, tx, n.ID, n.GroupIDs); err != nil {
 			return err
@@ -81,6 +95,16 @@ func (s *Store) UpdateNode(ctx context.Context, n *model.Node) error {
 	}
 	if err != nil {
 		return mapWriteErr(err)
+	}
+	if fx.RefreshLinks {
+		if err := refreshLinks(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if fx.BumpCascading {
+		if _, err := tx.Exec(ctx, `SELECT bump_nodes_ordered(ARRAY(SELECT from_node_id FROM node_links WHERE to_node_id = $1))`, n.ID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -114,9 +138,13 @@ func (s *Store) TouchNodeHeartbeat(ctx context.Context, nodeID int64, hb model.N
 	_, err := s.pool.Exec(ctx,
 		`UPDATE nodes SET last_heartbeat = now(), agent_version = $2, xray_version = NULLIF($3, ''),
 		 agent_uptime_sec = $4, xray_uptime_sec = $5, active_users = $6, config_error = $7, geo_status = $8, routing_error = $9,
-		 cert_not_after = COALESCE($10, cert_not_after), tls_status = $11
+		 cert_not_after = COALESCE($10, cert_not_after), tls_status = $11::jsonb, applied_inbounds = $12,
+		 tls_ready = CASE WHEN jsonb_typeof($11::jsonb) = 'object' THEN ARRAY(
+		     SELECT e.key FROM jsonb_each($11::jsonb) e
+		     WHERE (e.value->>'not_after' IS NOT NULL AND coalesce(e.value->>'error', '') = '' AND (e.value->>'not_after')::timestamptz > now())
+		        OR (e.value->>'not_after' IS NULL AND e.key = ANY(coalesce(nodes.tls_ready, '{}')))) END
 		 WHERE id = $1`,
-		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter, nullJSON(hb.TLSStatus))
+		nodeID, hb.AgentVersion, hb.XrayVersion, hb.AgentUptimeSec, hb.XrayUptimeSec, hb.ActiveUsers, hb.ConfigError, nullJSON(hb.GeoStatus), hb.RoutingError, hb.CertNotAfter, nullJSON(hb.TLSStatus), hb.Applied)
 	return err
 }
 

@@ -25,6 +25,8 @@ import (
 
 var errInvalidUserID = errors.New("invalid user id")
 
+const maxRecvBytes = 64 << 20
+
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Client struct {
@@ -49,6 +51,7 @@ func dial(target string, timeout time.Duration, opts ...grpc.DialOption) (*Clien
 			Backoff:           backoff.Config{BaseDelay: 200 * time.Millisecond, Multiplier: 1.6, Jitter: 0.2, MaxDelay: 500 * time.Millisecond},
 			MinConnectTimeout: timeout,
 		}),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxRecvBytes)),
 	}, opts...)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
@@ -139,7 +142,7 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 	}
 	out := make(map[string]map[string]int64, len(resp.GetUsers()))
 	var failed error
-	for _, name := range resp.GetUsers() {
+	for i, name := range resp.GetUsers() {
 		parts := strings.Split(name, ">>>")
 		if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
 			continue
@@ -148,6 +151,9 @@ func (c *Client) OnlineIPs(ctx context.Context) (map[string]map[string]int64, er
 		ips, err := c.stats.GetStatsOnlineIpList(callCtx, &statscmd.GetStatsRequest{Name: name})
 		cancel()
 		if err != nil {
+			if code := status.Code(err); code == codes.DeadlineExceeded || code == codes.Unavailable || ctx.Err() != nil {
+				return out, fmt.Errorf("xray online ips: walk stopped at %d of %d users: %w", i, len(resp.GetUsers()), err)
+			}
 			failed = err
 			continue
 		}

@@ -140,20 +140,119 @@ func TestMonitorStateMoney(t *testing.T) {
 	u, p := userAndPlan(t, svc, 501, 199)
 	for _, q := range []string{
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, created_at) VALUES ('mm', $1, $2, 199, 'mismatch', 'yookassa', now())`,
-		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, created_at) VALUES ('old', $1, $2, 199, 'pending', 'yookassa', now() - interval '2 hours')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, created_at) VALUES ('old', $1, $2, 199, 'pending', 'yookassa', now() - interval '25 hours')`,
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, created_at) VALUES ('fresh', $1, $2, 199, 'pending', 'yookassa', now() - interval '5 minutes')`,
 	} {
 		exec(t, svc, q, u.ID, p.ID)
 	}
 	got := problemsByKey(t, svc)
-	if p, ok := got["money:mismatch"]; !ok || p.DelaySec != 0 || !strings.Contains(p.Text, "1") {
-		t.Fatalf("mismatch = %+v (%v)", p, got)
+	var mismatchKey string
+	for key, pr := range got {
+		if strings.HasPrefix(key, "money:mismatch:") {
+			mismatchKey = key
+			if pr.DelaySec != 0 || pr.Category != CategoryMoney || !strings.Contains(pr.Text, "199") {
+				t.Fatalf("mismatch = %+v", pr)
+			}
+		}
+	}
+	if mismatchKey == "" {
+		t.Fatalf("no mismatch problem: %v", got)
 	}
 	if p, ok := got["money:pending"]; !ok || !strings.Contains(p.Text, "1") {
 		t.Fatalf("pending = %+v (%v)", p, got)
 	}
-	if _, ok := got["money:banned"]; ok {
-		t.Fatal("no banned payments, but got the alert")
+	for key := range got {
+		if strings.HasPrefix(key, "money:banned") {
+			t.Fatalf("no banned payments, but got %s", key)
+		}
+	}
+}
+
+func TestMonitorStatePendingWaitsForTheLinkToExpire(t *testing.T) {
+	svc := setupService(t)
+	u, p := userAndPlan(t, svc, 502, 199)
+	exec(t, svc, `INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, created_at) VALUES ('abandoned', $1, $2, 199, 'pending', 'yookassa', now() - interval '3 hours')`, u.ID, p.ID)
+	if _, ok := problemsByKey(t, svc)["money:pending"]; ok {
+		t.Fatal("a payment pending for three hours is still inside the poll window, but raised the alert")
+	}
+	exec(t, svc, `UPDATE payments SET created_at = now() - interval '25 hours' WHERE payment_id = 'abandoned'`)
+	if _, ok := problemsByKey(t, svc)["money:pending"]; !ok {
+		t.Fatal("a payment pending past the poll window raised no alert")
+	}
+}
+
+func TestMonitorStateEveryMoneyIncidentHasItsOwnKey(t *testing.T) {
+	svc := setupService(t)
+	u1, p1 := userAndPlan(t, svc, 503, 199)
+	u2, _ := userAndPlan(t, svc, 504, 199)
+	exec(t, svc, `INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source) VALUES ('m1', $1, $2, 199, 'mismatch', 'yookassa')`, u1.ID, p1.ID)
+	first := problemsByKey(t, svc)
+	exec(t, svc, `INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source) VALUES ('m2', $1, $2, 199, 'mismatch', 'yookassa')`, u2.ID, p1.ID)
+	second := problemsByKey(t, svc)
+	count := func(got map[string]Problem, prefix string) int {
+		n := 0
+		for key := range got {
+			if strings.HasPrefix(key, prefix) {
+				n++
+			}
+		}
+		return n
+	}
+	if count(first, "money:mismatch") != 1 || count(second, "money:mismatch") != 2 {
+		t.Fatalf("mismatch keys: first %v, second %v", first, second)
+	}
+	exec(t, svc, `UPDATE users SET status = 'banned', banned_at = now() - interval '1 hour' WHERE id = $1`, u1.ID)
+	exec(t, svc, `INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, paid_at) VALUES ('b1', $1, $2, 199, 'succeeded', 'yookassa', now())`, u1.ID, p1.ID)
+	exec(t, svc, `UPDATE users SET status = 'banned', banned_at = now() - interval '1 hour' WHERE id = $1`, u2.ID)
+	exec(t, svc, `INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, paid_at) VALUES ('b2', $1, $2, 199, 'succeeded', 'yookassa', now())`, u2.ID, p1.ID)
+	if got := count(problemsByKey(t, svc), "money:banned"); got != 2 {
+		t.Fatalf("banned keys = %d, want 2", got)
+	}
+}
+
+func TestMonitorStateDedicatedAddressProblems(t *testing.T) {
+	svc := setupService(t)
+	online := mkNodeAt(t, svc, "online", true, "10 seconds", "20 seconds", nil)
+	down := mkNodeAt(t, svc, "down", true, "4 minutes", "4 minutes", nil)
+	u1, _ := userAndPlan(t, svc, 510, 199)
+	u2, _ := userAndPlan(t, svc, 511, 199)
+	u3, _ := userAndPlan(t, svc, 512, 199)
+	u4, _ := userAndPlan(t, svc, 513, 199)
+	u5, _ := userAndPlan(t, svc, 514, 199)
+	add := func(nodeID int64, ip, status string, user *model.User) {
+		var id int64
+		if err := poolOf(svc).QueryRow(context.Background(),
+			`INSERT INTO node_addresses (node_id, ip, status, error) VALUES ($1, $2, $3, CASE WHEN $3 = 'error' THEN 'probe failed' END) RETURNING id`,
+			nodeID, ip, status).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if user != nil {
+			exec(t, svc, `INSERT INTO address_assignments (address_id, node_id, user_id) VALUES ($1, $2, $3)`, id, nodeID, user.ID)
+		}
+	}
+	add(online.ID, "203.0.113.1", "error", u1)
+	add(online.ID, "203.0.113.2", "missing", u2)
+	add(online.ID, "203.0.113.3", "ok", u3)
+	add(online.ID, "203.0.113.4", "error", nil)
+	add(down.ID, "203.0.113.5", "error", u4)
+	add(online.ID, "203.0.113.6", "error", u5)
+	exec(t, svc, `UPDATE users SET status = 'banned', banned_at = now() WHERE id = $1`, u5.ID)
+	got := problemsByKey(t, svc)
+	keyErr := fmt.Sprintf("node:%d:address:203.0.113.1", online.ID)
+	keyMissing := fmt.Sprintf("node:%d:address:203.0.113.2", online.ID)
+	if p, ok := got[keyErr]; !ok || p.Category != CategoryNode || p.Level != 2 || p.DelaySec < 60 || !strings.Contains(p.Text, "203.0.113.1") || !strings.Contains(p.Text, "probe failed") {
+		t.Fatalf("error address = %+v (%v)", p, got)
+	}
+	if p, ok := got[keyMissing]; !ok || !strings.Contains(p.Text, "203.0.113.2") {
+		t.Fatalf("missing address = %+v (%v)", p, got)
+	}
+	for key := range got {
+		if strings.Contains(key, ":address:") && key != keyErr && key != keyMissing {
+			t.Errorf("unexpected address problem %s", key)
+		}
+	}
+	if p := got[nodeKey(down.ID, "offline")]; p.Suppresses != fmt.Sprintf("node:%d:", down.ID) {
+		t.Fatalf("offline problem = %+v, want it to hold the node's keys", p)
 	}
 }
 

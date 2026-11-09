@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func uplink(uuid string) string {
@@ -33,6 +34,13 @@ func collectAndCommit(t *testing.T, sc *StatsCollector) []Delta {
 	}
 	sc.Commit(b.ID)
 	return b.Deltas
+}
+
+func seedStateFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(`{"counters":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCollectDeltas(t *testing.T) {
@@ -149,6 +157,7 @@ func TestUnsentSurvivesXrayRestart(t *testing.T) {
 func TestPendingSurvivesAgentRestartWithSameID(t *testing.T) {
 	fx := newFakeXray()
 	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
 	fx.setStats(map[string]int64{uplink("u-1"): 700})
 	first := NewStatsCollector(fx, discardLogger())
 	if err := first.Load(path); err != nil {
@@ -215,5 +224,118 @@ func TestRemovedUserLastTrafficReported(t *testing.T) {
 	deltas := collectAndCommit(t, sc)
 	if len(deltas) != 1 || deltas[0].BytesUp != 600 {
 		t.Fatalf("traffic of a just-removed user dropped: %+v", deltas)
+	}
+}
+
+func TestMissingStateFileDoesNotChargeLifetimeTraffic(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	fx.setStats(map[string]int64{uplink("u-1"): 80 << 30, downlink("u-1"): 5 << 30})
+	sc := NewStatsCollector(fx, discardLogger())
+	if err := sc.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if b := collect(t, sc); b != nil {
+		t.Fatalf("first collect without a state file reported %+v", b)
+	}
+	fx.setStats(map[string]int64{uplink("u-1"): 80<<30 + 100, downlink("u-1"): 5<<30 + 7})
+	deltas := collectAndCommit(t, sc)
+	if len(deltas) != 1 || deltas[0].BytesUp != 100 || deltas[0].BytesDown != 7 {
+		t.Fatalf("traffic after the baseline = %+v", deltas)
+	}
+	restarted := NewStatsCollector(fx, discardLogger())
+	if err := restarted.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	fx.setStats(map[string]int64{uplink("u-1"): 80<<30 + 150, downlink("u-1"): 5<<30 + 7})
+	deltas = collectAndCommit(t, restarted)
+	if len(deltas) != 1 || deltas[0].BytesUp != 50 || deltas[0].BytesDown != 0 {
+		t.Fatalf("after restart with a state file = %+v", deltas)
+	}
+}
+
+func TestEmptyStateFileStillCountsNewCounters(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
+	fx.setStats(map[string]int64{uplink("u-1"): 300})
+	sc := NewStatsCollector(fx, discardLogger())
+	if err := sc.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	deltas := collectAndCommit(t, sc)
+	if len(deltas) != 1 || deltas[0].BytesUp != 300 {
+		t.Fatalf("new counter of a live state = %+v", deltas)
+	}
+}
+
+func TestBatchCarriesTheTimeTrafficStarted(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
+	clock := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	newCollector := func() *StatsCollector {
+		sc := NewStatsCollector(fx, discardLogger())
+		sc.now = func() time.Time { return clock }
+		if err := sc.Load(path); err != nil {
+			t.Fatal(err)
+		}
+		return sc
+	}
+	sc := newCollector()
+	fx.setStats(map[string]int64{})
+	if b := collect(t, sc); b != nil {
+		t.Fatalf("idle collect = %+v", b)
+	}
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 100})
+	first := collect(t, sc)
+	if first == nil || !first.From.Equal(clock) {
+		t.Fatalf("first batch = %+v, want from %v", first, clock)
+	}
+	started := clock
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 150})
+	if again := collect(t, sc); again.ID != first.ID || !again.From.Equal(started) {
+		t.Fatalf("pending batch changed: %+v", again)
+	}
+	clock = clock.Add(time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 200})
+	sc = newCollector()
+	if again := collect(t, sc); again.ID != first.ID || !again.From.Equal(started) {
+		t.Fatalf("pending batch lost its time over a restart: %+v", again)
+	}
+	sc.Commit(first.ID)
+	clock = clock.Add(time.Hour)
+	next := collect(t, sc)
+	if next == nil || !next.From.Equal(started.Add(time.Hour)) || next.Deltas[0].BytesUp != 100 {
+		t.Fatalf("batch after the commit = %+v, want from %v with 100 bytes", next, started.Add(time.Hour))
+	}
+}
+
+func TestIdleTimeIsNotCountedIntoBatchStart(t *testing.T) {
+	fx := newFakeXray()
+	clock := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	sc := NewStatsCollector(fx, discardLogger())
+	sc.now = func() time.Time { return clock }
+	fx.setStats(map[string]int64{})
+	collect(t, sc)
+	clock = clock.Add(6 * time.Hour)
+	fx.setStats(map[string]int64{uplink("u-1"): 5})
+	b := collect(t, sc)
+	if b == nil || !b.From.Equal(clock) {
+		t.Fatalf("batch = %+v, want from %v", b, clock)
+	}
+}
+
+func TestBatchWireFormatCarriesFromOnlyWhenKnown(t *testing.T) {
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	raw, err := json.Marshal(Batch{ID: "b", From: at, Deltas: []Delta{}})
+	if err != nil || string(raw) != `{"batch_id":"b","from":"2026-11-09T12:00:00Z","deltas":[]}` {
+		t.Fatalf("with from: %s, %v", raw, err)
+	}
+	raw, err = json.Marshal(Batch{ID: "b", Deltas: []Delta{}})
+	if err != nil || string(raw) != `{"batch_id":"b","deltas":[]}` {
+		t.Fatalf("without from: %s, %v", raw, err)
 	}
 }

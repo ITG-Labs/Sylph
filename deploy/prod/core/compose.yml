@@ -48,6 +48,7 @@ services:
     <<: *locked
     image: ghcr.io/itg-labs/sylph-core:${SYLPH_VERSION:?set SYLPH_VERSION in .env}
     restart: unless-stopped
+    stop_grace_period: 2m
     ports:
       - "${SYLPH_HTTPS_PORT:-443}:8443"
     environment:

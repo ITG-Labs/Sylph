@@ -3,6 +3,7 @@ package xraygrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -38,6 +39,39 @@ type fakeXray struct {
 	uptime   uint32
 	sysErr   error
 	block    bool
+	online   []string
+	ipDelay  time.Duration
+	ipBlock  bool
+	ipCalls  int
+}
+
+func (f *fakeXray) GetAllOnlineUsers(ctx context.Context, req *statscmd.GetAllOnlineUsersRequest) (*statscmd.GetAllOnlineUsersResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return &statscmd.GetAllOnlineUsersResponse{Users: f.online}, nil
+}
+
+func (f *fakeXray) GetStatsOnlineIpList(ctx context.Context, req *statscmd.GetStatsRequest) (*statscmd.GetStatsOnlineIpListResponse, error) {
+	f.mu.Lock()
+	f.ipCalls++
+	delay, block := f.ipDelay, f.ipBlock
+	f.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	select {
+	case <-time.After(delay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &statscmd.GetStatsOnlineIpListResponse{Name: req.GetName(), Ips: map[string]int64{"198.51.100.1": 1}}, nil
+}
+
+func (f *fakeXray) ipListCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ipCalls
 }
 
 func (f *fakeXray) wait(ctx context.Context) error {
@@ -412,5 +446,74 @@ func TestDialRejectsNonPositiveTimeout(t *testing.T) {
 		if _, err := Dial("127.0.0.1:10085", d); err == nil {
 			t.Fatalf("timeout %v accepted", d)
 		}
+	}
+}
+
+func TestLargeAnswersPassTheReceiveLimit(t *testing.T) {
+	fx := &fakeXray{}
+	for i := range 60000 {
+		uuid := fmt.Sprintf("6f1c2c1e-3b1a-4c55-9d5e-%012d", i)
+		fx.stats = append(fx.stats, &statscmd.Stat{Name: "user>>>" + uuid + "@main>>>traffic>>>uplink", Value: int64(i)})
+		fx.users = append(fx.users, &protocol.User{Email: uuid + "@main"})
+	}
+	c := startFake(t, fx, 5*time.Second)
+	got, err := c.QueryStats(context.Background(), "user>>>")
+	if err != nil || len(got) != 60000 {
+		t.Fatalf("stats = %d, err = %v", len(got), err)
+	}
+	users, err := c.ListUsers(context.Background(), "main")
+	if err != nil || len(users) != 60000 {
+		t.Fatalf("users = %d, err = %v", len(users), err)
+	}
+}
+
+func onlineNames(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("user>>>6f1c2c1e-3b1a-4c55-9d5e-%012d@main>>>online", i)
+	}
+	return out
+}
+
+func TestOnlineIPsStopsWhenXrayStopsAnswering(t *testing.T) {
+	fx := &fakeXray{online: onlineNames(40), ipBlock: true}
+	c := startFake(t, fx, 50*time.Millisecond)
+	start := time.Now()
+	_, err := c.OnlineIPs(context.Background())
+	if status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("err = %v, want the walk to stop on a deadline", err)
+	}
+	if n := fx.ipListCalls(); n != 1 {
+		t.Fatalf("ip list calls = %d after xray stopped answering, want 1", n)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("walk took %v", elapsed)
+	}
+}
+
+func TestOnlineIPsKeepsToTheCallerDeadline(t *testing.T) {
+	fx := &fakeXray{online: onlineNames(100), ipDelay: 20 * time.Millisecond}
+	c := startFake(t, fx, time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	got, err := c.OnlineIPs(ctx)
+	if err == nil {
+		t.Fatalf("a walk cut by the deadline came back as complete: %d users", len(got))
+	}
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Fatalf("walk took %v past a 150ms deadline", elapsed)
+	}
+	if len(got) == 0 || len(got) >= 100 {
+		t.Fatalf("partial result = %d users, want what was read before the deadline", len(got))
+	}
+}
+
+func TestOnlineIPsReadsEveryone(t *testing.T) {
+	fx := &fakeXray{online: onlineNames(30)}
+	c := startFake(t, fx, time.Second)
+	got, err := c.OnlineIPs(context.Background())
+	if err != nil || len(got) != 30 {
+		t.Fatalf("users = %d, err = %v", len(got), err)
 	}
 }

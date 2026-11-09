@@ -17,6 +17,7 @@ var (
 	ErrPaymentsDisabled    = errors.New("payments disabled")
 	ErrProviderUnavailable = errors.New("payment provider unavailable")
 	ErrBanned              = errors.New("user is banned")
+	ErrRejected            = errors.New("request rejected")
 )
 
 type User struct {
@@ -142,15 +143,23 @@ type Redeem struct {
 }
 
 type Payment struct {
-	PaymentID       string `json:"payment_id"`
-	ConfirmationURL string `json:"confirmation_url"`
-	AmountRub       int64  `json:"amount_rub"`
+	PaymentID       string     `json:"payment_id"`
+	Status          string     `json:"status"`
+	ConfirmationURL string     `json:"confirmation_url"`
+	AmountRub       int64      `json:"amount_rub"`
+	PaidUntil       *time.Time `json:"paid_until"`
 }
 
 type Check struct {
 	Status     string     `json:"status"`
 	Applied    bool       `json:"applied"`
 	TelegramID *int64     `json:"telegram_id"`
+	PaidUntil  *time.Time `json:"paid_until"`
+}
+
+type PaidNotice struct {
+	PaymentID  string     `json:"payment_id"`
+	TelegramID int64      `json:"telegram_id"`
 	PaidUntil  *time.Time `json:"paid_until"`
 }
 
@@ -169,6 +178,7 @@ type Core interface {
 	Plans(ctx context.Context, userID int64) ([]Plan, error)
 	CreatePayment(ctx context.Context, userID, planID int64) (*Payment, error)
 	CheckPayment(ctx context.Context, paymentID string) (*Check, error)
+	MarkPaymentNotified(ctx context.Context, paymentID string) error
 	Rotate(ctx context.Context, userID int64) (string, error)
 	ResetDevices(ctx context.Context, userID int64) error
 	Devices(ctx context.Context, userID int64) ([]Device, error)
@@ -241,6 +251,16 @@ func (c *CoreClient) CheckPayment(ctx context.Context, paymentID string) (*Check
 	return &chk, c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(paymentID)+"/check", nil, &chk)
 }
 
+func (c *CoreClient) MarkPaymentNotified(ctx context.Context, paymentID string) error {
+	return c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(paymentID)+"/notified", nil, nil)
+}
+
+func (c *CoreClient) UnnotifiedPayments(ctx context.Context) ([]PaidNotice, error) {
+	var out []PaidNotice
+	err := c.do(ctx, http.MethodGet, "/v1/payments/unnotified", nil, &out)
+	return out, err
+}
+
 func (c *CoreClient) Rotate(ctx context.Context, userID int64) (string, error) {
 	var out struct {
 		SubToken string `json:"sub_token"`
@@ -290,6 +310,8 @@ func (c *CoreClient) do(ctx context.Context, method, path string, in, out any) e
 		return fmt.Errorf("%w: %v", ErrPaymentsDisabled, err)
 	case apiErr.StatusCode == http.StatusBadGateway && apiErr.Code == "provider_unavailable":
 		return fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
+	case apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusUnprocessableEntity:
+		return fmt.Errorf("%w: %v", ErrRejected, err)
 	}
 	return err
 }

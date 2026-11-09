@@ -177,8 +177,8 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 			cfg.Observatory = static.Observatory
 		}
 		sniffing = &xraySniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}, RouteOnly: true}
-	} else if len(in.Egress) > 0 {
-		var rules []any
+	} else {
+		rules := noderoute.GuardRules()
 		for _, e := range in.Egress {
 			cfg.Outbounds = append(cfg.Outbounds, noderoute.EgressDirect(e.Name, e.SendThrough))
 			var users []string
@@ -188,6 +188,7 @@ func BuildXrayRouted(in XrayInput) ([]byte, error) {
 			slices.Sort(users)
 			rules = append(rules, map[string]any{"ruleTag": "sylph-e" + e.Name, "user": users, "outboundTag": noderoute.EgressTag(e.Name, "direct")})
 		}
+		cfg.Outbounds = append(cfg.Outbounds, noderoute.GuardOutbound())
 		cfg.Routing = map[string]any{"domainStrategy": "AsIs", "rules": rules}
 	}
 	for i, in := range sorted {

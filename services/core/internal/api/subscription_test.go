@@ -17,6 +17,7 @@ func TestSubscriptionEndpoint(t *testing.T) {
 	subs := e.client(t, "subs", mtls.RoleSubs)
 	nodeID := e.createNode(t, "node-1", nil)
 	mustStatus(t, e.call(t, http.MethodPost, "/v1/admin/nodes/"+itoa(nodeID)+"/inbounds", realityBody("main", "www.example.com")), http.StatusOK)
+	e.nodeReady(t, "node-1", nodeID)
 	p := &model.Plan{Name: "m", PriceRub: 100, PeriodDays: 30, LocationGroupID: sharedGroup(t, e.svc)}
 	if err := e.svc.CreatePlan(ctx, p); err != nil {
 		t.Fatal(err)

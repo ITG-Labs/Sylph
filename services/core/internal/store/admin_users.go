@@ -232,7 +232,7 @@ func (s *Store) BanUser(ctx context.Context, userID int64, reason string, now ti
 	return already, err
 }
 
-func (s *Store) UnbanUser(ctx context.Context, userID int64) (bool, error) {
+func (s *Store) UnbanUser(ctx context.Context, userID int64, now time.Time) (bool, error) {
 	already := false
 	err := s.withTx(ctx, func(tx pgx.Tx) error {
 		status, err := lockUserStatus(ctx, tx, userID)
@@ -242,6 +242,11 @@ func (s *Store) UnbanUser(ctx context.Context, userID int64) (bool, error) {
 		if status != model.UserBanned {
 			already = true
 			return nil
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE subscriptions SET canceled = TRUE, closed_manually = TRUE, expires_at = CASE WHEN starts_at <= $2 THEN $2 ELSE expires_at END
+			 WHERE user_id = $1 AND NOT canceled AND expires_at > $2`, userID, now); err != nil {
+			return err
 		}
 		_, err = tx.Exec(ctx, `UPDATE users SET status = 'active', banned_at = NULL, ban_reason = NULL WHERE id = $1`, userID)
 		return err

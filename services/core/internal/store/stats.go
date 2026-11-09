@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -56,18 +57,18 @@ func (d *dailyRows) add(userID, periodID int64, tag string, v UpDown) {
 	d.ups, d.downs = append(d.ups, v.Up), append(d.downs, v.Down)
 }
 
-func (s *Store) addDailyRows(ctx context.Context, tx pgx.Tx, nodeID int64, d dailyRows) error {
+func (s *Store) addDailyRows(ctx context.Context, tx pgx.Tx, nodeID int64, d dailyRows, at time.Time) error {
 	if len(d.users) == 0 {
 		return nil
 	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO traffic_daily (user_id, node_id, day, period_id, inbound_tag, bytes_up, bytes_down)
-		 SELECT r.u, $1, (now() AT TIME ZONE $2)::date, r.p, r.t, r.up, r.down
+		 SELECT r.u, $1, ($8::timestamptz AT TIME ZONE $2)::date, r.p, r.t, r.up, r.down
 		 FROM unnest($3::bigint[], $4::bigint[], $5::text[], $6::bigint[], $7::bigint[]) AS r(u, p, t, up, down)
 		 ON CONFLICT (user_id, day, node_id, period_id, inbound_tag) DO UPDATE SET
 		   bytes_up   = LEAST(traffic_daily.bytes_up::numeric + EXCLUDED.bytes_up, 9223372036854775807)::bigint,
 		   bytes_down = LEAST(traffic_daily.bytes_down::numeric + EXCLUDED.bytes_down, 9223372036854775807)::bigint`,
-		nodeID, s.statsTZ, d.users, d.periods, d.tags, d.ups, d.downs)
+		nodeID, s.statsTZ, d.users, d.periods, d.tags, d.ups, d.downs, at)
 	return err
 }
 
@@ -117,11 +118,9 @@ func (s *Store) UserStats(ctx context.Context, userID int64) (UserStats, error) 
 	return out, rows.Err()
 }
 
-func (s *Store) CleanupDailyStats(ctx context.Context, olderThanDays int) (int64, error) {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM traffic_daily WHERE day <= (now() AT TIME ZONE $1)::date - $2::int`, s.statsTZ, olderThanDays)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+func (s *Store) CleanupDailyStats(ctx context.Context, olderThanDays int, chunk int) (int64, bool, error) {
+	return s.deleteBudgeted(ctx,
+		`DELETE FROM traffic_daily WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM traffic_daily WHERE day <= (now() AT TIME ZONE $1)::date - $2::int LIMIT $3))`,
+		chunk, s.statsTZ, olderThanDays)
 }

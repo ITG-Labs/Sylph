@@ -53,6 +53,7 @@ type NodeHeartbeat struct {
 	RoutingError   *string
 	CertNotAfter   *time.Time
 	TLSStatus      json.RawMessage
+	Applied        *[]string
 	Addresses      *[]AddressReport
 	Online         *[]OnlineReport
 }

@@ -491,3 +491,81 @@ func TestCacheFromBeforeXHTTPForcesFullSync(t *testing.T) {
 		t.Fatal("a full sync did not mark the cache as xhttp-aware")
 	}
 }
+
+func TestRenameWaitingForApplyKeepsUsersOnTheRunningInbound(t *testing.T) {
+	fx := newFakeXray()
+	old := testInbound("de-a")
+	fc := &fakeCore{syncVersion: 1, syncInbounds: []Inbound{old},
+		syncUsers: []SyncUser{{UUID: "u1", Inbounds: []string{"de-a"}}, {UUID: "u2", Inbounds: []string{"de-a"}}, {UUID: "gone", Inbounds: []string{"de-a"}}}}
+	e := testEngine(t, fx, fc)
+	if _, err := e.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Reconcile(context.Background(), []Inbound{old}); err != nil {
+		t.Fatal(err)
+	}
+	renamed := testInbound("de-b")
+	setCore(fc, func(f *fakeCore) {
+		f.syncVersion, f.syncInbounds = 2, []Inbound{renamed}
+		f.syncUsers = []SyncUser{{UUID: "u1", Inbounds: []string{"de-b"}}, {UUID: "u2", Inbounds: []string{"de-b"}}}
+	})
+	if _, err := e.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Reconcile(context.Background(), []Inbound{old}); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("de-a", "u1") || !fx.hasUser("de-a", "u2") {
+		t.Fatal("users dropped from the running inbound while its rename waits to be applied")
+	}
+	if fx.hasUser("de-a", "gone") {
+		t.Fatal("a key that left the node stayed on the running inbound")
+	}
+
+	fresh := newFakeXray()
+	e.xray = fresh
+	if err := e.Reconcile(context.Background(), []Inbound{old}); err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.hasUser("de-a", "u1") || !fresh.hasUser("de-a", "u2") || fresh.hasUser("de-a", "gone") {
+		t.Fatal("restarted xray not refilled with the users of the inbound whose rename waits to be applied")
+	}
+
+	if err := e.Reconcile(context.Background(), []Inbound{renamed}); err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.hasUser("de-b", "u1") || !fresh.hasUser("de-b", "u2") {
+		t.Fatal("users not moved to the applied new tag")
+	}
+	fresh.users = map[string]bool{}
+	if err := e.Reconcile(context.Background(), []Inbound{old}); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.userCount() != 0 {
+		t.Fatalf("the old tag was remembered after the new one was applied: %d users", fresh.userCount())
+	}
+}
+
+func TestUnknownRunningInboundOnlyLosesRevokedKeys(t *testing.T) {
+	fx := newFakeXray()
+	e := testEngine(t, fx, &fakeCore{})
+	e.inbounds = testInbounds("other")
+	e.setDesired([]SyncUser{{UUID: "u1", Inbounds: []string{"other"}}})
+	for _, uuid := range []string{"u1", "gone"} {
+		fx.users["old/"+userEmail(uuid, "old")] = true
+	}
+	if err := e.Reconcile(context.Background(), testInbounds("old")); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.hasUser("old", "u1") || fx.hasUser("old", "gone") {
+		t.Fatal("an inbound still running must lose only keys that left the node")
+	}
+	fresh := newFakeXray()
+	e.xray = fresh
+	if err := e.Reconcile(context.Background(), testInbounds("old")); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.userCount() != 0 {
+		t.Fatalf("users added to an inbound the core does not have: %d", fresh.userCount())
+	}
+}

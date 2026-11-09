@@ -238,7 +238,7 @@ func (s *Service) connections(ctx context.Context, periodID int64, uuid string, 
 		}
 		if x := spec.XHTTP; x != nil {
 			c.Path, c.Mode = x.Path, x.ClientMode
-			extra, err := json.Marshal(x.LinkExtra())
+			extra, err := x.LinkExtraJSON()
 			if err != nil {
 				return nil, err
 			}

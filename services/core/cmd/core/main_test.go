@@ -1,21 +1,28 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func TestLoadRevokedList(t *testing.T) {
@@ -191,5 +198,111 @@ func TestCertNotAfter(t *testing.T) {
 	}
 	if _, err := certNotAfter(filepath.Join(t.TempDir(), "missing.pem")); err == nil {
 		t.Fatal("missing file accepted")
+	}
+}
+
+func TestNewHTTPServerBoundsEveryPhase(t *testing.T) {
+	srv := newHTTPServer(":0", http.NotFoundHandler(), nil)
+	if srv.ReadHeaderTimeout <= 0 || srv.ReadHeaderTimeout > 30*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %v, want within (0, 30s]", srv.ReadHeaderTimeout)
+	}
+	if srv.ReadTimeout < srv.ReadHeaderTimeout {
+		t.Fatalf("ReadTimeout = %v, want at least ReadHeaderTimeout %v", srv.ReadTimeout, srv.ReadHeaderTimeout)
+	}
+	if srv.WriteTimeout <= 0 {
+		t.Fatal("WriteTimeout is not set")
+	}
+	if srv.IdleTimeout <= 0 {
+		t.Fatal("IdleTimeout is not set")
+	}
+	if srv.MaxHeaderBytes <= 0 {
+		t.Fatal("MaxHeaderBytes is not set")
+	}
+}
+
+func TestStalledHandshakeIsDropped(t *testing.T) {
+	srv := newHTTPServer("127.0.0.1:0", http.NotFoundHandler(), &tls.Config{
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return nil, errors.New("no certificate") },
+	})
+	srv.ReadHeaderTimeout = 150 * time.Millisecond
+	srv.ReadTimeout = time.Second
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { srv.Close() })
+	go srv.ServeTLS(ln, "", "")
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("server answered a silent client")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("silent client was still connected after the handshake deadline")
+	}
+}
+
+func TestMigrateCommandStatusAndForce(t *testing.T) {
+	url := os.Getenv("SYLPH_TEST_DB")
+	if url == "" {
+		t.Skip("SYLPH_TEST_DB not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := pool.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := migrateCommand(pool, []string{"status"}, &out); err != nil || !strings.Contains(out.String(), "version "+strconv.Itoa(version)) || strings.Contains(out.String(), "dirty") {
+		t.Fatalf("clean status = %q, %v", out.String(), err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"status"}, &out); err != nil || !strings.Contains(out.String(), "dirty") {
+		t.Fatalf("dirty status = %q, %v", out.String(), err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version - 2)}, &out); err == nil {
+		t.Fatal("force two versions back on a dirty database was accepted")
+	}
+	if err := migrateCommand(pool, []string{"force", "--unsafe", strconv.Itoa(version + 1)}, &out); err == nil {
+		t.Fatal("force to an unknown version was accepted")
+	}
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := store.MigrationState(pool); err != nil || st.Dirty || int(st.Version) != version {
+		t.Fatalf("after force = %+v, %v", st, err)
+	}
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version - 2)}, &out); err == nil || !strings.Contains(err.Error(), "--unsafe") {
+		t.Fatalf("force on a clean database: err = %v, want a refusal mentioning --unsafe", err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"force", "--unsafe", strconv.Itoa(version - 2)}, &out); err != nil {
+		t.Fatalf("unsafe force: %v", err)
+	}
+	if st, err := store.MigrationState(pool); err != nil || int(st.Version) != version-2 {
+		t.Fatalf("after unsafe force = %+v, %v", st, err)
+	}
+	for _, bad := range [][]string{nil, {"force"}, {"force", "x"}, {"force", "-2"}, {"force", "--unsafe"}, {"force", "--bogus", "3"}, {"drop"}, {"status", "extra"}} {
+		if err := migrateCommand(pool, bad, &out); err == nil {
+			t.Errorf("args %v accepted", bad)
+		}
 	}
 }

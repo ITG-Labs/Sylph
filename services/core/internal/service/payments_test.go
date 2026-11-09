@@ -22,11 +22,12 @@ type fakeProvider struct {
 	gets     int
 	getErr   error
 	failIDs  map[string]bool
+	hangIDs  map[string]bool
 	delay    time.Duration
 }
 
 func newFakeProvider() *fakeProvider {
-	return &fakeProvider{payments: map[string]*yookassa.Payment{}, failIDs: map[string]bool{}}
+	return &fakeProvider{payments: map[string]*yookassa.Payment{}, failIDs: map[string]bool{}, hangIDs: map[string]bool{}}
 }
 
 func (f *fakeProvider) CreatePayment(_ context.Context, req yookassa.CreateRequest, key string) (*yookassa.Payment, error) {
@@ -47,8 +48,15 @@ func (f *fakeProvider) CreatePayment(_ context.Context, req yookassa.CreateReque
 	return &cp, nil
 }
 
-func (f *fakeProvider) GetPayment(_ context.Context, id string) (*yookassa.Payment, error) {
+func (f *fakeProvider) GetPayment(ctx context.Context, id string) (*yookassa.Payment, error) {
 	time.Sleep(f.delay)
+	f.mu.Lock()
+	hang := f.hangIDs[id]
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gets++
@@ -551,18 +559,40 @@ func TestReuseChecksThatTheOldLinkIsStillAlive(t *testing.T) {
 	}
 }
 
-func TestReusePaidLinkSettlesItAndMakesANewOne(t *testing.T) {
+func TestReusePaidLinkSettlesItAndReportsInsteadOfMakingANewOne(t *testing.T) {
 	svc, fp, _ := paymentsService(t)
 	ctx := context.Background()
 	u, p := userAndPlan(t, svc, 52, 199)
 	first, _ := svc.CreatePayment(ctx, u.ID, p.ID)
 	succeed(fp, first.PaymentID)
 	second, err := svc.CreatePayment(ctx, u.ID, p.ID)
-	if err != nil || second.PaymentID == first.PaymentID {
-		t.Fatalf("second = %+v, %v", second, err)
+	if err != nil || second.PaymentID != first.PaymentID || second.Status != "succeeded" {
+		t.Fatalf("second = %+v, %v; want the settled payment, not a fresh link", second, err)
+	}
+	if len(fp.requests) != 1 {
+		t.Fatalf("provider asked to create %d payments, want 1", len(fp.requests))
 	}
 	if got, _ := svc.store.GetPayment(ctx, first.PaymentID); got.Status != "succeeded" {
 		t.Fatalf("paid payment found on reuse was not settled: %q", got.Status)
+	}
+	third, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || third.PaymentID == first.PaymentID || third.Status != "pending" || len(fp.requests) != 2 {
+		t.Fatalf("buying again = %+v, %v", third, err)
+	}
+}
+
+func TestReuseAfterAnotherPathSettledTheLinkGivesAFreshOne(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 53, 199)
+	first, _ := svc.CreatePayment(ctx, u.ID, p.ID)
+	succeed(fp, first.PaymentID)
+	if _, err := svc.PollPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	next, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil || next.PaymentID == first.PaymentID || next.Status != "pending" {
+		t.Fatalf("a settled payment is not pending, buying again must give a fresh link: %+v, %v", next, err)
 	}
 }
 
@@ -590,5 +620,66 @@ func TestPollStopsWithinItsTimeBudgetNewestFirst(t *testing.T) {
 	}
 	if res.Checked == 0 || res.Checked >= 5 || res.Succeeded != 1 {
 		t.Fatalf("poll = %+v; want a partial run that started from the newest payment", res)
+	}
+}
+
+func TestPollRotatesThroughPendingPaymentsBeyondTheLimit(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	u, p := userAndPlan(t, svc, 70, 199)
+	paid, err := svc.CreatePayment(ctx, u.ID, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := poolOf(svc).Exec(ctx, `UPDATE payments SET created_at = now() - interval '10 hours' WHERE payment_id = $1`, paid.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := poolOf(svc).Exec(ctx,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, confirmation_url, created_at)
+		 SELECT 'abandoned-' || g, $1, $2, 199, 'pending', 'yookassa', 'https://x', now() - make_interval(secs => g) FROM generate_series(1, $3) g`,
+		u.ID, p.ID, pollLimit+50); err != nil {
+		t.Fatal(err)
+	}
+	succeed(fp, paid.PaymentID)
+	first, err := svc.PollPayments(ctx)
+	if err != nil || first.Checked != pollLimit || first.Succeeded != 0 {
+		t.Fatalf("first poll = %+v, %v", first, err)
+	}
+	second, err := svc.PollPayments(ctx)
+	if err != nil || second.Succeeded != 1 {
+		t.Fatalf("second poll = %+v, %v; the older paid payment stayed behind a queue of newer pending ones", second, err)
+	}
+	if got, _ := svc.store.GetPayment(ctx, paid.PaymentID); got.Status != "succeeded" {
+		t.Fatalf("status = %q", got.Status)
+	}
+}
+
+func TestPollOneHungRequestDoesNotEatTheWholeBudget(t *testing.T) {
+	svc, fp, _ := paymentsService(t)
+	ctx := context.Background()
+	var ids []string
+	for i, tg := range []int64{80, 81, 82} {
+		u, p := userAndPlan(t, svc, tg, int64(100+i))
+		pm, err := svc.CreatePayment(ctx, u.ID, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, pm.PaymentID)
+		if _, err := poolOf(svc).Exec(ctx, `UPDATE payments SET created_at = now() - make_interval(mins => $2) WHERE payment_id = $1`, pm.PaymentID, 10-i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fp.hangIDs[ids[2]] = true
+	succeed(fp, ids[0])
+	succeed(fp, ids[1])
+	svc.pollBudget = 5 * time.Second
+	svc.pollEach = 100 * time.Millisecond
+	start := time.Now()
+	res, err := svc.PollPayments(ctx)
+	if err != nil || res.Checked != 3 || res.Succeeded != 2 || res.Failed != 1 {
+		t.Fatalf("poll = %+v, %v", res, err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("poll took %s", time.Since(start))
 	}
 }

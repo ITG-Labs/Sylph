@@ -21,6 +21,7 @@
 | `tools/sylphca` | мини-CA для стендов и тестов |
 | `pkg/` | общие пакеты: mTLS, логи, клиент API ядра, пульс, healthcheck |
 | `deploy/prod` | compose-файлы ролей — их же вшивает в себя установщик |
+| `deploy/xray` | образ `sylph-xray`: Xray из исходников по тегу, версия — `XRAY_VERSION` из `deploy/prod/node/.env.example` |
 | `deploy/test` | стенды для тестов: Postgres, xray, нода, подписки |
 
 ## Что нужно
@@ -38,6 +39,7 @@ make test          # юнит-тесты
 make vet           # go vet
 make lint          # golangci-lint
 make test-db       # тесты с настоящим Postgres (поднимет и погасит контейнер)
+make xray-image    # собрать образ xray из deploy/xray (стенды ниже собирают его сами)
 make test-xray     # тесты агента с настоящим xray
 make test-node     # живой стенд ноды: Caddy, xray, агент
 make test-subs     # живой стенд подписок: ядро, нода, subs и настоящие клиенты

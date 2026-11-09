@@ -49,8 +49,8 @@ func TestWebhookStaysQuietForABannedUser(t *testing.T) {
 	e := newWebhookEnv(t)
 	e.core.checkErr = fmt.Errorf("%w: api 403 banned", ErrBanned)
 	w := e.post("185.71.76.10:5555", "", notification("payment.succeeded", paymentID))
-	if w.Code != http.StatusOK || len(e.notes) != 0 {
-		t.Fatalf("webhook for a banned user: %d, notes %+v", w.Code, e.notes)
+	if w.Code != http.StatusOK || e.flushes != 0 {
+		t.Fatalf("webhook for a banned user: %d, flushes %d", w.Code, e.flushes)
 	}
 }
 

@@ -89,6 +89,69 @@ func TestPaymentCreateReusesThePendingLink(t *testing.T) {
 	}
 }
 
+func TestPaymentCreateReportsAPaidPreviousLink(t *testing.T) {
+	e, yk := newPaymentsEnv(t)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	u, p := botUserAndPlan(t, e, 5106, 199)
+	var a createdPayment
+	adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID}).decode(t, &a)
+	yk.setStatus(a.PaymentID, "succeeded")
+	var b struct {
+		PaymentID string  `json:"payment_id"`
+		Status    string  `json:"status"`
+		URL       string  `json:"confirmation_url"`
+		PaidUntil *string `json:"paid_until"`
+	}
+	r := adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &b)
+	if b.PaymentID != a.PaymentID || b.Status != "succeeded" || b.URL != "" || b.PaidUntil == nil || yk.createCount() != 1 {
+		t.Fatalf("create after paying = %+v, provider creates = %d", b, yk.createCount())
+	}
+}
+
+func TestPaymentNoticeQueueSurvivesWhicheverPathSettled(t *testing.T) {
+	e, yk := newPaymentsEnv(t)
+	bot := e.client(t, "bot", mtls.RoleBot)
+	cron := e.client(t, "cron", mtls.RoleCron)
+	u, p := botUserAndPlan(t, e, 5107, 199)
+	var created createdPayment
+	adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/create", map[string]any{"user_id": u.ID, "plan_id": p.ID}).decode(t, &created)
+	type notice struct {
+		PaymentID  string  `json:"payment_id"`
+		TelegramID int64   `json:"telegram_id"`
+		PaidUntil  *string `json:"paid_until"`
+	}
+	queue := func() []notice {
+		t.Helper()
+		r := adminCall(t, bot, http.MethodGet, e.ts.URL+"/v1/payments/unnotified", nil)
+		mustStatus(t, r, http.StatusOK)
+		var out []notice
+		r.decode(t, &out)
+		return out
+	}
+	if got := queue(); len(got) != 0 {
+		t.Fatalf("queue before paying = %+v", got)
+	}
+	yk.setStatus(created.PaymentID, "succeeded")
+	mustStatus(t, adminCall(t, cron, http.MethodPost, e.ts.URL+"/v1/maintenance/payments/poll", nil), http.StatusOK)
+	if c := adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/"+created.PaymentID+"/check", nil); c.status != http.StatusOK {
+		t.Fatalf("late webhook check = %d", c.status)
+	}
+	got := queue()
+	if len(got) != 1 || got[0].PaymentID != created.PaymentID || got[0].TelegramID != 5107 || got[0].PaidUntil == nil {
+		t.Fatalf("a payment settled by the cron must wait for its notice: %+v", got)
+	}
+	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/"+created.PaymentID+"/notified", nil), http.StatusNoContent)
+	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/"+created.PaymentID+"/notified", nil), http.StatusNoContent)
+	if got := queue(); len(got) != 0 {
+		t.Fatalf("queue after the mark = %+v", got)
+	}
+	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/"+model.NewUUID()+"/notified", nil), http.StatusNotFound)
+	mustStatus(t, adminCall(t, bot, http.MethodPost, e.ts.URL+"/v1/payments/bad%20id/notified", nil), http.StatusBadRequest)
+	mustStatus(t, adminCall(t, cron, http.MethodGet, e.ts.URL+"/v1/payments/unnotified", nil), http.StatusForbidden)
+}
+
 func TestPaymentCreateErrors(t *testing.T) {
 	e, _ := newPaymentsEnv(t)
 	bot := e.client(t, "bot", mtls.RoleBot)

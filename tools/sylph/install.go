@@ -68,6 +68,7 @@ type plan struct {
 	env          *envfile.Env
 	prevVersion  string
 	prevCaddy    string
+	prevXray     string
 	firstInstall bool
 	newBundle    *bundle.Bundle
 	leaves       []bundle.Leaf
@@ -252,6 +253,7 @@ func (p *plan) load(imgVer string) error {
 		}
 		p.prevVersion = old.Get(role.KeyVersion)
 		p.prevCaddy = old.Get(role.KeyCaddyVersion)
+		p.prevXray = old.Get(role.KeyXrayVersion)
 		p.env.Merge(old)
 	}
 	if p.r.Name == "core" && exists(filepath.Join(p.dir, "data", "postgres")) && p.env.Get(role.KeyPassword) == "" {
@@ -514,8 +516,12 @@ func (p *plan) summary() string {
 		}
 		rows = append(rows, [2]string{"администраторы", admins})
 	}
-	if p.r.Name == "node" && !p.firstInstall && p.prevCaddy != p.env.Get(role.KeyCaddyVersion) {
+	switch {
+	case p.r.Name != "node" || p.firstInstall:
+	case p.prevCaddy != p.env.Get(role.KeyCaddyVersion):
 		rows = append(rows, [2]string{"Caddy", ui.Colored(ui.Yellow, "новая сборка: Caddy и xray будут пересозданы, подключения клиентов прервутся на несколько секунд")})
+	case p.prevXray != p.env.Get(role.KeyXrayVersion):
+		rows = append(rows, [2]string{"xray", ui.Colored(ui.Yellow, "новая версия "+p.env.Get(role.KeyXrayVersion)+": xray будет пересоздан, подключения клиентов прервутся на несколько секунд")})
 	}
 	return ui.KV(rows)
 }
@@ -535,7 +541,6 @@ func display(f role.Field, v string) string {
 }
 
 func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactive bool) error {
-	wasRunning := projectRunning(ctx, p.dir)
 	if _, err := u.Step(ctx, "Каталог роли", func(ctx context.Context, set func(string)) (string, error) {
 		created := !exists(p.dir)
 		if err := os.MkdirAll(p.dir, 0o755); err != nil {
@@ -564,11 +569,9 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		return shown(err)
 	}
 
-	certsChanged := false
 	if p.newBundle != nil {
 		if _, err := u.Step(ctx, "Сертификаты", func(ctx context.Context, set func(string)) (string, error) {
 			changed, err := writeCerts(p.dir, p.newBundle)
-			certsChanged = changed
 			if err != nil {
 				return "", err
 			}
@@ -603,9 +606,9 @@ func (p *plan) apply(ctx context.Context, u *ui.UI, wz wizard.Wizard, interactiv
 		return shown(err)
 	}
 
-	if wasRunning && (certsChanged || len(p.newAdmins) > 0) {
+	if stale := staleReaders(ctx, p.dir, p.r); len(stale) > 0 {
 		if _, err := u.Step(ctx, "Перезапуск", func(ctx context.Context, set func(string)) (string, error) {
-			return strings.Join(p.r.CertReaders, ", "), compose.Restart(ctx, p.dir, p.r.CertReaders...)
+			return strings.Join(stale, ", "), compose.Restart(ctx, p.dir, stale...)
 		}); err != nil {
 			return shown(err)
 		}

@@ -213,3 +213,40 @@ func TestSourceCodes(t *testing.T) {
 		t.Fatalf("codes = %v", got)
 	}
 }
+
+func TestSourceCodesStripTheNegation(t *testing.T) {
+	p := Profile{Rules: []Rule{
+		{IP: []string{"my-ips:!ru", "my-ips:RU", "other:!Office@x"}, To: "x"},
+	}}
+	got := p.SourceCodes()
+	if strings.Join(got["my-ips"], ",") != "RU" || strings.Join(got["other"], ",") != "OFFICE" {
+		t.Fatalf("codes = %v", got)
+	}
+}
+
+func TestNegationIsAllowedForIPSourcesOnly(t *testing.T) {
+	if got, err := normalizeIP("my-ips:!RU"); err != nil || got != "my-ips:!ru" {
+		t.Fatalf("ip: %q %v", got, err)
+	}
+	for _, v := range []string{"my-ips:!ru", "geosite:!cn"} {
+		if _, err := normalizeDomain(v); err == nil {
+			t.Fatalf("domain %q accepted", v)
+		}
+	}
+}
+
+func TestDropNegatedDomains(t *testing.T) {
+	p := Profile{Rules: []Rule{
+		{Domain: []string{"example.com", "my-src:!ru", "geosite:!cn"}, To: "a"},
+		{Domain: []string{"my-src:!ru"}, IP: []string{"10.0.0.0/8"}, To: "b"},
+		{Domain: []string{"regexp:!x", "full:a.example.com"}, To: "c"},
+		{IP: []string{"my-ips:!ru"}, To: "d"},
+	}}
+	dropped := p.DropNegatedDomains()
+	if strings.Join(dropped, ",") != "my-src:!ru,geosite:!cn,my-src:!ru" || len(p.Rules) != 3 {
+		t.Fatalf("dropped %v, rules %+v", dropped, p.Rules)
+	}
+	if strings.Join(p.Rules[0].Domain, ",") != "example.com" || p.Rules[1].To != "c" || strings.Join(p.Rules[1].Domain, ",") != "regexp:!x,full:a.example.com" || p.Rules[2].To != "d" {
+		t.Fatalf("rules %+v", p.Rules)
+	}
+}

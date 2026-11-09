@@ -62,7 +62,7 @@ func (s *Service) BanUser(ctx context.Context, userID int64, reason string) (boo
 }
 
 func (s *Service) UnbanUser(ctx context.Context, userID int64) (bool, error) {
-	already, err := s.store.UnbanUser(ctx, userID)
+	already, err := s.store.UnbanUser(ctx, userID, time.Now().UTC())
 	if err != nil {
 		return false, err
 	}

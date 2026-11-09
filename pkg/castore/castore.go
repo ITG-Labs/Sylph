@@ -20,6 +20,7 @@ const (
 	caCertFile  = "ca.pem"
 	caKeyFile   = "ca.key"
 	certsDir    = "certs"
+	archiveDir  = "archive"
 	revokedFile = "revoked.json"
 )
 
@@ -197,6 +198,92 @@ func Revoke(dir string, name string) error {
 	return os.WriteFile(filepath.Join(dir, revokedFile), append(data, '\n'), 0o644)
 }
 
+func IsRevoked(dir string, serial string) (bool, error) {
+	serials, err := LoadRevoked(dir)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range serials {
+		if s == serial {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func Inspect(dir string, name string) (CertInfo, error) {
+	if err := ValidName(name); err != nil {
+		return CertInfo{}, err
+	}
+	certPEM, err := os.ReadFile(filepath.Join(dir, certsDir, name, "cert.pem"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return CertInfo{}, fmt.Errorf("certificate %q not found", name)
+	}
+	if err != nil {
+		return CertInfo{}, err
+	}
+	cert, err := mtls.ParseCertPEM(certPEM)
+	if err != nil {
+		return CertInfo{}, err
+	}
+	return certInfo(name, cert), nil
+}
+
+func Renew(dir string, name string, ttl time.Duration, now time.Time) error {
+	info, err := Inspect(dir, name)
+	if err != nil {
+		return err
+	}
+	usage := mtls.ClientUsage
+	if info.Type == "server" {
+		usage = mtls.ServerUsage
+	}
+	leafDir := filepath.Join(dir, certsDir, name)
+	archived, err := archiveLeaf(dir, name, leafDir, now)
+	if err != nil {
+		return err
+	}
+	if err := Issue(dir, name, usage, info.Role, ttl, now); err != nil {
+		os.RemoveAll(leafDir)
+		if rerr := os.Rename(archived, leafDir); rerr != nil {
+			return fmt.Errorf("%w (restore from %s failed: %v)", err, archived, rerr)
+		}
+		return err
+	}
+	return nil
+}
+
+func archiveLeaf(dir string, name string, leafDir string, now time.Time) (string, error) {
+	if err := os.MkdirAll(filepath.Join(dir, archiveDir), 0o700); err != nil {
+		return "", err
+	}
+	base := filepath.Join(dir, archiveDir, name+"-"+now.UTC().Format("20060102-150405"))
+	target := base
+	for i := 2; ; i++ {
+		if _, err := os.Stat(target); errors.Is(err, fs.ErrNotExist) {
+			break
+		} else if err != nil {
+			return "", err
+		}
+		target = fmt.Sprintf("%s-%d", base, i)
+	}
+	if err := os.Rename(leafDir, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func certInfo(name string, cert *x509.Certificate) CertInfo {
+	typ := "client"
+	for _, eku := range cert.ExtKeyUsage {
+		if eku == x509.ExtKeyUsageServerAuth {
+			typ = "server"
+		}
+	}
+	role, _ := mtls.RoleOf(cert)
+	return CertInfo{Name: name, Type: typ, Role: role, Serial: cert.SerialNumber.String(), NotAfter: cert.NotAfter}
+}
+
 func List(dir string) ([]CertInfo, error) {
 	entries, err := os.ReadDir(filepath.Join(dir, certsDir))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -218,20 +305,7 @@ func List(dir string) ([]CertInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		typ := "client"
-		for _, eku := range cert.ExtKeyUsage {
-			if eku == x509.ExtKeyUsageServerAuth {
-				typ = "server"
-			}
-		}
-		role, _ := mtls.RoleOf(cert)
-		infos = append(infos, CertInfo{
-			Name:     entry.Name(),
-			Type:     typ,
-			Role:     role,
-			Serial:   cert.SerialNumber.String(),
-			NotAfter: cert.NotAfter,
-		})
+		infos = append(infos, certInfo(entry.Name(), cert))
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
 	return infos, nil

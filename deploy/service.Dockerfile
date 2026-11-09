@@ -11,5 +11,6 @@ RUN GOWORK=off CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/IT
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/sylph /sylph
+ENV GODEBUG=multipathtcp=0
 USER nonroot:nonroot
 ENTRYPOINT ["/sylph"]

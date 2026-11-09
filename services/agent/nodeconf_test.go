@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -76,12 +77,13 @@ func (p *fakeProc) killCount() int {
 }
 
 type fakeCaddy struct {
-	mu       sync.Mutex
-	current  []byte
-	reject   string
-	dropLoad bool
-	loads    int
-	loadedAt time.Time
+	mu           sync.Mutex
+	current      []byte
+	reject       string
+	rejectStatus int
+	dropLoad     bool
+	loads        int
+	loadedAt     time.Time
 }
 
 func (f *fakeCaddy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +106,11 @@ func (f *fakeCaddy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if f.reject != "" {
-			w.WriteHeader(http.StatusBadRequest)
+			status := http.StatusBadRequest
+			if f.rejectStatus != 0 {
+				status = f.rejectStatus
+			}
+			w.WriteHeader(status)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": f.reject})
 			return
 		}
@@ -349,6 +355,136 @@ func TestRejectedConfigIsNotRetriedUntilInboundsChange(t *testing.T) {
 	}
 	if restarted.ConfigError() != nil {
 		t.Fatalf("config_error = %q after a good apply", *restarted.ConfigError())
+	}
+}
+
+func TestXrayThatNeverCameBackIsRetriedOnlyAfterAPause(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	now := time.Now()
+	r.node.now = func() time.Time { return now }
+	r.node.Apply(ctx, mainIn)
+	var down atomic.Bool
+	down.Store(true)
+	r.proc.broken = down.Load
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if e := r.node.ConfigError(); e == nil || strings.HasPrefix(*e, "xray_config_rejected") {
+		t.Fatalf("config_error = %v", e)
+	}
+	kills := r.proc.killCount()
+	for range 5 {
+		now = now.Add(30 * time.Second)
+		r.age(2 * time.Hour)
+		r.fx.set(func(f *fakeXray) { f.uptimeErr = nil; f.uptime = time.Hour })
+		r.node.Apply(ctx, testInbounds("main", "second"))
+	}
+	if r.proc.killCount() != kills {
+		t.Fatalf("xray was restarted again on the next ticks: %d more kills", r.proc.killCount()-kills)
+	}
+	down.Store(false)
+	r.fx.set(func(f *fakeXray) { f.uptimeErr = nil; f.uptime = time.Hour })
+	now = now.Add(rejectionTTL)
+	fixed := testInbounds("main", "second")
+	if got := r.node.Apply(ctx, fixed); !reflect.DeepEqual(got, fixed) || r.node.ConfigError() != nil {
+		t.Fatalf("the same config was not retried after the pause: %+v, %v", got, r.node.ConfigError())
+	}
+}
+
+func TestXrayRetryPauseGrowsAndResets(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	now := time.Now()
+	r.node.now = func() time.Time { return now }
+	r.node.Apply(ctx, mainIn)
+	var calls atomic.Int32
+	r.proc.broken = func() bool { return calls.Add(1)%2 == 1 }
+	bad := testInbounds("main", "second")
+	retry := func() int {
+		r.age(2 * time.Hour)
+		r.fx.set(func(f *fakeXray) { f.uptime = time.Hour })
+		before := r.proc.killCount()
+		r.node.Apply(ctx, bad)
+		return r.proc.killCount() - before
+	}
+	if retry() == 0 {
+		t.Fatal("first attempt did not run")
+	}
+	now = now.Add(rejectionTTL - time.Minute)
+	if retry() != 0 {
+		t.Fatal("retried before the first pause ended")
+	}
+	now = now.Add(2 * time.Minute)
+	if retry() == 0 {
+		t.Fatal("did not retry after the first pause")
+	}
+	now = now.Add(rejectionTTL + time.Minute)
+	if retry() != 0 {
+		t.Fatal("the second pause is not longer than the first")
+	}
+	now = now.Add(rejectionTTL)
+	if retry() == 0 {
+		t.Fatal("did not retry after the second pause")
+	}
+	other := testInbounds("main", "third")
+	before := r.proc.killCount()
+	r.age(2 * time.Hour)
+	r.fx.set(func(f *fakeXray) { f.uptime = time.Hour })
+	r.node.Apply(ctx, other)
+	if r.proc.killCount() == before {
+		t.Fatal("a new config waited for the pause of the old one")
+	}
+}
+
+func TestXrayRetryPauseIsCapped(t *testing.T) {
+	for fails, want := range map[int]time.Duration{0: time.Hour, 1: time.Hour, 2: 2 * time.Hour, 3: 4 * time.Hour, 5: 16 * time.Hour, 6: 24 * time.Hour, 40: 24 * time.Hour} {
+		if got := xrayRetryPause(fails); got != want {
+			t.Errorf("pause after %d failures = %v, want %v", fails, got, want)
+		}
+	}
+}
+
+func TestOldRejectionWithoutTimeIsNotRetriedAtOnce(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	r.node.Apply(ctx, mainIn)
+	r.node.Apply(ctx, brokenInbounds())
+	r.node.state.XrayRejected.At = time.Time{}
+	r.node.saveState()
+	restarted := r.newNode()
+	if err := restarted.Load(); err != nil {
+		t.Fatal(err)
+	}
+	kills := r.proc.killCount()
+	restarted.Apply(ctx, brokenInbounds())
+	if r.proc.killCount() != kills {
+		t.Fatal("a rejection saved by an older agent was retried at once")
+	}
+}
+
+func TestXrayRejectionExpires(t *testing.T) {
+	r := newNodeRig(t, newFakeXray())
+	ctx := context.Background()
+	now := time.Now()
+	r.node.now = func() time.Time { return now }
+	r.node.Apply(ctx, mainIn)
+	var first atomic.Bool
+	first.Store(true)
+	r.proc.broken = func() bool { return first.CompareAndSwap(true, false) }
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if r.node.state.XrayRejected == nil {
+		t.Fatal("no rejection recorded")
+	}
+	kills := r.proc.killCount()
+	r.node.Apply(ctx, testInbounds("main", "second"))
+	if r.proc.killCount() != kills {
+		t.Fatal("a fresh rejection was retried")
+	}
+	now = now.Add(rejectionTTL + time.Minute)
+	r.age(2 * time.Hour)
+	r.fx.set(func(f *fakeXray) { f.uptime = time.Hour })
+	fixed := testInbounds("main", "second")
+	if got := r.node.Apply(ctx, fixed); !reflect.DeepEqual(got, fixed) || r.node.ConfigError() != nil {
+		t.Fatalf("an old rejection blocks the config: %+v, %v", got, r.node.ConfigError())
 	}
 }
 

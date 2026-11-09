@@ -16,11 +16,15 @@ const (
 )
 
 func (s *Service) RecordNodeDeltas(ctx context.Context, nodeCN string, batchID string, deltas []model.TrafficDelta) (bool, error) {
+	return s.RecordNodeDeltasFrom(ctx, nodeCN, batchID, time.Time{}, deltas)
+}
+
+func (s *Service) RecordNodeDeltasFrom(ctx context.Context, nodeCN string, batchID string, from time.Time, deltas []model.TrafficDelta) (bool, error) {
 	node, err := s.store.GetNodeByCN(ctx, nodeCN)
 	if err != nil {
 		return false, err
 	}
-	res, err := s.store.RecordDeltaBatch(ctx, node.ID, batchID, deltas)
+	res, err := s.store.RecordDeltaBatchFrom(ctx, node.ID, batchID, from, deltas)
 	if err != nil {
 		return false, err
 	}
@@ -58,13 +62,17 @@ func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOl
 		return res, err
 	}
 	if statsOlderThanDays != nil {
-		if res.Daily, err = s.store.CleanupDailyStats(ctx, *statsOlderThanDays); err != nil {
+		var partial bool
+		if res.Daily, partial, err = s.store.CleanupDailyStats(ctx, *statsOlderThanDays, cleanupChunk); err != nil {
 			return res, err
 		}
+		res.Partial = res.Partial || partial
 	}
-	if res.IPs, err = s.store.CleanupOnline(ctx, now.AddDate(0, 0, -ipDays)); err != nil {
+	ipsPartial := false
+	if res.IPs, ipsPartial, err = s.store.CleanupOnline(ctx, now.AddDate(0, 0, -ipDays), cleanupChunk); err != nil {
 		return res, err
 	}
+	res.Partial = res.Partial || ipsPartial
 	s.log.LogAttrs(ctx, slog.LevelInfo, "maintenance_cleanup",
 		slog.Int("older_than_days", olderThanDays),
 		slog.Int64("deltas", res.Deltas),
@@ -72,7 +80,8 @@ func (s *Service) CleanupHistory(ctx context.Context, olderThanDays int, statsOl
 		slog.Int64("keys", res.Keys),
 		slog.Int64("daily", res.Daily),
 		slog.Int64("notifications", res.Notifications),
-		slog.Int64("ips", res.IPs))
+		slog.Int64("ips", res.IPs),
+		slog.Bool("partial", res.Partial))
 	return res, nil
 }
 
@@ -94,12 +103,12 @@ type TrafficDeltaInput struct {
 	BytesDown int64
 }
 
-func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, batchID string, deltas []TrafficDeltaInput) (bool, error) {
+func (s *Service) RecordNodeDeltasInput(ctx context.Context, nodeCN string, batchID string, from time.Time, deltas []TrafficDeltaInput) (bool, error) {
 	models := make([]model.TrafficDelta, 0, len(deltas))
 	for _, d := range deltas {
 		models = append(models, model.TrafficDelta{KeyUUID: d.KeyUUID, Inbound: d.Inbound, BytesUp: d.BytesUp, BytesDown: d.BytesDown})
 	}
-	return s.RecordNodeDeltas(ctx, nodeCN, batchID, models)
+	return s.RecordNodeDeltasFrom(ctx, nodeCN, batchID, from, models)
 }
 
 func (s *Service) NodeHeartbeat(ctx context.Context, nodeCN string, hb model.NodeHeartbeat) error {

@@ -310,6 +310,7 @@ func TestSubscriptionAPIPassesXHTTPSupport(t *testing.T) {
 	e := newAdminEnv(t)
 	nodeID := e.createNode(t, "node-1", nil)
 	mustStatus(t, e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", nodeID), tlsBody("cdn", "static.example.ru", "/api")), http.StatusOK)
+	e.nodeReady(t, "node-1", nodeID, "static.example.ru")
 	u, p := botUserAndPlan(t, e.apiEnv, 8301, 199)
 	if _, err := store.NewStore(e.pool).ApplyPayment(context.Background(), u.ID, p.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)

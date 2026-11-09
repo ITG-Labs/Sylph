@@ -214,12 +214,19 @@ func findRoles(ctx context.Context, dir string) ([]installed, error) {
 }
 
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	return writeFileAtomicOwned(path, data, mode, -1, -1)
+}
+
+func writeFileAtomicOwned(path string, data []byte, mode os.FileMode, uid, gid int) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
 	name := tmp.Name()
 	err = tmp.Chmod(mode)
+	if err == nil && (uid >= 0 || gid >= 0) {
+		err = tmp.Chown(uid, gid)
+	}
 	if err == nil {
 		_, err = tmp.Write(data)
 	}
@@ -321,6 +328,8 @@ func currentCerts(dir string, r *role.Role, coreName string, now time.Time) ([]b
 	return b.Verify(r.Name, coreName, now)
 }
 
+const panelUID = 65532
+
 type adminRecord = json.RawMessage
 
 func readAdmins(dir string) ([]adminRecord, []string, error) {
@@ -353,7 +362,47 @@ func writeAdmins(dir string, records []adminRecord) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(dir, "admins.json"), append(data, '\n'), 0o600)
+	return writeFileAtomicOwned(filepath.Join(dir, "admins.json"), append(data, '\n'), 0o400, panelUID, panelUID)
+}
+
+func staleReaders(ctx context.Context, dir string, r *role.Role) []string {
+	newest := newestModTime(filepath.Join(dir, "certs"))
+	if r.Admins {
+		if info, err := os.Stat(filepath.Join(dir, "admins.json")); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	if newest.IsZero() {
+		return nil
+	}
+	containers, err := compose.Snapshot(ctx, dir)
+	if err != nil {
+		return nil
+	}
+	var stale []string
+	for _, service := range r.CertReaders {
+		for _, c := range containers {
+			if c.Service == service && c.State == "running" && !c.StartedAt.IsZero() && c.StartedAt.Before(newest) {
+				stale = append(stale, service)
+				break
+			}
+		}
+	}
+	return stale
+}
+
+func newestModTime(root string) time.Time {
+	var newest time.Time
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
 }
 
 func chownToSudoUser(path string) error {
@@ -370,14 +419,14 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func runningAt(ctx context.Context, dir string, tag string, caddy string) bool {
+func runningAt(ctx context.Context, dir string, tag string, pins map[string]string) bool {
 	containers, err := compose.Snapshot(ctx, dir)
 	if err != nil {
 		return false
 	}
 	found := false
 	for _, c := range containers {
-		t, want, ok := sylphTag(c.Image, tag, caddy)
+		t, want, ok := sylphTag(c.Image, tag, pins)
 		if !ok || c.State != "running" {
 			continue
 		}

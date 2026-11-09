@@ -71,7 +71,7 @@ updates:
         patterns: ["*"]
         group-by: dependency-name
     ignore:
-      - dependency-name: "*xray-core"
+      - dependency-name: "*sylph-xray"
 
   - package-ecosystem: docker-compose
     directories:
@@ -96,6 +96,6 @@ updates:
         patterns: ["*"]
         group-by: dependency-name
     ignore:
-      - dependency-name: "*xray-core"
+      - dependency-name: "*sylph-xray"
       - dependency-name: postgres
         update-types: [version-update:semver-major]

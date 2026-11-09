@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ITG-Labs/sylph/pkg/castore"
 	"github.com/ITG-Labs/sylph/pkg/logging"
 )
 
@@ -137,6 +138,9 @@ func segmentMatches(part, seg string) bool {
 	}
 	if part == "{payment_id}" {
 		return validPaymentID(seg)
+	}
+	if part == "{cn}" {
+		return castore.ValidName(seg) == nil
 	}
 	if seg == "" || len(seg) > maxNumericDigits {
 		return false

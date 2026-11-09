@@ -5,9 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
-	"net/netip"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ITG-Labs/sylph/internal/version"
@@ -19,7 +17,15 @@ const (
 	maxOnlineIPsPerKey = 32
 	maxOnlineReport    = 20000
 	maxOnlineAgeSec    = 30 * 24 * 3600
+	maxOnlineWalk      = 10 * time.Second
 )
+
+func onlineBudget(cfg *Config) time.Duration {
+	if half := cfg.SyncInterval / 2; half > 0 && half < maxOnlineWalk {
+		return half
+	}
+	return maxOnlineWalk
+}
 
 type Loop struct {
 	engine  *Engine
@@ -39,6 +45,7 @@ type Loop struct {
 	xrayStart  time.Time
 	lastRefill time.Time
 	refillGap  time.Duration
+	watch      <-chan time.Time
 }
 
 func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, node *NodeConfig, cfg *Config, logger *slog.Logger) *Loop {
@@ -48,7 +55,11 @@ func NewLoop(e *Engine, sc *StatsCollector, core *CoreClient, xray XrayClient, n
 
 func (l *Loop) RunOnce(ctx context.Context) error {
 	l.reportTraffic(ctx)
-	_, syncErr := l.engine.SyncOnce(ctx)
+	var resp *SyncResp
+	var fetchErr error
+	version := l.engine.version
+	l.await(ctx, func() { resp, fetchErr = l.engine.core.SyncUsers(ctx, version) })
+	_, syncErr := l.engine.take(resp, fetchErr)
 	if syncErr != nil {
 		l.logger.Error("sync_failed", "error", syncErr.Error())
 	}
@@ -56,10 +67,32 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	if applyErr != nil {
 		l.logger.Error("reconcile_failed", "error", applyErr.Error())
 	}
-	if err := l.core.Heartbeat(ctx, l.heartbeat(ctx)); err != nil {
-		l.logger.Error("heartbeat_failed", "error", err.Error())
+	hb := l.heartbeat(ctx)
+	var hbErr error
+	l.await(ctx, func() { hbErr = l.core.Heartbeat(ctx, hb) })
+	if hbErr != nil {
+		l.logger.Error("heartbeat_failed", "error", hbErr.Error())
 	}
 	return errors.Join(syncErr, applyErr)
+}
+
+func (l *Loop) await(ctx context.Context, call func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		call()
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			<-done
+			return
+		case <-l.watch:
+			l.watchXray(ctx)
+		}
+	}
 }
 
 func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
@@ -70,6 +103,13 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 		ConfigError:    l.node.ConfigError(),
 		RoutingError:   l.rules.Error(),
 		Addresses:      l.egress,
+		Applied:        []string{},
+	}
+	for _, in := range l.applied {
+		hb.Applied = append(hb.Applied, in.Tag)
+	}
+	if l.applied == nil {
+		hb.Applied = append(hb.Applied, l.node.RunningTags()...)
 	}
 	if l.node.geo != nil {
 		if st := l.node.geo.Status(); len(st) > 0 {
@@ -95,6 +135,8 @@ func (l *Loop) heartbeat(ctx context.Context) Heartbeat {
 }
 
 func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
+	ctx, cancel := context.WithTimeout(ctx, onlineBudget(l.cfg))
+	defer cancel()
 	raw, err := l.xray.OnlineIPs(ctx)
 	if err != nil {
 		l.logger.Error("heartbeat_xray_probe_failed", "probe", "online", "error", err.Error())
@@ -107,11 +149,11 @@ func (l *Loop) online(ctx context.Context) ([]OnlineKey, bool) {
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
 		k := OnlineKey{Key: key}
 		for _, ip := range slices.Sorted(maps.Keys(raw[key])) {
-			addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(ip, "["), "]"))
-			if err != nil || len(k.IPs) >= maxOnlineIPsPerKey {
+			addr, ok := onlineAddr(ip)
+			if !ok || len(k.IPs) >= maxOnlineIPsPerKey {
 				continue
 			}
-			k.IPs = append(k.IPs, OnlineIP{IP: addr.WithZone("").Unmap().String(), AgeSec: min(max(0, now-raw[key][ip]), maxOnlineAgeSec)})
+			k.IPs = append(k.IPs, OnlineIP{IP: addr.String(), AgeSec: min(max(0, now-raw[key][ip]), maxOnlineAgeSec)})
 		}
 		if len(k.IPs) == 0 {
 			continue
@@ -215,7 +257,8 @@ func (l *Loop) reportTraffic(ctx context.Context) {
 	if batch == nil {
 		return
 	}
-	duplicate, err := l.core.ReportDeltas(ctx, batch)
+	var duplicate bool
+	l.await(ctx, func() { duplicate, err = l.core.ReportDeltas(ctx, batch) })
 	if err != nil {
 		l.logger.Error("deltas_report_failed", "error", err.Error(), "batch_id", batch.ID, "count", len(batch.Deltas))
 		return
@@ -227,12 +270,12 @@ func (l *Loop) reportTraffic(ctx context.Context) {
 func (l *Loop) Run(ctx context.Context) error {
 	ticker := time.NewTicker(l.cfg.SyncInterval)
 	defer ticker.Stop()
-	var watch <-chan time.Time
 	if l.cfg.XrayWatch > 0 {
 		w := time.NewTicker(l.cfg.XrayWatch)
 		defer w.Stop()
-		watch = w.C
+		l.watch = w.C
 	}
+	defer func() { l.watch = nil }()
 	for {
 		if err := l.RunOnce(ctx); err != nil && ctx.Err() == nil {
 			l.logger.Debug("loop_tick_incomplete", "error", err.Error())
@@ -243,8 +286,13 @@ func (l *Loop) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
+				select {
+				case <-l.watch:
+					l.watchXray(ctx)
+				default:
+				}
 				break wait
-			case <-watch:
+			case <-l.watch:
 				l.watchXray(ctx)
 			}
 		}

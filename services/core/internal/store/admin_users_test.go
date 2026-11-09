@@ -296,13 +296,13 @@ func TestUnbanStartsFromScratch(t *testing.T) {
 	ctx := context.Background()
 	u := mkUser(t, s)
 	pay(t, s, u.ID, mkPlan(t, s).ID, time.Now().UTC())
-	if already, err := s.UnbanUser(ctx, u.ID); err != nil || !already {
+	if already, err := s.UnbanUser(ctx, u.ID, time.Now().UTC()); err != nil || !already {
 		t.Fatalf("unban of an active user: already %v, %v", already, err)
 	}
 	if _, err := s.BanUser(ctx, u.ID, "", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if already, err := s.UnbanUser(ctx, u.ID); err != nil || already {
+	if already, err := s.UnbanUser(ctx, u.ID, time.Now().UTC()); err != nil || already {
 		t.Fatalf("unban: already %v, %v", already, err)
 	}
 	got, _ := s.GetUserByID(ctx, u.ID)
@@ -314,6 +314,41 @@ func TestUnbanStartsFromScratch(t *testing.T) {
 	}
 	if _, err := s.BanUser(ctx, 999999, "", time.Now().UTC()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ban of unknown user: %v", err)
+	}
+}
+
+func TestUnbanClosesPeriodsThatAPaymentCreatedWhileBanned(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u := mkUser(t, s)
+	plan := mkPlan(t, s)
+	now := time.Now().UTC()
+	if _, err := s.BanUser(ctx, u.ID, "", now); err != nil {
+		t.Fatal(err)
+	}
+	pay(t, s, u.ID, plan.ID, now.Add(time.Minute))
+	pay(t, s, u.ID, plan.ID, now.Add(2*time.Minute))
+	if already, err := s.UnbanUser(ctx, u.ID, now.Add(time.Hour)); err != nil || already {
+		t.Fatalf("unban: already %v, %v", already, err)
+	}
+	if sub, err := s.GetActiveSubscription(ctx, u.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unban left a paid-while-banned period alive: %+v, %v", sub, err)
+	}
+	var open int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM subscriptions WHERE user_id = $1 AND NOT canceled`, u.ID).Scan(&open); err != nil || open != 0 {
+		t.Fatalf("open periods after unban = %d, %v", open, err)
+	}
+	next := time.Now().UTC()
+	pay(t, s, u.ID, plan.ID, next)
+	periods := userPeriods(t, s, u.ID)
+	live := 0
+	for _, p := range periods {
+		if !p.Canceled {
+			live++
+		}
+	}
+	if live != 1 {
+		t.Fatalf("a fresh payment after unban must start from scratch, live periods = %d", live)
 	}
 }
 

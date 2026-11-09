@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -1486,5 +1488,330 @@ func TestMigration019DownFoldsInbounds(t *testing.T) {
 	var tag string
 	if err := pool.QueryRow(ctx, `SELECT inbound_tag FROM traffic_daily`).Scan(&tag); err != nil || tag != "" {
 		t.Fatalf("old rows after up = %q, %v", tag, err)
+	}
+}
+
+func TestMigration021DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(21); err != nil {
+		t.Fatalf("up to 021: %v", err)
+	}
+	if !columnExists(t, pool, "payments", "last_polled_at") {
+		t.Fatal("up 021 did not add last_polled_at")
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 021: %v", err)
+	}
+	if columnExists(t, pool, "payments", "last_polled_at") {
+		t.Fatal("down 021 left the column")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 021 again: %v", err)
+	}
+}
+
+func TestMigration022DownAndUpAgain(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	m, closeDB, err := newMigrator(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDB()
+	if err := m.Steps(21); err != nil {
+		t.Fatalf("up to 021: %v", err)
+	}
+	for _, q := range []string{
+		`INSERT INTO location_groups (name) VALUES ('g')`,
+		`INSERT INTO plans (name, price_rub, period_days, location_group_id) SELECT 'p', 100, 30, id FROM location_groups`,
+		`INSERT INTO users (telegram_id, sub_token) VALUES (1, 'tok1')`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, paid_at) SELECT 'old-paid', u.id, p.id, 100, 'succeeded', 'yookassa', now() FROM users u, plans p`,
+		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source) SELECT 'waiting', u.id, p.id, 100, 'pending', 'yookassa' FROM users u, plans p`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 022: %v", err)
+	}
+	if !columnExists(t, pool, "payments", "notified_at") {
+		t.Fatal("up 022 did not add notified_at")
+	}
+	var oldMarked, waitingMarked bool
+	if err := pool.QueryRow(ctx, `SELECT (SELECT notified_at IS NOT NULL FROM payments WHERE payment_id = 'old-paid'), (SELECT notified_at IS NOT NULL FROM payments WHERE payment_id = 'waiting')`).Scan(&oldMarked, &waitingMarked); err != nil || !oldMarked || waitingMarked {
+		t.Fatalf("backfill: paid before the migration marked %v, still pending marked %v, %v", oldMarked, waitingMarked, err)
+	}
+	if err := m.Steps(-1); err != nil {
+		t.Fatalf("down 022: %v", err)
+	}
+	if columnExists(t, pool, "payments", "notified_at") {
+		t.Fatal("down 022 left the column")
+	}
+	if err := m.Steps(1); err != nil {
+		t.Fatalf("up 022 again: %v", err)
+	}
+}
+
+func slowMigrations() fstest.MapFS {
+	return fstest.MapFS{
+		"m/001_a.up.sql":   {Data: []byte(`CREATE TABLE gs_a (id int);`)},
+		"m/001_a.down.sql": {Data: []byte(`DROP TABLE gs_a;`)},
+		"m/002_b.up.sql":   {Data: []byte(`SELECT pg_sleep(1.5); CREATE TABLE gs_b (id int);`)},
+		"m/002_b.down.sql": {Data: []byte(`DROP TABLE gs_b;`)},
+		"m/003_c.up.sql":   {Data: []byte(`CREATE TABLE gs_c (id int);`)},
+		"m/003_c.down.sql": {Data: []byte(`DROP TABLE gs_c;`)},
+	}
+}
+
+func resetSchema(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyMigrationsFinishesTheCurrentFileOnShutdown(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(400*time.Millisecond, cancel)
+	err := applyMigrations(ctx, pool, slowMigrations(), "m")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	st, err := MigrationState(pool)
+	if err != nil || st.Dirty || st.Version != 2 {
+		t.Fatalf("state = %+v, %v; want clean version 2", st, err)
+	}
+	if !tableExists(t, pool, "gs_b") || tableExists(t, pool, "gs_c") {
+		t.Fatalf("gs_b = %v, gs_c = %v; want the running file finished and the next one not started", tableExists(t, pool, "gs_b"), tableExists(t, pool, "gs_c"))
+	}
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 3 {
+		t.Fatalf("after resume = %+v, %v", st, err)
+	}
+}
+
+func TestApplyMigrationsDoesNotStartOnCancelledContext(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := applyMigrations(ctx, pool, slowMigrations(), "m"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if tableExists(t, pool, "gs_a") {
+		t.Fatal("a migration ran under a cancelled context")
+	}
+}
+
+func TestApplyMigrationsReportsDirtyVersionAndForceRecovers(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	resetSchema(t, pool)
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var latest uint
+	if err := pool.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	err := ApplyMigrations(ctx, pool)
+	var dirty *DirtyMigrationError
+	if !errors.As(err, &dirty) || dirty.Version != latest {
+		t.Fatalf("err = %v, want DirtyMigrationError at %d", err, latest)
+	}
+	if !strings.Contains(err.Error(), "migrate force") || !strings.Contains(err.Error(), "migrate status") {
+		t.Fatalf("message gives no way out: %v", err)
+	}
+	st, err := MigrationState(pool)
+	if err != nil || !st.Dirty || st.Version != latest {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+	if err := ForceMigrationVersion(pool, int(latest), false); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != latest {
+		t.Fatalf("after force = %+v, %v", st, err)
+	}
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply after force: %v", err)
+	}
+}
+
+func TestApplyMigrationsReportsADatabaseAheadOfTheBinary(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatal(err)
+	}
+	older := fstest.MapFS{}
+	for name, f := range slowMigrations() {
+		if !strings.Contains(name, "003_") {
+			older[name] = f
+		}
+	}
+	err := applyMigrations(context.Background(), pool, older, "m")
+	var ahead *SchemaAheadError
+	if !errors.As(err, &ahead) || ahead.Database != 3 || ahead.Known != 2 {
+		t.Fatalf("err = %v, want SchemaAheadError database 3, known 2", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 3 {
+		t.Fatalf("state = %+v, %v: an older binary must leave the schema alone", st, err)
+	}
+	if !tableExists(t, pool, "gs_c") {
+		t.Fatal("the newer schema was changed")
+	}
+}
+
+func TestApplyMigrationsDirtyDatabaseAheadStaysDirty(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatal(err)
+	}
+	setDirty(t, pool, true)
+	older := fstest.MapFS{}
+	for name, f := range slowMigrations() {
+		if !strings.Contains(name, "003_") {
+			older[name] = f
+		}
+	}
+	err := applyMigrations(context.Background(), pool, older, "m")
+	var dirty *DirtyMigrationError
+	if !errors.As(err, &dirty) {
+		t.Fatalf("err = %v, want DirtyMigrationError", err)
+	}
+}
+
+func TestMigrationStateOfAnEmptyDatabase(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	st, err := MigrationState(pool)
+	if err != nil || st.Dirty || st.Version != 0 {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+}
+
+func latestVersion(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var v int
+	if err := pool.QueryRow(context.Background(), `SELECT version FROM schema_migrations`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func setDirty(t *testing.T, pool *pgxpool.Pool, dirty bool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `UPDATE schema_migrations SET dirty = $1`, dirty); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestForceMigrationVersionRefusesACleanDatabase(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	for _, v := range []int{latest - 2, latest - 1, latest, 0} {
+		err := ForceMigrationVersion(pool, v, false)
+		if !errors.Is(err, ErrForceRefused) || !strings.Contains(err.Error(), "--unsafe") {
+			t.Errorf("force %d on a clean database: err = %v, want ErrForceRefused mentioning --unsafe", v, err)
+		}
+	}
+	if got := latestVersion(t, pool); got != latest {
+		t.Fatalf("version = %d after refused forces, want %d", got, latest)
+	}
+	if err := ForceMigrationVersion(pool, latest-2, true); err != nil {
+		t.Fatalf("unsafe force: %v", err)
+	}
+	if got := latestVersion(t, pool); got != latest-2 {
+		t.Fatalf("version = %d after unsafe force, want %d", got, latest-2)
+	}
+}
+
+func TestForceMigrationVersionOnADirtyDatabaseAllowsOnlyTheVersionOrItsPredecessor(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	setDirty(t, pool, true)
+	for _, v := range []int{latest - 2, latest + 1, 0} {
+		if err := ForceMigrationVersion(pool, v, false); !errors.Is(err, ErrForceRefused) {
+			t.Errorf("force %d on a database dirty at %d: err = %v, want ErrForceRefused", v, latest, err)
+		}
+	}
+	if st, err := MigrationState(pool); err != nil || !st.Dirty || int(st.Version) != latest {
+		t.Fatalf("state after refused forces = %+v, %v", st, err)
+	}
+	if err := ForceMigrationVersion(pool, latest-1, false); err != nil {
+		t.Fatalf("force predecessor: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || int(st.Version) != latest-1 {
+		t.Fatalf("state after force predecessor = %+v, %v", st, err)
+	}
+}
+
+func TestForceMigrationVersionRejectsUnknownVersionsEvenWhenUnsafe(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestVersion(t, pool)
+	for _, dirty := range []bool{false, true} {
+		setDirty(t, pool, dirty)
+		for _, unsafe := range []bool{false, true} {
+			for _, v := range []int{latest + 1, 99999, -1, -2} {
+				err := ForceMigrationVersion(pool, v, unsafe)
+				if !errors.Is(err, ErrForceRefused) || !strings.Contains(err.Error(), "no migration") {
+					t.Errorf("force %d (dirty %v, unsafe %v): err = %v, want an unknown version refusal", v, dirty, unsafe, err)
+				}
+			}
+		}
+	}
+	if got := latestVersion(t, pool); got != latest {
+		t.Fatalf("version = %d, want %d", got, latest)
+	}
+}
+
+func TestForceMigrationVersionToZeroOnDatabaseDirtyAtTheFirstMigration(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	if err := ApplyMigrations(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE schema_migrations SET version = 1, dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ForceMigrationVersion(pool, 0, false); err != nil {
+		t.Fatalf("force 0 on a database dirty at 1: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 0 {
+		t.Fatalf("state = %+v, %v", st, err)
 	}
 }

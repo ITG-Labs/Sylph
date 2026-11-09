@@ -234,3 +234,119 @@ func TestExistsAndHasLeaf(t *testing.T) {
 		t.Fatalf("HasLeaf after issue = %v, %v", ok, err)
 	}
 }
+
+func TestRenewIssuesFreshLeafAndArchivesOld(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := Issue(dir, "node-1", mtls.ClientUsage, mtls.RoleNode, 24*time.Hour, testNow); err != nil {
+		t.Fatal(err)
+	}
+	old, err := Inspect(dir, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPEM, err := os.ReadFile(filepath.Join(dir, "certs", "node-1", "cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Revoke(dir, "node-1"); err != nil {
+		t.Fatal(err)
+	}
+	later := testNow.Add(48 * time.Hour)
+	if err := Renew(dir, "node-1", 365*24*time.Hour, later); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := Inspect(dir, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Serial == old.Serial {
+		t.Fatal("renewed leaf kept the old serial")
+	}
+	if fresh.Role != mtls.RoleNode || fresh.Type != "client" {
+		t.Fatalf("renewed leaf = %+v, want node client", fresh)
+	}
+	if !fresh.NotAfter.After(old.NotAfter) {
+		t.Fatalf("not after %v, want later than %v", fresh.NotAfter, old.NotAfter)
+	}
+	if revoked, err := IsRevoked(dir, fresh.Serial); err != nil || revoked {
+		t.Fatalf("new leaf revoked = %v, %v", revoked, err)
+	}
+	if revoked, err := IsRevoked(dir, old.Serial); err != nil || !revoked {
+		t.Fatalf("old serial must stay revoked: %v, %v", revoked, err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "archive", "node-1-*", "cert.pem"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("archive = %v, %v", matches, err)
+	}
+	archived, err := os.ReadFile(matches[0])
+	if err != nil || string(archived) != string(oldPEM) {
+		t.Fatalf("archived cert differs from the old one: %v", err)
+	}
+	infos, err := List(dir)
+	if err != nil || len(infos) != 1 {
+		t.Fatalf("list = %v, %v", infos, err)
+	}
+}
+
+func TestRenewKeepsServerLeafHostname(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := Issue(dir, "core.sylph.internal", mtls.ServerUsage, "", 24*time.Hour, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := Renew(dir, "core.sylph.internal", 24*time.Hour, testNow.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	certPEM, err := os.ReadFile(filepath.Join(dir, "certs", "core.sylph.internal", "cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := mtls.ParseCertPEM(certPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.VerifyHostname("core.sylph.internal"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := Inspect(dir, "core.sylph.internal")
+	if err != nil || info.Type != "server" || info.Role != "" {
+		t.Fatalf("info = %+v, %v", info, err)
+	}
+}
+
+func TestRenewTwiceKeepsEveryArchive(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := Issue(dir, "bot", mtls.ClientUsage, mtls.RoleBot, 24*time.Hour, testNow); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := Renew(dir, "bot", 24*time.Hour, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "archive", "bot-*", "cert.pem"))
+	if err != nil || len(matches) != 2 {
+		t.Fatalf("archive = %v, %v", matches, err)
+	}
+}
+
+func TestRenewMissingLeafFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir, "Sylph CA", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := Renew(dir, "bot", 24*time.Hour, testNow); err == nil {
+		t.Fatal("renew of a missing leaf should fail")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "archive")); err == nil {
+		t.Fatal("a failed renew must not create the archive")
+	}
+}

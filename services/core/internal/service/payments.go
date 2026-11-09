@@ -19,10 +19,13 @@ var (
 )
 
 const (
-	reuseWindow     = 50 * time.Minute
-	pollWindow      = 24 * time.Hour
-	pollLimit       = 100
-	providerTimeout = 25 * time.Second
+	reuseWindow      = 50 * time.Minute
+	pollWindow       = 24 * time.Hour
+	pollLimit        = 100
+	pollEachBudget   = 5 * time.Second
+	paidNoticeLimit  = 50
+	paidNoticeWindow = 72 * time.Hour
+	providerTimeout  = 25 * time.Second
 )
 
 type PaymentProvider interface {
@@ -38,6 +41,12 @@ type CheckResult struct {
 	Status     string     `json:"status"`
 	Applied    bool       `json:"applied"`
 	TelegramID *int64     `json:"telegram_id"`
+	PaidUntil  *time.Time `json:"paid_until"`
+}
+
+type PaidNotice struct {
+	PaymentID  string     `json:"payment_id"`
+	TelegramID int64      `json:"telegram_id"`
 	PaidUntil  *time.Time `json:"paid_until"`
 }
 
@@ -86,6 +95,9 @@ func (s *Service) CreatePayment(ctx context.Context, userID, planID int64) (*mod
 		status, _, err := s.reconcile(ctx, existing, time.Time{})
 		if err != nil || status == "pending" {
 			return existing, nil
+		}
+		if status == "succeeded" {
+			return s.store.GetPayment(ctx, existing.PaymentID)
 		}
 	case !errors.Is(err, store.ErrNotFound):
 		return nil, err
@@ -186,7 +198,16 @@ func (s *Service) PollPayments(ctx context.Context) (PollResult, error) {
 			break
 		}
 		res.Checked++
-		status, applied, err := s.reconcile(ctx, &pending[i], deadline)
+		if err := s.store.MarkPaymentPolled(ctx, pending[i].PaymentID); err != nil {
+			s.log.LogAttrs(ctx, slog.LevelWarn, "payment_poll_mark_failed",
+				slog.String("payment_id", pending[i].PaymentID),
+				slog.String("error", err.Error()))
+		}
+		limit := time.Now().Add(s.pollEach)
+		if limit.After(deadline) {
+			limit = deadline
+		}
+		status, applied, err := s.reconcile(ctx, &pending[i], limit)
 		switch {
 		case err != nil:
 			res.Failed++
@@ -295,4 +316,29 @@ func paymentDescription(planID int64, u *model.User) string {
 		who = *u.TelegramID
 	}
 	return strconv.FormatInt(planID, 10) + "-" + strconv.FormatInt(who, 10)
+}
+
+func (s *Service) UnnotifiedPayments(ctx context.Context) ([]PaidNotice, error) {
+	list, err := s.store.ListUnnotifiedPayments(ctx, time.Now().Add(-paidNoticeWindow), paidNoticeLimit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PaidNotice, 0, len(list))
+	for _, p := range list {
+		n := PaidNotice{PaymentID: p.PaymentID, TelegramID: p.TelegramID}
+		sub, err := s.store.GetActiveSubscription(ctx, p.UserID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+		case err != nil:
+			return nil, err
+		default:
+			n.PaidUntil = sub.PaidUntil
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func (s *Service) MarkPaymentNotified(ctx context.Context, paymentID string) error {
+	return s.store.MarkPaymentNotified(ctx, paymentID)
 }

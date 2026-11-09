@@ -127,11 +127,16 @@ func (s *Store) FindPendingPayment(ctx context.Context, userID, planID, amountRu
 		 ORDER BY created_at DESC LIMIT 1`, userID, planID, amountRub, since))
 }
 
+func (s *Store) MarkPaymentPolled(ctx context.Context, paymentID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE payments SET last_polled_at = now() WHERE payment_id = $1 AND status = 'pending'`, paymentID)
+	return err
+}
+
 func (s *Store) ListPendingPayments(ctx context.Context, since time.Time, limit int) ([]model.Payment, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+paymentColumns+` FROM payments
 		 WHERE status = 'pending' AND source = 'yookassa' AND created_at > $1
-		 ORDER BY created_at DESC, id DESC LIMIT $2`, since, limit)
+		 ORDER BY last_polled_at ASC NULLS FIRST, created_at DESC, id DESC LIMIT $2`, since, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -145,4 +150,47 @@ func (s *Store) ListPendingPayments(ctx context.Context, since time.Time, limit 
 		out = append(out, *p)
 	}
 	return out, rows.Err()
+}
+
+type UnnotifiedPayment struct {
+	PaymentID  string
+	UserID     int64
+	TelegramID int64
+}
+
+func (s *Store) ListUnnotifiedPayments(ctx context.Context, since time.Time, limit int) ([]UnnotifiedPayment, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT p.payment_id, p.user_id, u.telegram_id
+		 FROM payments p
+		 JOIN users u ON u.id = p.user_id
+		 JOIN subscriptions s ON s.id = p.period_id AND NOT s.canceled AND s.expires_at > now()
+		 WHERE p.status = 'succeeded' AND p.source = 'yookassa' AND p.notified_at IS NULL AND p.paid_at > $1
+		   AND u.telegram_id IS NOT NULL AND u.status = 'active'
+		 ORDER BY p.paid_at, p.id LIMIT $2`, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UnnotifiedPayment
+	for rows.Next() {
+		var p UnnotifiedPayment
+		if err := rows.Scan(&p.PaymentID, &p.UserID, &p.TelegramID); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) MarkPaymentNotified(ctx context.Context, paymentID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE payments SET notified_at = COALESCE(notified_at, now())
+		 WHERE payment_id = $1 AND source = 'yookassa' AND status = 'succeeded'`, paymentID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

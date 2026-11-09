@@ -28,7 +28,9 @@ func fakeCore(t *testing.T, h http.HandlerFunc) *CoreClient {
 func attrsOf(attrs []slog.Attr) map[string]int64 {
 	out := map[string]int64{}
 	for _, a := range attrs {
-		out[a.Key] = a.Value.Int64()
+		if a.Value.Kind() == slog.KindInt64 {
+			out[a.Key] = a.Value.Int64()
+		}
 	}
 	return out
 }
@@ -106,5 +108,49 @@ func TestPaymentsJobSkipsWhenPaymentsAreOff(t *testing.T) {
 	})
 	if _, err := Jobs(other, &Config{PaymentsEvery: time.Minute})[2].Do(context.Background()); err == nil {
 		t.Fatal("other 503 swallowed")
+	}
+}
+
+func TestCleanupJobRepeatsWhileTheCorePassIsPartial(t *testing.T) {
+	calls := 0
+	core := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			_, _ = io.WriteString(w, `{"deltas":1000,"batches":10,"keys":1,"daily":0,"notifications":2,"ips":0,"partial":true}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"deltas":500,"batches":0,"keys":0,"daily":0,"notifications":0,"ips":0,"partial":false}`)
+	})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30})
+	attrs, err := jobs[1].Do(context.Background())
+	got := attrsOf(attrs)
+	if err != nil || calls != 3 || got["deltas"] != 2500 || got["batches"] != 20 || got["notifications"] != 4 || got["passes"] != 3 {
+		t.Fatalf("calls = %d, attrs = %v, err = %v", calls, attrs, err)
+	}
+}
+
+func TestCleanupJobStopsRepeatingAtTheCap(t *testing.T) {
+	calls := 0
+	core := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"deltas":1,"partial":true}`)
+	})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30})
+	attrs, err := jobs[1].Do(context.Background())
+	if err != nil || calls != maxCleanupPasses || attrsOf(attrs)["deltas"] != int64(maxCleanupPasses) {
+		t.Fatalf("calls = %d, attrs = %v, err = %v", calls, attrs, err)
+	}
+}
+
+func TestCleanupJobStopsWhenAPassDeletesNothing(t *testing.T) {
+	calls := 0
+	core := fakeCore(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"deltas":0,"partial":true}`)
+	})
+	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30})
+	attrs, err := jobs[1].Do(context.Background())
+	if err != nil || calls != 1 || attrsOf(attrs)["passes"] != 1 {
+		t.Fatalf("calls = %d, attrs = %v, err = %v", calls, attrs, err)
 	}
 }

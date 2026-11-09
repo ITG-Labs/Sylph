@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -26,6 +27,10 @@ type BatchResult struct {
 }
 
 func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID string, deltas []model.TrafficDelta) (BatchResult, error) {
+	return s.RecordDeltaBatchFrom(ctx, nodeID, batchID, time.Time{}, deltas)
+}
+
+func (s *Store) RecordDeltaBatchFrom(ctx context.Context, nodeID int64, batchID string, from time.Time, deltas []model.TrafficDelta) (BatchResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return BatchResult{}, err
@@ -39,6 +44,15 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 	}
 	if tag.RowsAffected() == 0 {
 		return BatchResult{Duplicate: true}, nil
+	}
+	var spent *time.Time
+	if !from.IsZero() {
+		spent = &from
+	}
+	var at time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT LEAST(GREATEST(COALESCE($1::timestamptz, now()), now() - interval '366 days'), now())`, spent).Scan(&at); err != nil {
+		return BatchResult{}, err
 	}
 	owners, err := keyOwners(ctx, tx, deltas)
 	if err != nil {
@@ -85,7 +99,7 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 		users = append(users, id)
 	}
 	slices.Sort(users)
-	periods, err := lockActivePeriods(ctx, tx, users)
+	periods, err := lockActivePeriods(ctx, tx, users, at)
 	if err != nil {
 		return BatchResult{}, err
 	}
@@ -109,7 +123,7 @@ func (s *Store) RecordDeltaBatch(ctx context.Context, nodeID int64, batchID stri
 			daily.add(id, periods[id].id, tag, t.daily[tag])
 		}
 	}
-	if err := s.addDailyRows(ctx, tx, nodeID, daily); err != nil {
+	if err := s.addDailyRows(ctx, tx, nodeID, daily, at); err != nil {
 		return BatchResult{}, err
 	}
 	pools := &poolCache{node: nodeID, byTag: map[planTag]*int64{}, limits: map[int64]map[int64]*int64{}}
@@ -177,7 +191,7 @@ type activePeriod struct {
 	plan int64
 }
 
-func lockActivePeriods(ctx context.Context, tx pgx.Tx, users []int64) (map[int64]activePeriod, error) {
+func lockActivePeriods(ctx context.Context, tx pgx.Tx, users []int64, at time.Time) (map[int64]activePeriod, error) {
 	out := make(map[int64]activePeriod, len(users))
 	if len(users) == 0 {
 		return out, nil
@@ -185,10 +199,10 @@ func lockActivePeriods(ctx context.Context, tx pgx.Tx, users []int64) (map[int64
 	rows, err := tx.Query(ctx,
 		`SELECT s.user_id, s.id, s.plan_id FROM subscriptions s
 		 WHERE s.id IN (SELECT DISTINCT ON (user_id) id FROM subscriptions
-		                WHERE user_id = ANY($1) AND NOT canceled AND starts_at <= now() AND expires_at > now()
+		                WHERE user_id = ANY($1) AND (NOT canceled OR (NOT closed_manually AND expires_at <= now())) AND starts_at <= $2 AND expires_at > $2
 		                ORDER BY user_id, starts_at DESC, id DESC)
-		   AND NOT s.canceled AND s.starts_at <= now() AND s.expires_at > now()
-		 ORDER BY s.user_id FOR UPDATE OF s`, users)
+		   AND (NOT s.canceled OR (NOT s.closed_manually AND s.expires_at <= now())) AND s.starts_at <= $2 AND s.expires_at > $2
+		 ORDER BY s.user_id FOR UPDATE OF s`, users, at)
 	if err != nil {
 		return nil, err
 	}

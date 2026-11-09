@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -184,6 +185,7 @@ func TestCrashAfterSendResendsSameBatch(t *testing.T) {
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn, failAfterCommit: true}
 	url := httptestOf(fc, t).URL
 	statsPath := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, statsPath)
 	first, _ := testLoop(t, fx, url)
 	if err := first.stats.Load(statsPath); err != nil {
 		t.Fatal(err)
@@ -244,14 +246,14 @@ func TestHeartbeatReportsXrayState(t *testing.T) {
 	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
 	preapply(t, loop, testInbounds("alpha", "beta"))
 	fx.set(func(f *fakeXray) { f.uptime = 90 * time.Second })
-	loop.cfg.XrayVersion = "25.9.11"
+	loop.cfg.XrayVersion = "26.10.21"
 	loop.started = time.Now().Add(-2 * time.Minute)
 	tick(t, loop)
 	hb, beats := lastHeartbeat(fc)
 	if beats != 1 {
 		t.Fatalf("heartbeats = %d", beats)
 	}
-	if hb["agent_version"] != version.Version || hb["xray_version"] != "25.9.11" {
+	if hb["agent_version"] != version.Version || hb["xray_version"] != "26.10.21" {
 		t.Fatalf("versions = %v", hb)
 	}
 	if hb["active_users"] != float64(2) {
@@ -447,5 +449,68 @@ func TestHeartbeatReportsOnline(t *testing.T) {
 	fx.online = map[string]map[string]int64{"key-c": many}
 	if hb = loop.heartbeat(context.Background()); len((*hb.Online)[0].IPs) != maxOnlineIPsPerKey {
 		t.Fatalf("ips per key not capped: %d", len((*hb.Online)[0].IPs))
+	}
+}
+
+func TestOnlineWalksHaveABudget(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn}
+	loop, e := testLoop(t, fx, httptestOf(fc, t).URL)
+	loop.cfg.SyncInterval = 30 * time.Second
+	tick(t, loop)
+	fx.mu.Lock()
+	fx.online = map[string]map[string]int64{userEmail("u-1", "main"): {"203.0.113.7": 1}}
+	fx.onlineLeft = nil
+	fx.mu.Unlock()
+	loop.heartbeat(context.Background())
+	e.sockets = &fakeSockets{}
+	e.setDesired(nil)
+	if err := e.Reconcile(context.Background(), mainIn); err != nil {
+		t.Fatal(err)
+	}
+	fx.mu.Lock()
+	left := slices.Clone(fx.onlineLeft)
+	fx.mu.Unlock()
+	if len(left) != 2 {
+		t.Fatalf("online walks = %d, want the heartbeat and the session snapshot", len(left))
+	}
+	for i, d := range left {
+		if d <= 0 || d > maxOnlineWalk {
+			t.Fatalf("walk %d ran with %v left, want a deadline within %v", i, d, maxOnlineWalk)
+		}
+	}
+}
+
+func TestHeartbeatNamesTheAppliedInbounds(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1"), syncInbounds: mainIn}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	if data, _ := json.Marshal(loop.heartbeat(context.Background())); !strings.Contains(string(data), `"applied_inbounds":[]`) {
+		t.Fatalf("nothing applied yet, want an empty list: %s", data)
+	}
+	tick(t, loop)
+	setCore(fc, func(f *fakeCore) {
+		f.syncVersion = 2
+		f.syncInbounds = brokenInbounds()
+	})
+	tick(t, loop)
+	hb, _ := lastHeartbeat(fc)
+	if got, _ := json.Marshal(hb["applied_inbounds"]); string(got) != `["main"]` {
+		t.Fatalf("applied_inbounds = %s, want only what xray runs", got)
+	}
+}
+
+func TestHeartbeatNamesRunningInboundsWhileNothingIsApplied(t *testing.T) {
+	fx := newFakeXray()
+	fc := &fakeCore{syncVersion: 1, syncUsers: users("u-1"), syncInbounds: brokenInbounds()}
+	loop, _ := testLoop(t, fx, httptestOf(fc, t).URL)
+	preapply(t, loop, mainIn)
+	tick(t, loop)
+	if loop.node.state.Applied != nil {
+		t.Fatalf("applied = %+v, want nothing applied after the refused config", loop.node.state.Applied)
+	}
+	hb, _ := lastHeartbeat(fc)
+	if got, _ := json.Marshal(hb["applied_inbounds"]); string(got) != `["main"]` {
+		t.Fatalf("applied_inbounds = %s, want the inbounds xray still runs", got)
 	}
 }

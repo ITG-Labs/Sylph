@@ -14,9 +14,9 @@ func TestMaintenanceCleanup(t *testing.T) {
 	mustField(t, e.call(t, http.MethodPost, "/v1/maintenance/cleanup", map[string]any{}), http.StatusBadRequest, "bad_request", "older_than_days")
 	r := e.call(t, http.MethodPost, "/v1/maintenance/cleanup", map[string]any{"older_than_days": 30})
 	mustStatus(t, r, http.StatusOK)
-	var got map[string]int64
+	var got map[string]any
 	r.decode(t, &got)
-	if len(got) != 6 || got["deltas"] != 0 || got["batches"] != 0 || got["keys"] != 0 || got["daily"] != 0 || got["notifications"] != 0 || got["ips"] != 0 {
+	if len(got) != 7 || got["deltas"] != 0.0 || got["batches"] != 0.0 || got["keys"] != 0.0 || got["daily"] != 0.0 || got["notifications"] != 0.0 || got["ips"] != 0.0 || got["partial"] != false {
 		t.Fatalf("cleanup = %v", got)
 	}
 	for _, days := range []any{0, 3651} {

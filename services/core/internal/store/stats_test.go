@@ -155,7 +155,7 @@ func TestCleanupDailyStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deleted, err := s.CleanupDailyStats(ctx, 365)
+	deleted, _, err := s.CleanupDailyStats(ctx, 365, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

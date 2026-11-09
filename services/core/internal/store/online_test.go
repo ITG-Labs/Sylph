@@ -138,7 +138,7 @@ func TestCleanupOnline(t *testing.T) {
 	if _, err := s.pool.Exec(ctx, `UPDATE online_now SET seen_at = now() - interval '2 days'`); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := s.CleanupOnline(ctx, time.Now().AddDate(0, 0, -30))
+	removed, _, err := s.CleanupOnline(ctx, time.Now().AddDate(0, 0, -30), 100)
 	if err != nil || removed != 1 {
 		t.Fatalf("removed = %d, %v", removed, err)
 	}

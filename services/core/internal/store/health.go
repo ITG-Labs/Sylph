@@ -78,3 +78,68 @@ func (s *Store) HealthMarks(ctx context.Context) (map[string]model.HealthMark, e
 	}
 	return out, rows.Err()
 }
+
+const (
+	IncidentMismatch        = "mismatch"
+	IncidentPaidWhileBanned = "paid_while_banned"
+)
+
+type MoneyIncident struct {
+	Kind      string
+	PaymentID int64
+	UserID    int64
+	AmountRub int64
+}
+
+func (s *Store) MoneyIncidents(ctx context.Context) ([]MoneyIncident, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT CASE WHEN pm.status = 'mismatch' THEN 'mismatch' ELSE 'paid_while_banned' END, pm.id, pm.user_id, pm.amount_rub
+		 FROM payments pm JOIN users u ON u.id = pm.user_id
+		 WHERE pm.status = 'mismatch' OR (pm.status = 'succeeded' AND u.status = 'banned' AND pm.paid_at >= u.banned_at)
+		 ORDER BY pm.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MoneyIncident{}
+	for rows.Next() {
+		var in MoneyIncident
+		if err := rows.Scan(&in.Kind, &in.PaymentID, &in.UserID, &in.AmountRub); err != nil {
+			return nil, err
+		}
+		out = append(out, in)
+	}
+	return out, rows.Err()
+}
+
+type AddressProblem struct {
+	NodeID int64
+	IP     string
+	Status string
+	Error  *string
+	Users  int64
+}
+
+func (s *Store) AddressProblems(ctx context.Context) ([]AddressProblem, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT na.node_id, na.ip, na.status, na.error, count(*)
+		 FROM node_addresses na
+		 JOIN address_assignments aa ON aa.address_id = na.id
+		 JOIN users u ON u.id = aa.user_id AND u.status = 'active'
+		 WHERE na.status <> 'ok'
+		 GROUP BY na.id
+		 ORDER BY na.node_id, na.ip`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AddressProblem{}
+	for rows.Next() {
+		var a AddressProblem
+		if err := rows.Scan(&a.NodeID, &a.IP, &a.Status, &a.Error, &a.Users); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

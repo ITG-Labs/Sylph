@@ -307,3 +307,149 @@ func TestManualPaymentRefusesSomeoneElsesID(t *testing.T) {
 		t.Fatalf("other user got a period: %+v", ps)
 	}
 }
+
+func TestListPendingPaymentsOrdersLeastRecentlyPolledFirst(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkUser(t, s), mkPlan(t, s)
+	a := mkProviderPayment(t, s, u.ID, p.ID)
+	b := mkProviderPayment(t, s, u.ID, p.ID)
+	c := mkProviderPayment(t, s, u.ID, p.ID)
+	if _, err := s.pool.Exec(ctx, `UPDATE payments SET created_at = now() - interval '3 hours' WHERE payment_id = $1`, a.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE payments SET created_at = now() - interval '1 hour' WHERE payment_id = $1`, b.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().Add(-24 * time.Hour)
+	ids := func(limit int) []string {
+		t.Helper()
+		got, err := s.ListPendingPayments(ctx, since, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, x := range got {
+			out = append(out, x.PaymentID)
+		}
+		return out
+	}
+	if got := ids(10); len(got) != 3 || got[0] != c.PaymentID || got[1] != b.PaymentID || got[2] != a.PaymentID {
+		t.Fatalf("never polled = %v, want newest first", got)
+	}
+	if err := s.MarkPaymentPolled(ctx, c.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkPaymentPolled(ctx, b.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(1); len(got) != 1 || got[0] != a.PaymentID {
+		t.Fatalf("after polling two = %v, want the one never polled", got)
+	}
+	if got := ids(10); got[0] != a.PaymentID || got[1] != c.PaymentID || got[2] != b.PaymentID {
+		t.Fatalf("order = %v, want never polled, then the least recently polled", got)
+	}
+}
+
+func mkTelegramUser(t *testing.T, s *Store, tg int64) *model.User {
+	t.Helper()
+	u := &model.User{TelegramID: &tg, SubToken: model.NewToken(), Status: "active"}
+	if err := s.CreateUser(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	return u
+}
+
+func TestUnnotifiedPaymentsQueue(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	p := mkPlan(t, s)
+	u, noTG, banned, late := mkTelegramUser(t, s, 8001), mkUser(t, s), mkTelegramUser(t, s, 8002), mkTelegramUser(t, s, 8003)
+	now := time.Now().UTC()
+	settle := func(user *model.User, mutate func(*model.Payment)) *model.Payment {
+		t.Helper()
+		pm := mkProviderPayment(t, s, user.ID, p.ID)
+		if mutate != nil {
+			mutate(pm)
+		}
+		if _, err := s.SettlePayment(ctx, pm.PaymentID, now); err != nil {
+			t.Fatal(err)
+		}
+		return pm
+	}
+	paid := settle(u, nil)
+	settle(noTG, nil)
+	settle(banned, nil)
+	if _, err := s.BanUser(ctx, banned.ID, "", now); err != nil {
+		t.Fatal(err)
+	}
+	mkProviderPayment(t, s, u.ID, p.ID)
+	canceled := mkProviderPayment(t, s, u.ID, p.ID)
+	if _, err := s.FinishPayment(ctx, canceled.PaymentID, "canceled"); err != nil {
+		t.Fatal(err)
+	}
+	manual, err := s.RecordManualPayment(ctx, &model.Payment{PaymentID: "m-notify", UserID: u.ID, PlanID: p.ID, AmountRub: 100}, now)
+	if err != nil || !manual.Applied {
+		t.Fatalf("manual = %+v, %v", manual, err)
+	}
+	old := settle(late, nil)
+	if _, err := s.pool.Exec(ctx, `UPDATE payments SET paid_at = now() - interval '10 days' WHERE payment_id = $1`, old.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListUnnotifiedPayments(ctx, now.Add(-72*time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].PaymentID != paid.PaymentID || got[0].TelegramID != 8001 || got[0].UserID != u.ID {
+		t.Fatalf("queue = %+v, want only the paid yookassa payment of a reachable user", got)
+	}
+	if err := s.MarkPaymentNotified(ctx, paid.PaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkPaymentNotified(ctx, paid.PaymentID); err != nil {
+		t.Fatalf("second mark: %v", err)
+	}
+	if got, err := s.ListUnnotifiedPayments(ctx, now.Add(-72*time.Hour), 10); err != nil || len(got) != 0 {
+		t.Fatalf("queue after mark = %+v, %v", got, err)
+	}
+	if err := s.MarkPaymentNotified(ctx, "no-such-payment"); err != ErrNotFound {
+		t.Fatalf("unknown payment: %v", err)
+	}
+}
+
+func TestSettledPaymentEntersTheNotifyQueueOnAnyPath(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkTelegramUser(t, s, 8010), mkPlan(t, s)
+	pm := mkProviderPayment(t, s, u.ID, p.ID)
+	if _, err := s.SettlePayment(ctx, pm.PaymentID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListUnnotifiedPayments(ctx, time.Now().Add(-72*time.Hour), 10); len(got) != 1 {
+		t.Fatalf("a payment settled by any path must be queued: %+v", got)
+	}
+}
+
+func TestUnbanDoesNotQueueANoticeForAPeriodItClosed(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, p := mkTelegramUser(t, s, 8020), mkPlan(t, s)
+	now := time.Now().UTC()
+	if _, err := s.BanUser(ctx, u.ID, "", now); err != nil {
+		t.Fatal(err)
+	}
+	pm := mkProviderPayment(t, s, u.ID, p.ID)
+	if res, err := s.SettlePayment(ctx, pm.PaymentID, now); err != nil || !res.Applied {
+		t.Fatalf("settle: %+v, %v", res, err)
+	}
+	since := now.Add(-72 * time.Hour)
+	if got, _ := s.ListUnnotifiedPayments(ctx, since, 10); len(got) != 0 {
+		t.Fatalf("queue while banned = %+v", got)
+	}
+	if _, err := s.UnbanUser(ctx, u.ID, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ListUnnotifiedPayments(ctx, since, 10); err != nil || len(got) != 0 {
+		t.Fatalf("queue after unban = %+v, %v; the period was closed, nothing works", got, err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/noderoute"
@@ -135,6 +136,7 @@ func buildEgress(status []AddressStatus, users []SyncUser, emailsOf func(SyncUse
 const (
 	egressProbeEvery = 5 * time.Minute
 	egressProbeRetry = time.Minute
+	egressProbeFails = 3
 	egressProbeURL   = "https://1.1.1.1/cdn-cgi/trace"
 	egressCooldown   = 5 * time.Minute
 	maxEgress        = 32
@@ -164,51 +166,98 @@ var egressProbe = func(ctx context.Context, source string) (string, error) {
 type probeResult struct {
 	source string
 	err    string
+	fails  int
 	at     time.Time
+}
+
+func (r probeResult) bad() bool {
+	return r.err != "" && (r.fails == 0 || r.fails >= egressProbeFails)
+}
+
+func (r probeResult) due(now time.Time) bool {
+	ttl := egressProbeEvery
+	if r.err != "" {
+		ttl = egressProbeRetry
+	}
+	return now.Sub(r.at) >= ttl
 }
 
 type EgressChecker struct {
 	addrs []EgressAddr
+	mu    sync.Mutex
+	bg    sync.WaitGroup
 	cache map[string]probeResult
+	busy  map[string]bool
 	now   func() time.Time
 	retry time.Duration
 }
 
 func NewEgressChecker(addrs []EgressAddr) *EgressChecker {
-	return &EgressChecker{addrs: addrs, cache: map[string]probeResult{}, now: time.Now, retry: 2 * time.Second}
+	return &EgressChecker{addrs: addrs, cache: map[string]probeResult{}, busy: map[string]bool{}, now: time.Now, retry: 2 * time.Second}
 }
 
 func (c *EgressChecker) Status(ctx context.Context) []AddressStatus {
 	out := egressStatus(c.addrs)
+	var first sync.WaitGroup
+	c.mu.Lock()
 	for i := range out {
-		st := &out[i]
+		st := out[i]
 		if !st.OK {
 			delete(c.cache, st.IP)
 			continue
 		}
 		r, ok := c.cache[st.IP]
-		ttl := egressProbeEvery
-		if r.err != "" {
-			ttl = egressProbeRetry
+		known := ok && r.source == st.Source
+		if known && (c.busy[st.IP] || !r.due(c.now())) {
+			continue
 		}
-		if !ok || r.source != st.Source || c.now().Sub(r.at) >= ttl {
-			r = probeResult{source: st.Source, err: c.probe(ctx, st.Source, st.IP), at: c.now()}
-			c.cache[st.IP] = r
+		c.busy[st.IP] = true
+		at := c.now()
+		run := func() { c.record(ctx, st.IP, st.Source, at) }
+		if known {
+			c.bg.Go(run)
+		} else {
+			first.Go(run)
 		}
-		if r.err != "" {
+	}
+	c.mu.Unlock()
+	first.Wait()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range out {
+		st := &out[i]
+		if r, ok := c.cache[st.IP]; st.OK && ok && r.source == st.Source && r.bad() {
 			st.OK, st.Error = false, r.err
 		}
 	}
 	return out
 }
 
-func (c *EgressChecker) probe(ctx context.Context, source, ip string) string {
+func (c *EgressChecker) record(ctx context.Context, ip, source string, at time.Time) {
+	msg, network := c.probe(ctx, source, ip)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.busy, ip)
+	if ctx.Err() != nil {
+		return
+	}
+	next := probeResult{source: source, err: msg, at: at}
+	if network {
+		next.fails = 1
+		if prev, ok := c.cache[ip]; ok && prev.source == source {
+			next.fails = prev.fails + 1
+		}
+	}
+	c.cache[ip] = next
+}
+
+func (c *EgressChecker) probe(ctx context.Context, source, ip string) (string, bool) {
 	var msg string
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return "egress_probe_failed: " + ctx.Err().Error()
+				return "egress_probe_failed: " + ctx.Err().Error(), true
 			case <-time.After(c.retry):
 			}
 		}
@@ -217,12 +266,12 @@ func (c *EgressChecker) probe(ctx context.Context, source, ip string) string {
 		case err != nil:
 			msg = "egress_probe_failed: " + err.Error()
 		case seen != ip:
-			return "egress_probe_mismatch: the internet sees " + seen + " instead of " + ip
+			return "egress_probe_mismatch: the internet sees " + seen + " instead of " + ip, false
 		default:
-			return ""
+			return "", false
 		}
 	}
-	return msg
+	return msg, true
 }
 
 func egressNames(list []noderoute.Egress) map[string]string {

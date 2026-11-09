@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.work
-      - run: docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
+      - run: make test-xray-up
       - run: go test -race -count=1 ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/... ./services/monitor/... ./tools/sylph/...
       - run: make test-node
       - run: make test-subs
@@ -85,8 +85,8 @@ jobs:
       contents: read
       packages: write
     concurrency:
-      group: images-${{ matrix.image == 'sylph-caddy' && 'caddy' || github.ref }}-${{ matrix.image }}
-      cancel-in-progress: ${{ matrix.image != 'sylph-caddy' }}
+      group: images-${{ matrix.pin && 'pinned' || github.ref }}-${{ matrix.image }}
+      cancel-in-progress: ${{ !matrix.pin }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,6 +120,11 @@ jobs:
           - image: sylph-caddy
             file: deploy/caddy/Dockerfile
             context: deploy/caddy
+            pin: CADDY_VERSION
+          - image: sylph-xray
+            file: deploy/xray/Dockerfile
+            context: deploy/xray
+            pin: XRAY_VERSION
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -141,16 +146,21 @@ jobs:
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: stable
-        if: matrix.image == 'sylph-caddy'
+        if: matrix.pin
+        env:
+          PIN: ${{ matrix.pin }}
+          IMAGE: ${{ matrix.image }}
         run: |
-          tag=$(sed -n 's/^CADDY_VERSION=//p' deploy/prod/node/.env.example)
-          ref="ghcr.io/itg-labs/sylph-caddy:$tag"
+          tag=$(sed -n "s/^$PIN=//p" deploy/prod/node/.env.example)
+          test -n "$tag"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          ref="ghcr.io/itg-labs/$IMAGE:$tag"
           if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
             echo "$ref is already published: never re-push it, nodes would recreate Caddy and xray"
           elif grep -qi "not found" <<<"$out"; then
@@ -167,6 +177,7 @@ jobs:
           build-args: |
             SERVICE=${{ matrix.service }}
             VERSION=${{ steps.version.outputs.value }}
+            XRAY_VERSION=${{ matrix.pin == 'XRAY_VERSION' && steps.stable.outputs.version || '' }}
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}

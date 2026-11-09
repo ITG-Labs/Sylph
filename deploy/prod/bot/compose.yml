@@ -38,7 +38,7 @@ services:
         chmod -R u=rX,go= /certs
 
   caddy:
-    image: caddy:2.11.7
+    image: caddy:2.11.8
     restart: unless-stopped
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
@@ -50,6 +50,7 @@ services:
     ports:
       - "0.0.0.0:${SYLPH_HTTPS_PORT:-443}:443"
     environment:
+      GODEBUG: multipathtcp=0
       SYLPH_BOT_DOMAIN: ${SYLPH_BOT_DOMAIN:?set SYLPH_BOT_DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
