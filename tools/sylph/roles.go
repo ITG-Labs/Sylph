@@ -224,7 +224,7 @@ func writeFileAtomicOwned(path string, data []byte, mode os.FileMode, uid, gid i
 	}
 	name := tmp.Name()
 	err = tmp.Chmod(mode)
-	if err == nil && (uid >= 0 || gid >= 0) {
+	if err == nil && (uid >= 0 || gid >= 0) && os.Geteuid() == 0 {
 		err = tmp.Chown(uid, gid)
 	}
 	if err == nil {
