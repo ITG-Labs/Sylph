@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -32,6 +34,13 @@ import (
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck.Run(healthcheck.LocalURL(envOr("SYLPH_HEALTH_LISTEN", "127.0.0.1:8081"), "/health"), os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := runMigrateCommand(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	logLevel := envOr("SYLPH_LOG_LEVEL", "info")
 	logger := logging.New("core", logLevel)
@@ -59,6 +68,10 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("ping db: %w", err)
 	}
 	if err := store.ApplyMigrations(ctx, pool); err != nil {
+		if ctx.Err() != nil {
+			logger.Info("migrations_interrupted", slog.String("error", err.Error()))
+			return nil
+		}
 		return fmt.Errorf("migrations: %w", err)
 	}
 	logger.Info("db_ready")
@@ -147,6 +160,50 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("stopped")
 	return nil
+}
+
+const migrateUsage = "usage: migrate status | migrate force <version>"
+
+func runMigrateCommand(args []string, out io.Writer) error {
+	dbURL := os.Getenv("SYLPH_DB_URL")
+	if dbURL == "" {
+		return errors.New("SYLPH_DB_URL is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return fmt.Errorf("connect db: %w", err)
+	}
+	defer pool.Close()
+	return migrateCommand(pool, args, out)
+}
+
+func migrateCommand(pool *pgxpool.Pool, args []string, out io.Writer) error {
+	switch {
+	case len(args) == 1 && args[0] == "status":
+		st, err := store.MigrationState(pool)
+		if err != nil {
+			return err
+		}
+		if st.Dirty {
+			fmt.Fprintf(out, "version %d, dirty: the migration was interrupted or failed midway\n", st.Version)
+		} else {
+			fmt.Fprintf(out, "version %d\n", st.Version)
+		}
+		return nil
+	case len(args) == 2 && args[0] == "force":
+		version, err := strconv.Atoi(args[1])
+		if err != nil || version < 0 {
+			return errors.New(migrateUsage)
+		}
+		if err := store.ForceMigrationVersion(pool, version); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "version set to %d, dirty flag cleared\n", version)
+		return nil
+	}
+	return errors.New(migrateUsage)
 }
 
 func newHTTPServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.Server {

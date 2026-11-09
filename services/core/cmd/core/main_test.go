@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,11 +14,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ITG-Labs/sylph/pkg/mtls"
+	"github.com/ITG-Labs/sylph/services/core/internal/store"
 )
 
 func TestLoadRevokedList(t *testing.T) {
@@ -237,5 +242,51 @@ func TestStalledHandshakeIsDropped(t *testing.T) {
 		t.Fatal("server answered a silent client")
 	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
 		t.Fatal("silent client was still connected after the handshake deadline")
+	}
+}
+
+func TestMigrateCommandStatusAndForce(t *testing.T) {
+	url := os.Getenv("SYLPH_TEST_DB")
+	if url == "" {
+		t.Skip("SYLPH_TEST_DB not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := pool.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := migrateCommand(pool, []string{"status"}, &out); err != nil || !strings.Contains(out.String(), "version "+strconv.Itoa(version)) || strings.Contains(out.String(), "dirty") {
+		t.Fatalf("clean status = %q, %v", out.String(), err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"status"}, &out); err != nil || !strings.Contains(out.String(), "dirty") {
+		t.Fatalf("dirty status = %q, %v", out.String(), err)
+	}
+	out.Reset()
+	if err := migrateCommand(pool, []string{"force", strconv.Itoa(version)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := store.MigrationState(pool); err != nil || st.Dirty || int(st.Version) != version {
+		t.Fatalf("after force = %+v, %v", st, err)
+	}
+	for _, bad := range [][]string{nil, {"force"}, {"force", "x"}, {"force", "-2"}, {"drop"}, {"status", "extra"}} {
+		if err := migrateCommand(pool, bad, &out); err == nil {
+			t.Errorf("args %v accepted", bad)
+		}
 	}
 }

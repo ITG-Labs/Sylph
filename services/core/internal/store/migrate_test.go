@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -1560,5 +1562,107 @@ func TestMigration022DownAndUpAgain(t *testing.T) {
 	}
 	if err := m.Steps(1); err != nil {
 		t.Fatalf("up 022 again: %v", err)
+	}
+}
+
+func slowMigrations() fstest.MapFS {
+	return fstest.MapFS{
+		"m/001_a.up.sql":   {Data: []byte(`CREATE TABLE gs_a (id int);`)},
+		"m/001_a.down.sql": {Data: []byte(`DROP TABLE gs_a;`)},
+		"m/002_b.up.sql":   {Data: []byte(`SELECT pg_sleep(1.5); CREATE TABLE gs_b (id int);`)},
+		"m/002_b.down.sql": {Data: []byte(`DROP TABLE gs_b;`)},
+		"m/003_c.up.sql":   {Data: []byte(`CREATE TABLE gs_c (id int);`)},
+		"m/003_c.down.sql": {Data: []byte(`DROP TABLE gs_c;`)},
+	}
+}
+
+func resetSchema(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyMigrationsFinishesTheCurrentFileOnShutdown(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(400*time.Millisecond, cancel)
+	err := applyMigrations(ctx, pool, slowMigrations(), "m")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	st, err := MigrationState(pool)
+	if err != nil || st.Dirty || st.Version != 2 {
+		t.Fatalf("state = %+v, %v; want clean version 2", st, err)
+	}
+	if !tableExists(t, pool, "gs_b") || tableExists(t, pool, "gs_c") {
+		t.Fatalf("gs_b = %v, gs_c = %v; want the running file finished and the next one not started", tableExists(t, pool, "gs_b"), tableExists(t, pool, "gs_c"))
+	}
+	if err := applyMigrations(context.Background(), pool, slowMigrations(), "m"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != 3 {
+		t.Fatalf("after resume = %+v, %v", st, err)
+	}
+}
+
+func TestApplyMigrationsDoesNotStartOnCancelledContext(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := applyMigrations(ctx, pool, slowMigrations(), "m"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if tableExists(t, pool, "gs_a") {
+		t.Fatal("a migration ran under a cancelled context")
+	}
+}
+
+func TestApplyMigrationsReportsDirtyVersionAndForceRecovers(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	resetSchema(t, pool)
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var latest uint
+	if err := pool.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET dirty = true`); err != nil {
+		t.Fatal(err)
+	}
+	err := ApplyMigrations(ctx, pool)
+	var dirty *DirtyMigrationError
+	if !errors.As(err, &dirty) || dirty.Version != latest {
+		t.Fatalf("err = %v, want DirtyMigrationError at %d", err, latest)
+	}
+	if !strings.Contains(err.Error(), "migrate force") || !strings.Contains(err.Error(), "migrate status") {
+		t.Fatalf("message gives no way out: %v", err)
+	}
+	st, err := MigrationState(pool)
+	if err != nil || !st.Dirty || st.Version != latest {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+	if err := ForceMigrationVersion(pool, int(latest)); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := MigrationState(pool); err != nil || st.Dirty || st.Version != latest {
+		t.Fatalf("after force = %+v, %v", st, err)
+	}
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply after force: %v", err)
+	}
+}
+
+func TestMigrationStateOfAnEmptyDatabase(t *testing.T) {
+	pool := testPool(t)
+	resetSchema(t, pool)
+	st, err := MigrationState(pool)
+	if err != nil || st.Dirty || st.Version != 0 {
+		t.Fatalf("state = %+v, %v", st, err)
 	}
 }
