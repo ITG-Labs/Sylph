@@ -35,6 +35,7 @@ type StatsCollector struct {
 	logger *slog.Logger
 	path   string
 	state  statsState
+	fresh  bool
 }
 
 func NewStatsCollector(xray XrayClient, logger *slog.Logger) *StatsCollector {
@@ -45,6 +46,7 @@ func (sc *StatsCollector) Load(path string) error {
 	sc.path = path
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		sc.fresh = true
 		return nil
 	}
 	if err != nil {
@@ -90,6 +92,9 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 		st, ok := sc.state.Counters[email]
 		if !ok {
 			st = &userCounters{}
+			if sc.fresh {
+				st.SeenUp, st.SeenDown = cur.SeenUp, cur.SeenDown
+			}
 			sc.state.Counters[email] = st
 		}
 		st.UnsentUp += counterDelta(cur.SeenUp, st.SeenUp)
@@ -97,6 +102,7 @@ func (sc *StatsCollector) Collect(ctx context.Context) (*Batch, error) {
 		st.SeenUp = cur.SeenUp
 		st.SeenDown = cur.SeenDown
 	}
+	sc.fresh = false
 	for email, st := range sc.state.Counters {
 		if st.UnsentUp == 0 && st.UnsentDown == 0 {
 			if _, live := current[email]; !live {

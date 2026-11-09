@@ -35,6 +35,13 @@ func collectAndCommit(t *testing.T, sc *StatsCollector) []Delta {
 	return b.Deltas
 }
 
+func seedStateFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(`{"counters":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCollectDeltas(t *testing.T) {
 	fx := newFakeXray()
 	fx.setStats(map[string]int64{uplink("u-1"): 1000, downlink("u-1"): 500})
@@ -149,6 +156,7 @@ func TestUnsentSurvivesXrayRestart(t *testing.T) {
 func TestPendingSurvivesAgentRestartWithSameID(t *testing.T) {
 	fx := newFakeXray()
 	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
 	fx.setStats(map[string]int64{uplink("u-1"): 700})
 	first := NewStatsCollector(fx, discardLogger())
 	if err := first.Load(path); err != nil {
@@ -215,5 +223,47 @@ func TestRemovedUserLastTrafficReported(t *testing.T) {
 	deltas := collectAndCommit(t, sc)
 	if len(deltas) != 1 || deltas[0].BytesUp != 600 {
 		t.Fatalf("traffic of a just-removed user dropped: %+v", deltas)
+	}
+}
+
+func TestMissingStateFileDoesNotChargeLifetimeTraffic(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	fx.setStats(map[string]int64{uplink("u-1"): 80 << 30, downlink("u-1"): 5 << 30})
+	sc := NewStatsCollector(fx, discardLogger())
+	if err := sc.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if b := collect(t, sc); b != nil {
+		t.Fatalf("first collect without a state file reported %+v", b)
+	}
+	fx.setStats(map[string]int64{uplink("u-1"): 80<<30 + 100, downlink("u-1"): 5<<30 + 7})
+	deltas := collectAndCommit(t, sc)
+	if len(deltas) != 1 || deltas[0].BytesUp != 100 || deltas[0].BytesDown != 7 {
+		t.Fatalf("traffic after the baseline = %+v", deltas)
+	}
+	restarted := NewStatsCollector(fx, discardLogger())
+	if err := restarted.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	fx.setStats(map[string]int64{uplink("u-1"): 80<<30 + 150, downlink("u-1"): 5<<30 + 7})
+	deltas = collectAndCommit(t, restarted)
+	if len(deltas) != 1 || deltas[0].BytesUp != 50 || deltas[0].BytesDown != 0 {
+		t.Fatalf("after restart with a state file = %+v", deltas)
+	}
+}
+
+func TestEmptyStateFileStillCountsNewCounters(t *testing.T) {
+	fx := newFakeXray()
+	path := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, path)
+	fx.setStats(map[string]int64{uplink("u-1"): 300})
+	sc := NewStatsCollector(fx, discardLogger())
+	if err := sc.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	deltas := collectAndCommit(t, sc)
+	if len(deltas) != 1 || deltas[0].BytesUp != 300 {
+		t.Fatalf("new counter of a live state = %+v", deltas)
 	}
 }

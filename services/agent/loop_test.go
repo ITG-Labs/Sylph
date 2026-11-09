@@ -184,6 +184,7 @@ func TestCrashAfterSendResendsSameBatch(t *testing.T) {
 	fc := &fakeCore{syncVersion: 2, syncUsers: []SyncUser{{UUID: "u-1"}}, syncInbounds: mainIn, failAfterCommit: true}
 	url := httptestOf(fc, t).URL
 	statsPath := filepath.Join(t.TempDir(), "stats.json")
+	seedStateFile(t, statsPath)
 	first, _ := testLoop(t, fx, url)
 	if err := first.stats.Load(statsPath); err != nil {
 		t.Fatal(err)
