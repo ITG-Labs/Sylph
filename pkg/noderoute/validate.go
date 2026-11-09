@@ -525,7 +525,7 @@ func normalizeDomain(v string) (string, error) {
 		}
 		return v, nil
 	case "geosite":
-		if !geoCodeOK(rest) {
+		if !domainCodeOK(rest) {
 			return "", valueError("bad geosite code")
 		}
 		return "geosite:" + strings.ToLower(rest), nil
@@ -533,7 +533,7 @@ func normalizeDomain(v string) (string, error) {
 	if ReservedSource(prefix) || !SourcePattern.MatchString(prefix) {
 		return "", valueError("unknown prefix")
 	}
-	if !geoCodeOK(rest) {
+	if !domainCodeOK(rest) {
 		return "", valueError("bad code")
 	}
 	return prefix + ":" + strings.ToLower(rest), nil
@@ -563,6 +563,10 @@ var geoCodePattern = regexp.MustCompile(`^[A-Za-z0-9_.!@-]{1,64}$`)
 
 func geoCodeOK(code string) bool {
 	return geoCodePattern.MatchString(code)
+}
+
+func domainCodeOK(code string) bool {
+	return geoCodeOK(code) && !strings.HasPrefix(code, "!")
 }
 
 func checkPorts(s string) error {
@@ -620,7 +624,7 @@ func (p *Profile) SourceCodes() map[string][]string {
 			if !ok || slices.Contains(builtin, prefix) {
 				continue
 			}
-			code, _, _ := strings.Cut(rest, "@")
+			code, _, _ := strings.Cut(strings.TrimPrefix(rest, "!"), "@")
 			code = strings.ToUpper(code)
 			if !slices.Contains(out[prefix], code) {
 				out[prefix] = append(out[prefix], code)

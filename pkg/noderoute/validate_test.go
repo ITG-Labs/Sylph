@@ -213,3 +213,24 @@ func TestSourceCodes(t *testing.T) {
 		t.Fatalf("codes = %v", got)
 	}
 }
+
+func TestSourceCodesStripTheNegation(t *testing.T) {
+	p := Profile{Rules: []Rule{
+		{IP: []string{"my-ips:!ru", "my-ips:RU", "other:!Office@x"}, To: "x"},
+	}}
+	got := p.SourceCodes()
+	if strings.Join(got["my-ips"], ",") != "RU" || strings.Join(got["other"], ",") != "OFFICE" {
+		t.Fatalf("codes = %v", got)
+	}
+}
+
+func TestNegationIsAllowedForIPSourcesOnly(t *testing.T) {
+	if got, err := normalizeIP("my-ips:!RU"); err != nil || got != "my-ips:!ru" {
+		t.Fatalf("ip: %q %v", got, err)
+	}
+	for _, v := range []string{"my-ips:!ru", "geosite:!cn"} {
+		if _, err := normalizeDomain(v); err == nil {
+			t.Fatalf("domain %q accepted", v)
+		}
+	}
+}
