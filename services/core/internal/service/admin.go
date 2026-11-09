@@ -700,6 +700,11 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 		if err := inboundGuard(&spec)(others); err != nil {
 			return nil, err
 		}
+		if spec.Tag != current.Tag {
+			if err := s.tagFreeOfRules(ctx, current.NodeID, current.Tag); err != nil {
+				return nil, err
+			}
+		}
 		return modelOf(current.NodeID, &spec)
 	})
 	if err != nil {
@@ -709,6 +714,13 @@ func (s *Service) UpdateInbound(ctx context.Context, id int64, patch InboundPatc
 }
 
 func (s *Service) DeleteInbound(ctx context.Context, id int64) error {
+	current, err := s.store.GetInbound(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.tagFreeOfRules(ctx, current.NodeID, current.Tag); err != nil {
+		return err
+	}
 	return s.store.DeleteInbound(ctx, id)
 }
 

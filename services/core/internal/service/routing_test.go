@@ -610,3 +610,47 @@ func TestSecretIsNotKeptWhenRealityKeyChanges(t *testing.T) {
 		mustField(t, err, "doc.outbounds[2].proxy.uuid")
 	}
 }
+
+func TestInboundReferencedByProfileRulesCannotLoseItsTag(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	n, in := realityNode(t, svc, "node-r")
+	spare, err := svc.CreateInbound(ctx, n.ID, inbound.Spec{Tag: "spare", Port: 443, Transport: "xhttp", Label: "S",
+		Reality: &inbound.Reality{Dest: "www.example.org:443", ServerNames: []string{"a.example.org"}}, XHTTP: &inbound.XHTTP{Path: "/a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := basicDoc()
+	d["rules"] = []any{map[string]any{"inbound": []string{"main"}, "to": "block"}}
+	p, err := svc.CreateProfile(ctx, "by-inbound", docOf(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateNode(ctx, n.ID, NodePatch{ProfileID: Optional[int64]{Set: true, Value: &p.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	renamed := "main-2"
+	_, err = svc.UpdateInbound(ctx, in.ID, InboundPatch{Tag: &renamed})
+	mustConflict(t, err, "tag")
+	mustConflict(t, svc.DeleteInbound(ctx, in.ID), "tag")
+	label := "Renamed label"
+	if _, err := svc.UpdateInbound(ctx, in.ID, InboundPatch{Label: &label}); err != nil {
+		t.Fatalf("a change that keeps the tag must pass: %v", err)
+	}
+	other := "spare-2"
+	if _, err := svc.UpdateInbound(ctx, spare.ID, InboundPatch{Tag: &other}); err != nil {
+		t.Fatalf("an unreferenced tag must be renamable: %v", err)
+	}
+	if err := svc.DeleteInbound(ctx, spare.ID); err != nil {
+		t.Fatalf("an unreferenced inbound must be deletable: %v", err)
+	}
+	if _, err := svc.UpdateNode(ctx, n.ID, NodePatch{ProfileID: Optional[int64]{Set: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateInbound(ctx, in.ID, InboundPatch{Tag: &renamed}); err != nil {
+		t.Fatalf("rename after the profile is detached: %v", err)
+	}
+	if err := svc.DeleteInbound(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+}

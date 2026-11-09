@@ -136,6 +136,30 @@ func (s *Service) nodesWithProfile(ctx context.Context, profileID int64) ([]int6
 	return out, nil
 }
 
+func (s *Service) tagFreeOfRules(ctx context.Context, nodeID int64, tag string) error {
+	n, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	if n.ProfileID == nil {
+		return nil
+	}
+	row, err := s.store.GetProfile(ctx, *n.ProfileID)
+	if err != nil {
+		return err
+	}
+	p, err := parseProfile(row.Doc)
+	if err != nil {
+		return err
+	}
+	for _, r := range p.Rules {
+		if slices.Contains(r.Inbound, tag) {
+			return &ConflictError{Field: "tag", Message: "the routing profile of this node has rules that refer to this inbound: change them first"}
+		}
+	}
+	return nil
+}
+
 func (s *Service) checkProfile(ctx context.Context, p *noderoute.Profile, profileID int64) error {
 	if err := noderoute.Validate(p); err != nil {
 		return docField(err)
