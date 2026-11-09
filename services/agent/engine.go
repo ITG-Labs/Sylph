@@ -21,6 +21,7 @@ type Engine struct {
 	haveDesired bool
 	inbounds    []Inbound
 	users       []SyncUser
+	left        map[string]map[string]bool
 	routing     *noderoute.Profile
 	serviceKeys []string
 	geo         *SyncGeo
@@ -127,6 +128,46 @@ func (e *Engine) desiredOn(tag string) map[string]string {
 	return out
 }
 
+func (e *Engine) knows(tag string) bool {
+	return e.inbounds == nil || slices.ContainsFunc(e.inbounds, func(in Inbound) bool { return in.Tag == tag })
+}
+
+func (e *Engine) rememberLeft(next []Inbound) {
+	for _, in := range e.inbounds {
+		if slices.ContainsFunc(next, func(n Inbound) bool { return n.Tag == in.Tag }) {
+			continue
+		}
+		if e.left == nil {
+			e.left = map[string]map[string]bool{}
+		}
+		on := map[string]bool{}
+		for _, uuid := range e.desiredOn(in.Tag) {
+			on[uuid] = true
+		}
+		e.left[in.Tag] = on
+	}
+	for _, in := range next {
+		delete(e.left, in.Tag)
+	}
+}
+
+func (e *Engine) wantOn(tag string) (map[string]string, bool) {
+	if e.knows(tag) {
+		return e.desiredOn(tag), true
+	}
+	left, remembered := e.left[tag]
+	out := map[string]string{}
+	for _, u := range e.users {
+		if !remembered || left[u.UUID] {
+			out[userEmail(u.UUID, tag)] = u.UUID
+		}
+	}
+	for _, k := range e.serviceKeys {
+		out[k] = k
+	}
+	return out, remembered
+}
+
 func (e *Engine) PlanUsers() map[int64][]string {
 	out := map[int64][]string{}
 	for _, u := range e.users {
@@ -168,6 +209,7 @@ func (e *Engine) SyncOnce(ctx context.Context) (*SyncResp, error) {
 	if resp.Users == nil {
 		return resp, nil
 	}
+	e.rememberLeft(resp.Inbounds)
 	e.setRouting(resp.Routing, resp.ServiceKeys, resp.Geo)
 	e.setDesired(resp.Users)
 	e.inbounds = resp.Inbounds
@@ -198,6 +240,13 @@ func (e *Engine) reconcileAll(ctx context.Context, inbounds []Inbound, add bool)
 	}
 	drop := &sessionDrop{ips: map[netip.Addr]bool{}}
 	defer e.killSessions(ctx, inbounds, drop)
+	if add {
+		for tag := range e.left {
+			if !slices.ContainsFunc(inbounds, func(in Inbound) bool { return in.Tag == tag }) {
+				delete(e.left, tag)
+			}
+		}
+	}
 	var firstErr error
 	for _, in := range inbounds {
 		if err := ctx.Err(); err != nil {
@@ -219,7 +268,8 @@ func (e *Engine) reconcileInbound(ctx context.Context, in Inbound, add bool, dro
 	for _, email := range live {
 		actual[email] = true
 	}
-	want := e.desiredOn(in.Tag)
+	want, known := e.wantOn(in.Tag)
+	add = add && known
 	keys := make(map[string]bool, len(want))
 	for _, uuid := range want {
 		keys[uuid] = true
