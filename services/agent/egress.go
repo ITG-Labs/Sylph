@@ -135,6 +135,7 @@ func buildEgress(status []AddressStatus, users []SyncUser, emailsOf func(SyncUse
 const (
 	egressProbeEvery = 5 * time.Minute
 	egressProbeRetry = time.Minute
+	egressProbeFails = 3
 	egressProbeURL   = "https://1.1.1.1/cdn-cgi/trace"
 	egressCooldown   = 5 * time.Minute
 	maxEgress        = 32
@@ -164,7 +165,12 @@ var egressProbe = func(ctx context.Context, source string) (string, error) {
 type probeResult struct {
 	source string
 	err    string
+	fails  int
 	at     time.Time
+}
+
+func (r probeResult) bad() bool {
+	return r.err != "" && (r.fails == 0 || r.fails >= egressProbeFails)
 }
 
 type EgressChecker struct {
@@ -192,23 +198,31 @@ func (c *EgressChecker) Status(ctx context.Context) []AddressStatus {
 			ttl = egressProbeRetry
 		}
 		if !ok || r.source != st.Source || c.now().Sub(r.at) >= ttl {
-			r = probeResult{source: st.Source, err: c.probe(ctx, st.Source, st.IP), at: c.now()}
+			msg, network := c.probe(ctx, st.Source, st.IP)
+			next := probeResult{source: st.Source, err: msg, at: c.now()}
+			if network {
+				next.fails = 1
+				if ok && r.source == st.Source {
+					next.fails = r.fails + 1
+				}
+			}
+			r = next
 			c.cache[st.IP] = r
 		}
-		if r.err != "" {
+		if r.bad() {
 			st.OK, st.Error = false, r.err
 		}
 	}
 	return out
 }
 
-func (c *EgressChecker) probe(ctx context.Context, source, ip string) string {
+func (c *EgressChecker) probe(ctx context.Context, source, ip string) (string, bool) {
 	var msg string
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return "egress_probe_failed: " + ctx.Err().Error()
+				return "egress_probe_failed: " + ctx.Err().Error(), true
 			case <-time.After(c.retry):
 			}
 		}
@@ -217,12 +231,12 @@ func (c *EgressChecker) probe(ctx context.Context, source, ip string) string {
 		case err != nil:
 			msg = "egress_probe_failed: " + err.Error()
 		case seen != ip:
-			return "egress_probe_mismatch: the internet sees " + seen + " instead of " + ip
+			return "egress_probe_mismatch: the internet sees " + seen + " instead of " + ip, false
 		default:
-			return ""
+			return "", false
 		}
 	}
-	return msg
+	return msg, true
 }
 
 func egressNames(list []noderoute.Egress) map[string]string {

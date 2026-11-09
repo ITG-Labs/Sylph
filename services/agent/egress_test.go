@@ -230,8 +230,8 @@ func TestEgressCheckerProbesFromTheSource(t *testing.T) {
 	if st[1].OK || !strings.Contains(st[1].Error, "egress_probe_mismatch") || !strings.Contains(st[1].Error, "198.51.100.99") {
 		t.Fatalf("address the hoster rewrites = %+v", st[1])
 	}
-	if st[2].OK || !strings.HasPrefix(st[2].Error, "egress_probe_failed") {
-		t.Fatalf("address without egress = %+v", st[2])
+	if !st[2].OK {
+		t.Fatalf("address dropped after a single failed probe = %+v", st[2])
 	}
 	if *calls != 4 {
 		t.Fatalf("probes = %d, want one per address and a retry for the dead one", *calls)
@@ -246,14 +246,20 @@ func TestEgressCheckerProbesFromTheSource(t *testing.T) {
 		t.Fatalf("failing addresses not re-probed after a minute, or the working one re-probed early: %d probes", *calls)
 	}
 	now = now.Add(egressProbeEvery)
-	c.Status(context.Background())
+	st = c.Status(context.Background())
 	if *calls != 11 {
 		t.Fatalf("working address not re-probed after five minutes: %d probes", *calls)
 	}
+	if st[2].OK || !strings.HasPrefix(st[2].Error, "egress_probe_failed") {
+		t.Fatalf("address without egress after %d failed probes = %+v", egressProbeFails, st[2])
+	}
 	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.240.10/24"}, "egress2": {"172.31.227.10/24"}, "egress3": {"172.31.228.10/24"}})
 	before := *calls
-	if st := c.Status(context.Background()); st[0].OK || st[0].Source != "172.31.240.10" || *calls != before+2 {
-		t.Fatalf("new container address not probed at once: %+v, %d probes", st[0], *calls-before)
+	if st := c.Status(context.Background()); !st[0].OK || st[0].Source != "172.31.240.10" || *calls != before+2 {
+		t.Fatalf("new container address not probed at once, or dropped on its first failure: %+v, %d probes", st[0], *calls-before)
+	}
+	if r := c.cache["203.0.113.7"]; r.fails != 1 {
+		t.Fatalf("failures of the old source carried over to the new one: %+v", r)
 	}
 }
 
@@ -351,5 +357,41 @@ func TestEgressChangesAreSpacedAndHeldOutMeanwhile(t *testing.T) {
 	}
 	if !fx.hasUser("main", "u-1") {
 		t.Fatal("u-1 not let back in once the config moved on")
+	}
+}
+
+func TestEgressProbeFailuresCountOnlyInARow(t *testing.T) {
+	fakeInterfaces(t, map[string][]string{"egress1": {"172.31.226.10/24"}})
+	seen := map[string]string{}
+	fakeProbe(t, seen)
+	now := time.Now()
+	c := NewEgressChecker([]EgressAddr{{IP: "203.0.113.7", Iface: "egress1"}})
+	c.now = func() time.Time { return now }
+	c.retry = time.Millisecond
+	for round := 1; round < egressProbeFails; round++ {
+		if st := c.Status(context.Background()); !st[0].OK {
+			t.Fatalf("round %d: a working address dropped after %d failed probes: %+v", round, round, st[0])
+		}
+		now = now.Add(egressProbeRetry)
+	}
+	seen["172.31.226.10"] = "203.0.113.7"
+	if st := c.Status(context.Background()); !st[0].OK {
+		t.Fatalf("address not ok after the probe passed: %+v", st[0])
+	}
+	delete(seen, "172.31.226.10")
+	for round := 1; round <= egressProbeFails; round++ {
+		now = now.Add(egressProbeEvery)
+		st := c.Status(context.Background())
+		if round < egressProbeFails && !st[0].OK {
+			t.Fatalf("failures before the success were counted: dropped at round %d", round)
+		}
+		if round == egressProbeFails && (st[0].OK || !strings.HasPrefix(st[0].Error, "egress_probe_failed")) {
+			t.Fatalf("address still ok after %d failed probes in a row: %+v", round, st[0])
+		}
+	}
+	seen["172.31.226.10"] = "198.51.100.99"
+	now = now.Add(egressProbeRetry)
+	if st := c.Status(context.Background()); st[0].OK || !strings.Contains(st[0].Error, "egress_probe_mismatch") {
+		t.Fatalf("mismatch not applied at once: %+v", st[0])
 	}
 }
