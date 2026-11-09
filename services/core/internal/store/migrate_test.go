@@ -1588,7 +1588,17 @@ func TestApplyMigrationsFinishesTheCurrentFileOnShutdown(t *testing.T) {
 	resetSchema(t, pool)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	time.AfterFunc(400*time.Millisecond, cancel)
+	go func() {
+		for ctx.Err() == nil {
+			var n int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%pg_sleep(1.5)%' AND pid <> pg_backend_pid()`).Scan(&n)
+			if err == nil && n > 0 {
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 	err := applyMigrations(ctx, pool, slowMigrations(), "m")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)

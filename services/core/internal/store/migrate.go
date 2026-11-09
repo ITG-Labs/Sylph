@@ -57,41 +57,38 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, dir st
 		return err
 	}
 	defer closeDB()
-	if cur, dirty, err := m.Version(); err == nil && !dirty {
-		if _, latest, err := knownVersions(fsys, dir); err == nil && int(cur) > latest {
-			return &SchemaAheadError{Database: cur, Known: uint(latest)}
+	_, latest, err := knownVersions(fsys, dir)
+	if err != nil {
+		return err
+	}
+	if cur, dirty, err := m.Version(); err == nil && !dirty && int(cur) > latest {
+		return &SchemaAheadError{Database: cur, Known: uint(latest)}
+	}
+	for {
+		cur, dirty, err := m.Version()
+		if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
+			return fmt.Errorf("migrate up: %w", err)
+		}
+		if err == nil && dirty {
+			return &DirtyMigrationError{Version: cur}
+		}
+		if err == nil && int(cur) >= latest {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("migrate up: stopped before the last migration: %w", err)
+		}
+		if err := m.Steps(1); err != nil {
+			if errors.Is(err, migrate.ErrNoChange) || errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			var dirty migrate.ErrDirty
+			if errors.As(err, &dirty) {
+				return &DirtyMigrationError{Version: uint(dirty.Version)}
+			}
+			return fmt.Errorf("migrate up: %w", err)
 		}
 	}
-	finished := make(chan struct{})
-	done := make(chan struct{})
-	sent := false
-	go func() {
-		defer close(finished)
-		select {
-		case <-ctx.Done():
-			m.GracefulStop <- true
-			sent = true
-		case <-done:
-		}
-	}()
-	upErr := m.Up()
-	close(done)
-	<-finished
-	if upErr != nil && !errors.Is(upErr, migrate.ErrNoChange) {
-		var dirty migrate.ErrDirty
-		if errors.As(upErr, &dirty) {
-			return &DirtyMigrationError{Version: uint(dirty.Version)}
-		}
-		return fmt.Errorf("migrate up: %w", upErr)
-	}
-	if sent {
-		select {
-		case <-m.GracefulStop:
-		default:
-			return fmt.Errorf("migrate up: stopped before the last migration: %w", ctx.Err())
-		}
-	}
-	return nil
 }
 
 func MigrationState(pool *pgxpool.Pool) (MigrationStatus, error) {
