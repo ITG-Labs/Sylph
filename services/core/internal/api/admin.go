@@ -32,6 +32,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "GET /v1/admin/settings", s.handleSettingsGet, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/settings", s.handleSettingsUpdate, mtls.RolePanel)
 	s.registerRoutingRoutes(mux)
+	s.registerClientRoutingRoutes(mux)
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {

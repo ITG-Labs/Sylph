@@ -35,6 +35,7 @@ type SubscriptionRequest struct {
 
 type Connection struct {
 	Name        string          `json:"name"`
+	NodeID      int64           `json:"node_id"`
 	Address     string          `json:"address"`
 	Port        int             `json:"port"`
 	UUID        string          `json:"uuid"`
@@ -53,13 +54,14 @@ type Connection struct {
 }
 
 type SubscriptionView struct {
-	Status            string       `json:"status"`
-	TrafficUsedBytes  int64        `json:"traffic_used_bytes"`
-	TrafficLimitBytes *int64       `json:"traffic_limit_bytes"`
-	ExpiresAt         *time.Time   `json:"expires_at"`
-	Connections       []Connection `json:"connections"`
-	Title             string       `json:"title"`
-	SupportURL        string       `json:"support_url"`
+	Status            string             `json:"status"`
+	TrafficUsedBytes  int64              `json:"traffic_used_bytes"`
+	TrafficLimitBytes *int64             `json:"traffic_limit_bytes"`
+	ExpiresAt         *time.Time         `json:"expires_at"`
+	Connections       []Connection       `json:"connections"`
+	Title             string             `json:"title"`
+	SupportURL        string             `json:"support_url"`
+	ClientRouting     *ClientRoutingFeed `json:"client_routing,omitempty"`
 }
 
 func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*SubscriptionView, error) {
@@ -83,6 +85,11 @@ func (s *Service) Subscription(ctx context.Context, req SubscriptionRequest) (*S
 		s.log.LogAttrs(ctx, slog.LevelWarn, "settings_unavailable", slog.String("error", err.Error()))
 	} else {
 		view.Title, view.SupportURL = brand.SubsTitle, brand.SubsSupportURL
+	}
+	if feed, err := s.clientRoutingFeed(ctx); err != nil {
+		s.log.LogAttrs(ctx, slog.LevelWarn, "client_routing_unavailable", slog.String("error", err.Error()))
+	} else {
+		view.ClientRouting = feed
 	}
 	s.log.LogAttrs(ctx, slog.LevelInfo, "subscription_view",
 		slog.Int64("user_id", u.ID),
@@ -208,7 +215,7 @@ func (s *Service) connections(ctx context.Context, periodID int64, uuid string, 
 			return nil, err
 		}
 		c := Connection{
-			Name: e.NodeName, Address: e.NodeAddress, Port: spec.Port, UUID: uuid,
+			Name: e.NodeName, NodeID: e.Inbound.NodeID, Address: e.NodeAddress, Port: spec.Port, UUID: uuid,
 			Flow: inbound.Flow(spec.Transport, spec.Security), Transport: spec.Transport, Security: spec.Security,
 		}
 		if perNode[e.Inbound.NodeID] > 1 {
