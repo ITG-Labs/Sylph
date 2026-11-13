@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -182,5 +183,59 @@ func TestSubscriptionNoClientRouting(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "client_routing") {
 		t.Fatalf("empty set must not be sent: %s", raw)
+	}
+}
+
+func TestClientRoutingFeedBumpsWhenCategoryDisappears(t *testing.T) {
+	f := newSubFixture(t, nil, nil)
+	ctx := context.Background()
+	loadTags(t, f.svc, []string{"x", "y"}, []string{"ru"})
+	if _, err := f.svc.PutClientRouting(ctx, []clientroute.Rule{
+		{Name: "x", Action: clientroute.ActionDirect, Domain: []string{"geosite:x"}},
+		{Name: "y", Action: clientroute.ActionDirect, Domain: []string{"geosite:y"}},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	before := f.view(t, "hw-1").ClientRouting.UpdatedAt
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := f.svc.PutClientGeoTags(ctx, clientroute.Tags{Release: "r2", Geosite: []string{"x", "y", "z"}, Geoip: []string{"ru"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.view(t, "hw-1").ClientRouting.UpdatedAt; !got.Equal(before) {
+		t.Fatalf("a list change that drops nothing must not bump: %v -> %v", before, got)
+	}
+	if _, err := f.svc.PutClientGeoTags(ctx, clientroute.Tags{Release: "r3", Geosite: []string{"y"}, Geoip: []string{"ru"}}); err != nil {
+		t.Fatal(err)
+	}
+	after := f.view(t, "hw-1").ClientRouting.UpdatedAt
+	if after.Unix() <= before.Unix() {
+		t.Fatalf("dropping a rule must bump updated_at past %v, got %v", before, after)
+	}
+	if _, err := f.svc.PutClientGeoTags(ctx, clientroute.Tags{Release: "r4", Geosite: []string{"y"}, Geoip: []string{"ru"}}); err != nil {
+		t.Fatal(err)
+	}
+	if again := f.view(t, "hw-1").ClientRouting.UpdatedAt; !again.Equal(after) {
+		t.Fatalf("a new release with the same lists must not bump again: %v -> %v", after, again)
+	}
+}
+
+func TestClientRoutingIssuesSimpleXrayLimits(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+	var nodes []int64
+	for i := range 34 {
+		n, _ := realityNode(t, svc, fmt.Sprintf("lim-%02d", i))
+		nodes = append(nodes, n.ID)
+	}
+	var rules []clientroute.Rule
+	for _, id := range nodes {
+		rules = append(rules, clientroute.Rule{Name: "n", Action: clientroute.ActionNode, NodeID: id, Domain: []string{"a.ru"}})
+	}
+	v, err := svc.PutClientRouting(ctx, rules, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(v.Issues[33], clientroute.Issue{Client: clientroute.SimpleXray, Skip: true, Reason: "limits"}) || slices.Contains(v.Issues[0], clientroute.Issue{Client: clientroute.SimpleXray, Skip: true, Reason: "limits"}) {
+		t.Fatalf("issues = %+v / %+v", v.Issues[0], v.Issues[33])
 	}
 }

@@ -27,7 +27,7 @@ describe("putBody", () => {
 
 describe("reasonLabels", () => {
   it("covers every reason the core sends", () => {
-    for (const r of ["port", "network", "keyword", "regexp", "category_format", "domain_format", "node_via_active"]) {
+    for (const r of ["port", "network", "keyword", "regexp", "category_format", "domain_format", "limits", "node_via_active"]) {
       expect(reasonLabels[r]).toBeTruthy()
     }
   })

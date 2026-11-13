@@ -3,6 +3,7 @@ package clientroute
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -89,11 +90,7 @@ func simpleXrayCompiled(blocks []*simpleXrayBlock) int {
 }
 
 func renderSimpleXray(rules []Resolved) (string, error) {
-	blocks := simpleXrayBlocks(rules)
-	for len(rules) > 0 && (len(blocks) > simpleXrayMaxBlocks || simpleXrayCompiled(blocks) > simpleXrayMaxCompiled) {
-		rules = rules[:len(rules)-1]
-		blocks = simpleXrayBlocks(rules)
-	}
+	blocks := simpleXrayBlocks(rules[:simpleXrayFit(rules)])
 	if len(blocks) == 0 {
 		return "", nil
 	}
@@ -109,4 +106,33 @@ func renderSimpleXray(rules []Resolved) (string, error) {
 		return "", err
 	}
 	return "simplexray://routing/" + base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func simpleXrayFit(rules []Resolved) int {
+	n := len(rules)
+	for n > 0 {
+		blocks := simpleXrayBlocks(rules[:n])
+		if len(blocks) <= simpleXrayMaxBlocks && simpleXrayCompiled(blocks) <= simpleXrayMaxCompiled {
+			break
+		}
+		n--
+	}
+	return n
+}
+
+func SimpleXrayTruncated(rules []Rule) []int {
+	var kept []Resolved
+	var index []int
+	for i, r := range rules {
+		if skipped(r, SimpleXray) {
+			continue
+		}
+		res := Resolved{Rule: r}
+		if r.Action == ActionNode {
+			res.ServerName = "node-" + strconv.FormatInt(r.NodeID, 10)
+		}
+		kept = append(kept, res)
+		index = append(index, i)
+	}
+	return index[simpleXrayFit(kept):]
 }

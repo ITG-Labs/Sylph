@@ -212,3 +212,23 @@ func TestValidateIPv6(t *testing.T) {
 		t.Fatalf("ip = %v", out[0].IP)
 	}
 }
+
+func TestValidatePortStrict(t *testing.T) {
+	for _, p := range []string{"+443", "443-+500", " 443", "0443x"} {
+		_, err := Validate([]Rule{{Name: "a", Action: ActionBlock, Port: p}}, testTags())
+		if err == nil || fieldOf(t, err) != "rules[0].port" {
+			t.Fatalf("%q: want error on rules[0].port, got %v", p, err)
+		}
+	}
+	out, err := Validate([]Rule{{Name: "a", Action: ActionBlock, Port: "80,1000-2000"}}, testTags())
+	if err != nil || out[0].Port != "80,1000-2000" {
+		t.Fatalf("valid ports: %v %v", out, err)
+	}
+}
+
+func TestValidateIPv6Zone(t *testing.T) {
+	_, err := Validate([]Rule{{Name: "a", Action: ActionDirect, IP: []string{"fe80::1%eth0"}}}, testTags())
+	if err == nil || fieldOf(t, err) != "rules[0].ip" {
+		t.Fatalf("want error on rules[0].ip, got %v", err)
+	}
+}

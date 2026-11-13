@@ -112,3 +112,21 @@ func TestOverlaps(t *testing.T) {
 		t.Fatalf("only the nearest earlier rule is reported: %+v", got)
 	}
 }
+
+func TestSimpleXrayTruncated(t *testing.T) {
+	var rules []Rule
+	for i := range 40 {
+		rules = append(rules, Rule{Name: "n", Action: ActionNode, NodeID: int64(i + 1), Domain: []string{"domain:a.ru"}})
+	}
+	got := SimpleXrayTruncated(rules)
+	if len(got) != 8 || got[0] != 32 || got[7] != 39 {
+		t.Fatalf("truncated = %v", got)
+	}
+	if got := SimpleXrayTruncated(rules[:5]); len(got) != 0 {
+		t.Fatalf("small set truncated = %v", got)
+	}
+	mixed := append([]Rule{{Name: "p", Action: ActionBlock, Port: "25"}}, rules...)
+	if got := SimpleXrayTruncated(mixed); len(got) != 8 || got[0] != 33 {
+		t.Fatalf("skipped rules must not count: %v", got)
+	}
+}

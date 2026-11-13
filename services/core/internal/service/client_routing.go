@@ -74,7 +74,12 @@ func (s *Service) PutClientGeoTags(ctx context.Context, t clientroute.Tags) (boo
 	if err != nil {
 		return false, err
 	}
-	changed := prev == nil || prev.Release != next.Release || !slices.Equal(prev.Geosite, next.Geosite) || !slices.Equal(prev.Geoip, next.Geoip)
+	listsChanged := prev == nil || !slices.Equal(prev.Geosite, next.Geosite) || !slices.Equal(prev.Geoip, next.Geoip)
+	changed := listsChanged || prev.Release != next.Release
+	next.ChangedAt = next.FetchedAt
+	if !listsChanged {
+		next.ChangedAt = prev.ChangedAt
+	}
 	raw, err := json.Marshal(next)
 	if err != nil {
 		return false, err
@@ -114,8 +119,11 @@ func (s *Service) GetClientRouting(ctx context.Context) (*ClientRoutingView, err
 	if tags.Loaded() {
 		v.Geo = GeoTagsStatus{Loaded: true, Release: tags.Release, FetchedAt: &tags.FetchedAt}
 	}
+	for _, i := range clientroute.SimpleXrayTruncated(rules) {
+		v.Issues[i] = append(v.Issues[i], clientroute.Issue{Client: clientroute.SimpleXray, Skip: true, Reason: "limits"})
+	}
 	for i, r := range rules {
-		v.Issues[i] = clientroute.Issues(r)
+		v.Issues[i] = append(clientroute.Issues(r), v.Issues[i]...)
 		if v.Issues[i] == nil {
 			v.Issues[i] = []clientroute.Issue{}
 		}
@@ -175,6 +183,8 @@ func (s *Service) clientRoutingFeed(ctx context.Context) (*ClientRoutingFeed, er
 	for _, r := range rules {
 		if len(tags.Missing(r)) == 0 {
 			feed.Rules = append(feed.Rules, r)
+		} else if tags.ChangedAt.After(feed.UpdatedAt) {
+			feed.UpdatedAt = tags.ChangedAt
 		}
 	}
 	if len(feed.Rules) == 0 {

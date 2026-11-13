@@ -33,6 +33,7 @@ type Tags struct {
 	Geosite   []string  `json:"geosite"`
 	Geoip     []string  `json:"geoip"`
 	FetchedAt time.Time `json:"fetched_at"`
+	ChangedAt time.Time `json:"changed_at"`
 }
 
 func (t *Tags) Loaded() bool {

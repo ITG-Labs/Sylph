@@ -3,6 +3,7 @@ package clientroute
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 var (
 	domainPrefixes = []string{"domain", "full", "keyword", "regexp", "geosite"}
 	actions        = []string{ActionDirect, ActionProxy, ActionBlock, ActionNode}
+	portPattern    = regexp.MustCompile(`^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$`)
 )
 
 func fieldErr(field, format string, args ...any) error {
@@ -83,6 +85,9 @@ func validateRule(field string, r Rule, tags *Tags) (Rule, error) {
 		return Rule{}, err
 	}
 	if r.Port != "" {
+		if !portPattern.MatchString(r.Port) {
+			return Rule{}, fieldErr(field+".port", "ports must be digits, like 443, 80,443 or 1000-2000")
+		}
 		if err := noderoute.CheckPorts(r.Port); err != nil {
 			return Rule{}, fieldErr(field+".port", "%s", err)
 		}
@@ -104,6 +109,9 @@ func normalizeList(field string, in []string, normalize func(string) (string, er
 		norm, err := normalize(lowerPrefix(strings.TrimSpace(v)))
 		if err != nil {
 			return nil, fieldErr(field, "%q: %s", v, err)
+		}
+		if strings.Contains(norm, "%") {
+			return nil, fieldErr(field, "%q: IPv6 zones are not supported", v)
 		}
 		if prefix, code, ok := strings.Cut(norm, ":"); ok && !strings.Contains(prefix, ".") {
 			if !slices.Contains(prefixes, prefix) && !isAddress(norm) {

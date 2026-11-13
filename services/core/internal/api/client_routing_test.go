@@ -59,7 +59,7 @@ func TestAdminClientGeoTagsNotLoaded(t *testing.T) {
 	e := newAdminEnv(t)
 	r := e.call(t, http.MethodGet, "/v1/admin/client-routing/geo-tags", nil)
 	mustStatus(t, r, http.StatusOK)
-	if string(r.body) != "{\"release\":\"\",\"geosite\":[],\"geoip\":[],\"fetched_at\":\"0001-01-01T00:00:00Z\"}\n" {
+	if string(r.body) != "{\"release\":\"\",\"geosite\":[],\"geoip\":[],\"fetched_at\":\"0001-01-01T00:00:00Z\",\"changed_at\":\"0001-01-01T00:00:00Z\"}\n" {
 		t.Fatalf("body = %s", r.body)
 	}
 }
