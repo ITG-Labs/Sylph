@@ -698,3 +698,15 @@ func (p *Profile) CascadeNodes() []int64 {
 	slices.Sort(out)
 	return out
 }
+
+func NormalizeDomain(v string) (string, error) {
+	return normalizeDomain(v)
+}
+
+func NormalizeIP(v string) (string, error) {
+	return normalizeIP(v)
+}
+
+func CheckPorts(s string) error {
+	return checkPorts(s)
+}
