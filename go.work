@@ -2,12 +2,12 @@ go 1.27.3
 
 use (
 	.
-	./services/core
 	./services/agent
-	./services/cron
-	./services/subs
 	./services/bot
-	./services/panel
+	./services/core
+	./services/cron
 	./services/monitor
+	./services/panel
+	./services/subs
 	./tools/sylph
 )
