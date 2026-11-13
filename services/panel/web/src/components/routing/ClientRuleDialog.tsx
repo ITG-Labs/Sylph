@@ -128,7 +128,7 @@ export function ClientRuleDialog({
           </Field>
         )}
       </div>
-      <Field id="cr-domain" label="Домены" hint="example.com — вместе с поддоменами; префиксы full:, keyword:, regexp:; geosite:категория из базы runetfreedom">
+      <Field id="cr-domain" label="Домены" hint="example.com или suffix:example.com — вместе с поддоменами; префиксы full:, keyword:, regexp:; geosite:категория из базы runetfreedom">
         <Textarea
           id="cr-domain"
           value={domain}

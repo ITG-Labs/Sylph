@@ -232,3 +232,19 @@ func TestValidateIPv6Zone(t *testing.T) {
 		t.Fatalf("want error on rules[0].ip, got %v", err)
 	}
 }
+
+func TestValidateSuffixAlias(t *testing.T) {
+	out, err := Validate([]Rule{{Name: "a", Action: ActionDirect, Domain: []string{"suffix:Example.com", "SUFFIX:b.ru"}}}, testTags())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(out[0].Domain, []string{"domain:example.com", "domain:b.ru"}) {
+		t.Fatalf("domain = %v", out[0].Domain)
+	}
+	if _, err := Validate([]Rule{{Name: "a", Action: ActionDirect, Domain: []string{"suffix:"}}}, testTags()); err == nil || fieldOf(t, err) != "rules[0].domain" {
+		t.Fatalf("empty suffix: %v", err)
+	}
+	if _, err := Validate([]Rule{{Name: "a", Action: ActionDirect, IP: []string{"suffix:a.ru"}}}, testTags()); err == nil || fieldOf(t, err) != "rules[0].ip" {
+		t.Fatalf("suffix in ip: %v", err)
+	}
+}

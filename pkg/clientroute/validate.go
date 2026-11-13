@@ -106,7 +106,11 @@ func normalizeList(field string, in []string, normalize func(string) (string, er
 	}
 	out := make([]string, len(in))
 	for i, v := range in {
-		norm, err := normalize(lowerPrefix(strings.TrimSpace(v)))
+		value := lowerPrefix(strings.TrimSpace(v))
+		if rest, ok := strings.CutPrefix(value, "suffix:"); ok && slices.Contains(prefixes, "domain") {
+			value = "domain:" + rest
+		}
+		norm, err := normalize(value)
 		if err != nil {
 			return nil, fieldErr(field, "%q: %s", v, err)
 		}
