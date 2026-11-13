@@ -174,6 +174,11 @@ func (s *Server) serve(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if support := supportURL(view); support != "" {
 		h.Set("Support-Url", support)
 	}
+	if link, err := routingHeader(view, conns, r.UserAgent()); err != nil {
+		s.log.WarnContext(ctx, "routing_render_failed", "error", err.Error())
+	} else if link != "" {
+		h.Set("Routing", link)
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 	res.code = http.StatusOK

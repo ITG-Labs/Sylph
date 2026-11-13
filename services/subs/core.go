@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
+	"github.com/ITG-Labs/sylph/pkg/clientroute"
 )
 
 const (
@@ -21,6 +22,7 @@ const (
 
 type Connection struct {
 	Name        string          `json:"name"`
+	NodeID      int64           `json:"node_id"`
 	Address     string          `json:"address"`
 	Port        int             `json:"port"`
 	UUID        string          `json:"uuid"`
@@ -39,13 +41,19 @@ type Connection struct {
 }
 
 type View struct {
-	Status            string       `json:"status"`
-	TrafficUsedBytes  int64        `json:"traffic_used_bytes"`
-	TrafficLimitBytes *int64       `json:"traffic_limit_bytes"`
-	ExpiresAt         *time.Time   `json:"expires_at"`
-	Connections       []Connection `json:"connections"`
-	Title             string       `json:"title"`
-	SupportURL        string       `json:"support_url"`
+	Status            string             `json:"status"`
+	TrafficUsedBytes  int64              `json:"traffic_used_bytes"`
+	TrafficLimitBytes *int64             `json:"traffic_limit_bytes"`
+	ExpiresAt         *time.Time         `json:"expires_at"`
+	Connections       []Connection       `json:"connections"`
+	Title             string             `json:"title"`
+	SupportURL        string             `json:"support_url"`
+	ClientRouting     *ClientRoutingFeed `json:"client_routing"`
+}
+
+type ClientRoutingFeed struct {
+	UpdatedAt time.Time          `json:"updated_at"`
+	Rules     []clientroute.Rule `json:"rules"`
 }
 
 var ErrNotFound = errors.New("subscription not found")
