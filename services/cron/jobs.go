@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ITG-Labs/sylph/pkg/apiclient"
 )
@@ -17,6 +18,8 @@ func NewCoreClient(api *apiclient.Client) *CoreClient {
 	return &CoreClient{api: api}
 }
 
+var geoClient = &http.Client{Timeout: 5 * time.Minute}
+
 func Jobs(core *CoreClient, cfg *Config) []Job {
 	return []Job{
 		{Name: "expire", Every: cfg.ExpireEvery, Do: core.expire},
@@ -24,6 +27,9 @@ func Jobs(core *CoreClient, cfg *Config) []Job {
 			return core.cleanup(ctx, cfg.RetentionDays, cfg.StatsRetentionDays, cfg.IPRetentionDays)
 		}},
 		{Name: "payments", Every: cfg.PaymentsEvery, Do: core.payments},
+		{Name: "geotags", Every: cfg.GeoTagsEvery, Do: func(ctx context.Context) ([]slog.Attr, error) {
+			return core.geoTags(ctx, geoClient, cfg.GeoTagsURL)
+		}},
 	}
 }
 

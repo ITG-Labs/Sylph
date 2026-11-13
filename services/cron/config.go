@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,9 @@ type Config struct {
 
 	StatsRetentionDays int
 	IPRetentionDays    int
+
+	GeoTagsEvery time.Duration
+	GeoTagsURL   string
 }
 
 func LoadConfig() (*Config, error) {
@@ -38,6 +42,9 @@ func LoadConfig() (*Config, error) {
 
 		StatsRetentionDays: 365,
 		IPRetentionDays:    30,
+
+		GeoTagsEvery: 24 * time.Hour,
+		GeoTagsURL:   envOr("SYLPH_CRON_GEOTAGS_URL", DefaultGeoTagsURL),
 	}
 	if cfg.CoreURL == "" {
 		return nil, errors.New("SYLPH_CORE_URL is required")
@@ -66,6 +73,15 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.StatsRetentionDays, err = days("SYLPH_CRON_STATS_RETENTION_DAYS", cfg.StatsRetentionDays); err != nil {
 		return nil, err
+	}
+	if cfg.GeoTagsEvery, err = interval("SYLPH_CRON_GEOTAGS_EVERY", cfg.GeoTagsEvery); err != nil {
+		return nil, err
+	}
+	if cfg.GeoTagsEvery < time.Hour || cfg.GeoTagsEvery > 168*time.Hour {
+		return nil, errors.New("SYLPH_CRON_GEOTAGS_EVERY must be between 1h and 168h")
+	}
+	if !strings.HasPrefix(cfg.GeoTagsURL, "https://") {
+		return nil, errors.New("SYLPH_CRON_GEOTAGS_URL must be an https URL")
 	}
 	return cfg, nil
 }
