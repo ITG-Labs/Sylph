@@ -16,6 +16,7 @@ import { PlaceholderPage } from "./pages/PlaceholderPage"
 import { ProfilePage } from "./pages/ProfilePage"
 import { RoutingPage } from "./pages/RoutingPage"
 import { SettingsPage } from "./pages/SettingsPage"
+import { ClientRoutingPage } from "./pages/ClientRoutingPage"
 import { UserPage } from "./pages/UserPage"
 import { UsersPage } from "./pages/UsersPage"
 
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: "nodes", element: <NodesPage /> },
       { path: "nodes/:id", element: <NodePage /> },
       { path: "routing", element: <RoutingPage /> },
+      { path: "routing/clients", element: <ClientRoutingPage /> },
       { path: "routing/:id", element: <ProfilePage /> },
       { path: "plans", element: <PlansPage /> },
       { path: "plans/:id", element: <PlanPage /> },

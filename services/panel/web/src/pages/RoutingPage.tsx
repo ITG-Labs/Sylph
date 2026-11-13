@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router"
-import { ChevronRight, Plus, TriangleAlert } from "lucide-react"
+import { ChevronRight, Plus, Smartphone, TriangleAlert } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { ActionDialog } from "@/components/common/ActionDialog"
 import { LoadError, LoadingBlock } from "@/components/common/QueryState"
@@ -39,15 +39,21 @@ export function RoutingPage() {
         title="Маршрутизация"
         description="профиль определяет, куда направляется трафик пользователей ноды: напрямую, в блокировку, через прокси или другую ноду"
         actions={
-          <Button
-            onClick={() => {
-              setName("")
-              setCreating(true)
-            }}
-          >
-            <Plus />
-            Новый профиль
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => navigate("/routing/clients")}>
+              <Smartphone />
+              Клиентский роутинг
+            </Button>
+            <Button
+              onClick={() => {
+                setName("")
+                setCreating(true)
+              }}
+            >
+              <Plus />
+              Новый профиль
+            </Button>
+          </>
         }
       />
       {profiles.isPending ? (
