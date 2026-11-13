@@ -60,6 +60,16 @@ func badSimpleXrayCategory(r Rule) bool {
 	return false
 }
 
+func numericDomain(r Rule) bool {
+	for _, v := range r.Domain {
+		_, host, _ := strings.Cut(v, ":")
+		if (strings.HasPrefix(v, "domain:") || strings.HasPrefix(v, "full:")) && strings.Trim(host, "0123456789.") == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func Issues(r Rule) []Issue {
 	var out []Issue
 	for _, c := range Clients {
@@ -94,6 +104,8 @@ func issueOf(r Rule, c Client) (Issue, bool) {
 			return skip("regexp")
 		case badSimpleXrayCategory(r):
 			return skip("category_format")
+		case numericDomain(r):
+			return skip("domain_format")
 		}
 	}
 	return Issue{}, false
