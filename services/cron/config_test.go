@@ -23,7 +23,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	want := Config{
 		CoreURL: "https://core.sylph.internal:8443", TLSCert: "/certs/cert.pem", TLSKey: "/certs/key.pem", CACert: "/certs/ca.pem",
 		ServerName: "core.sylph.internal", ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: time.Minute, RetentionDays: 30,
-		StatsRetentionDays: 365, IPRetentionDays: 30,
+		StatsRetentionDays: 365, IPRetentionDays: 30, GeoTagsEvery: 24 * time.Hour, GeoTagsURL: DefaultGeoTagsURL,
 	}
 	if *cfg != want {
 		t.Fatalf("cfg = %+v", *cfg)
@@ -72,5 +72,34 @@ func TestLoadConfigRejects(t *testing.T) {
 				t.Fatalf("err = %v", err)
 			}
 		})
+	}
+}
+
+func TestConfigGeoTags(t *testing.T) {
+	setBaseEnv(t)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GeoTagsEvery != 24*time.Hour || cfg.GeoTagsURL != DefaultGeoTagsURL {
+		t.Fatalf("defaults = %v %q", cfg.GeoTagsEvery, cfg.GeoTagsURL)
+	}
+	t.Setenv("SYLPH_CRON_GEOTAGS_EVERY", "30m")
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "SYLPH_CRON_GEOTAGS_EVERY") {
+		t.Fatalf("30m: %v", err)
+	}
+	t.Setenv("SYLPH_CRON_GEOTAGS_EVERY", "169h")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("169h must fail")
+	}
+	t.Setenv("SYLPH_CRON_GEOTAGS_EVERY", "6h")
+	t.Setenv("SYLPH_CRON_GEOTAGS_URL", "http://example.com/sing-box.zip")
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "SYLPH_CRON_GEOTAGS_URL") {
+		t.Fatalf("http url: %v", err)
+	}
+	t.Setenv("SYLPH_CRON_GEOTAGS_URL", "https://mirror.example.com/sing-box.zip")
+	cfg, err = LoadConfig()
+	if err != nil || cfg.GeoTagsEvery != 6*time.Hour || cfg.GeoTagsURL != "https://mirror.example.com/sing-box.zip" {
+		t.Fatalf("overrides = %+v, %v", cfg, err)
 	}
 }

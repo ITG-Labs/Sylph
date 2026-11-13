@@ -54,7 +54,7 @@ func TestJobsCallMaintenanceEndpoints(t *testing.T) {
 		}
 	})
 	jobs := Jobs(core, &Config{ExpireEvery: time.Minute, CleanupEvery: time.Hour, PaymentsEvery: 2 * time.Minute, RetentionDays: 45, StatsRetentionDays: 365, IPRetentionDays: 30})
-	if len(jobs) != 3 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour ||
+	if len(jobs) != 4 || jobs[0].Name != "expire" || jobs[0].Every != time.Minute || jobs[1].Name != "cleanup" || jobs[1].Every != time.Hour ||
 		jobs[2].Name != "payments" || jobs[2].Every != 2*time.Minute {
 		t.Fatalf("jobs = %+v", jobs)
 	}

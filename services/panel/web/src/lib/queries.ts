@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { core } from "./api"
+import type { ClientRoutingView, GeoTags } from "./clientRouting"
 import { normalizeDoc, type GeoSource, type Profile } from "./routing"
 import type { Group, InboundRef, Node, NodeAddress, Plan } from "./types"
 
@@ -25,6 +26,14 @@ export function useProfiles() {
     queryFn: async () => (await core.get<Profile[]>("/v1/admin/profiles")).map((p) => ({ ...p, doc: normalizeDoc(p.doc) })),
     staleTime: 15_000,
   })
+}
+
+export function useClientRouting() {
+  return useQuery({ queryKey: ["client-routing"], queryFn: () => core.get<ClientRoutingView>("/v1/admin/client-routing") })
+}
+
+export function useGeoTags() {
+  return useQuery({ queryKey: ["client-geo-tags"], queryFn: () => core.get<GeoTags>("/v1/admin/client-routing/geo-tags"), staleTime: 600_000 })
 }
 
 export function useGeoSources() {
