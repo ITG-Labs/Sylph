@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/ITG-Labs/sylph v0.0.0-00010101000000-000000000000
 	github.com/golang-migrate/migrate/v4 v4.20.1
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 )
 
 require (
