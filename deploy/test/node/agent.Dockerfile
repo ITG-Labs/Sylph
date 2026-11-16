@@ -1,4 +1,4 @@
-FROM golang:1.27.3-alpine AS caps
+FROM golang:1.27.4-alpine AS caps
 RUN apk add --no-cache libcap
 COPY bin/sylph-agent bin/agent.test /out/sylph/
 RUN chown -R 65532:65532 /out \
