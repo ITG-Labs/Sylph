@@ -273,13 +273,29 @@ func (s *Service) ListPlans(ctx context.Context) ([]store.PlanRow, error) {
 }
 
 func (s *Service) NodeTraffic(ctx context.Context, nodeID int64, tag *string) (store.NodeTraffic, error) {
-	if _, err := s.store.GetNode(ctx, nodeID); err != nil {
+	if err := s.checkNodeTrafficQuery(ctx, nodeID, tag); err != nil {
 		return store.NodeTraffic{}, err
 	}
-	if tag != nil && len(*tag) > 64 {
-		return store.NodeTraffic{}, fieldErr("inbound", "must be at most 64 characters")
-	}
 	return s.store.NodeTraffic(ctx, nodeID, tag)
+}
+
+func (s *Service) NodeDayTop(ctx context.Context, nodeID int64, tag *string, day string) ([]store.TopUser, error) {
+	date, err := time.Parse(time.DateOnly, day)
+	if err != nil || date.Year() == 0 {
+		return nil, fieldErr("day", "expected a calendar date in YYYY-MM-DD format")
+	}
+	if err := s.checkNodeTrafficQuery(ctx, nodeID, tag); err != nil {
+		return nil, err
+	}
+	return s.store.NodeDayTop(ctx, nodeID, tag, date)
+}
+
+func (s *Service) checkNodeTrafficQuery(ctx context.Context, nodeID int64, tag *string) error {
+	if tag != nil && len(*tag) > 64 {
+		return fieldErr("inbound", "must be at most 64 characters")
+	}
+	_, err := s.store.GetNode(ctx, nodeID)
+	return err
 }
 
 func validateNode(n *model.Node) error {

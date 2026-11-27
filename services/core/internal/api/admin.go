@@ -22,6 +22,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "GET /v1/admin/nodes", s.handleNodeList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/nodes/{id}", s.handleNodeUpdate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes/{id}/stats", s.handleNodeStats, mtls.RolePanel)
+	s.route(mux, "GET /v1/admin/nodes/{id}/stats/top", s.handleNodeDayTop, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/nodes/{id}/inbounds", s.handleInboundList, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/inbounds", s.handleInboundRefs, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/nodes/{id}/inbounds", s.handleInboundCreate, mtls.RolePanel)
@@ -275,17 +276,34 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var tag *string
-	if q := r.URL.Query(); q.Has("inbound") {
-		v := q.Get("inbound")
-		tag = &v
-	}
-	st, err := s.svc.NodeTraffic(r.Context(), id, tag)
+	st, err := s.svc.NodeTraffic(r.Context(), id, inboundFilter(r))
 	if err != nil {
 		s.writeServiceError(w, err, "node")
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+func inboundFilter(r *http.Request) *string {
+	q := r.URL.Query()
+	if !q.Has("inbound") {
+		return nil
+	}
+	tag := q.Get("inbound")
+	return &tag
+}
+
+func (s *Server) handleNodeDayTop(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	top, err := s.svc.NodeDayTop(r.Context(), id, inboundFilter(r), r.URL.Query().Get("day"))
+	if err != nil {
+		s.writeServiceError(w, err, "node")
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(top))
 }
 
 func (s *Server) handleInboundList(w http.ResponseWriter, r *http.Request) {

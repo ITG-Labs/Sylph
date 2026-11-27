@@ -30,7 +30,14 @@ function barPath(x: number, w: number, base: number, h: number): string {
   return `M${x},${base}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${base}Z`
 }
 
-export function TrafficChart({ days, highlight }: { days: (UpDown & { day: string })[]; highlight: number }) {
+interface TrafficChartProps {
+  days: (UpDown & { day: string })[]
+  highlight: number
+  selectedDay?: string
+  onSelectDay: (day: string) => void
+}
+
+export function TrafficChart({ days, highlight, selectedDay, onSelectDay }: TrafficChartProps) {
   const box = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const [active, setActive] = useState<number | null>(null)
@@ -50,13 +57,20 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
   const slot = n > 0 ? width / n : 0
   const barW = Math.max(2, Math.min(24, slot - 2, slot * 0.7))
   const base = TOP + PLOT_H
+  const selectedIndex = days.findIndex((d) => d.day === selectedDay)
+  const marker = active ?? selectedIndex
   const cur = active === null ? null : days[active]
   const curX = active === null ? 0 : Math.min(Math.max(active * slot + slot / 2, 72), Math.max(width - 72, 72))
 
   const onKey = (e: KeyboardEvent) => {
+    const from = marker >= 0 ? marker : n - 1
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      if (days[from]) onSelectDay(days[from].day)
+      return
+    }
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return
     e.preventDefault()
-    const from = active ?? n - 1
     setActive(Math.min(n - 1, Math.max(0, from + (e.key === "ArrowLeft" ? -1 : 1))))
   }
 
@@ -67,8 +81,8 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
           width={width}
           height={TOP + PLOT_H + BOTTOM}
           className="block touch-pan-y outline-none focus-visible:rounded-lg focus-visible:ring-[3px] focus-visible:ring-ring"
-          role="img"
-          aria-label="Трафик ноды по дням за 30 дней"
+          role="group"
+          aria-label="Трафик по дням. Выберите день стрелками и нажмите Enter."
           tabIndex={0}
           onKeyDown={onKey}
           onBlur={() => setActive(null)}
@@ -90,13 +104,13 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
                   d={barPath(x, barW, base, h)}
                   className={cn(
                     "transition-[fill-opacity] duration-300",
-                    active === i ? "fill-info" : inWindow ? "fill-info/85" : "fill-info/25",
+                    active === i || d.day === selectedDay ? "fill-info" : inWindow ? "fill-info/85" : "fill-info/25",
                   )}
                 />
               )
             )
           })}
-          {active !== null && <line x1={active * slot + slot / 2} x2={active * slot + slot / 2} y1={TOP} y2={base} className="stroke-white/15" strokeWidth={1} />}
+          {marker >= 0 && <line x1={marker * slot + slot / 2} x2={marker * slot + slot / 2} y1={TOP} y2={base} className="stroke-white/15" strokeWidth={1} />}
           {days.map((d, i) => (
             <rect
               key={d.day}
@@ -105,6 +119,8 @@ export function TrafficChart({ days, highlight }: { days: (UpDown & { day: strin
               width={slot}
               height={base}
               fill="transparent"
+              className="cursor-pointer"
+              onClick={() => onSelectDay(d.day)}
               onPointerEnter={(e) => e.pointerType === "mouse" && setActive(i)}
               onPointerDown={(e) => e.pointerType !== "mouse" && setActive(active === i ? null : i)}
             />

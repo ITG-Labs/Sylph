@@ -162,6 +162,38 @@ func TestAdminNodeStats(t *testing.T) {
 		t.Fatalf("filtered stats = %s", r.body)
 	}
 	mustField(t, e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/nodes/%d/stats?inbound=%s", nodeID, strings.Repeat("x", 65)), nil), http.StatusBadRequest, "bad_request", "inbound")
+
+	topPath := fmt.Sprintf("/v1/admin/nodes/%d/stats/top?day=", nodeID)
+	mustField(t, e.call(t, http.MethodGet, topPath+"2026-02-30", nil), http.StatusBadRequest, "bad_request", "day")
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO traffic_daily (user_id, node_id, day, inbound_tag, bytes_up, bytes_down)
+		SELECT id, $1, $2::date, 'cdn', 4, 3 FROM users WHERE telegram_id = 77`, nodeID, st.Daily[28].Day); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query string
+		bytes int64
+	}{
+		{st.Daily[29].Day, 14},
+		{st.Daily[29].Day + "&inbound=cdn", 9},
+		{st.Daily[28].Day, 7},
+		{st.Daily[29].Day + "&inbound=", 0},
+		{st.Daily[27].Day, 0},
+	} {
+		r := e.call(t, http.MethodGet, topPath+tc.query, nil)
+		mustStatus(t, r, http.StatusOK)
+		var users []struct {
+			TelegramID int64 `json:"telegram_id"`
+			Bytes      int64 `json:"bytes"`
+		}
+		r.decode(t, &users)
+		if tc.bytes == 0 {
+			if users == nil || len(users) != 0 {
+				t.Fatalf("expected empty top for %s: %s", tc.query, r.body)
+			}
+		} else if len(users) != 1 || users[0].Bytes != tc.bytes || users[0].TelegramID != 77 {
+			t.Fatalf("top for %s: %s", tc.query, r.body)
+		}
+	}
 }
 
 func TestAdminSettingsReachTheSubscription(t *testing.T) {

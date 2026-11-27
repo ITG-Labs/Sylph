@@ -51,6 +51,7 @@ var coreAllowlist = buildAllowlist(
 	"GET /v1/admin/nodes",
 	"PATCH /v1/admin/nodes/{id}",
 	"GET /v1/admin/nodes/{id}/stats",
+	"GET /v1/admin/nodes/{id}/stats/top",
 	"GET /v1/admin/nodes/{id}/inbounds",
 	"GET /v1/admin/inbounds",
 	"GET /v1/admin/nodes/{id}/online",
