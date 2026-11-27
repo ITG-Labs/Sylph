@@ -118,7 +118,7 @@ func TestManageSubscriptionThroughTheAPI(t *testing.T) {
 		t.Fatalf("extend answered %s", r.body)
 	}
 	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 1000}), http.StatusBadRequest, "bad_request", "pool_id")
-	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": -1}), http.StatusBadRequest, "bad_request", "bytes")
+	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": 0}), http.StatusBadRequest, "bad_request", "bytes")
 
 	limit := int64(1000)
 	nodeID := e.createNode(t, "node-1", nil)
@@ -159,6 +159,16 @@ func TestManageSubscriptionThroughTheAPI(t *testing.T) {
 	if len(sub.Pools) != 1 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 1500 {
 		t.Fatalf("traffic bonus answered %s", r.body)
 	}
+
+	mustStatus(t, e.call(t, http.MethodPost, path+"/extend", map[string]any{"days": -5}), http.StatusOK)
+	mustField(t, e.call(t, http.MethodPost, path+"/extend", map[string]any{"days": -3650}), http.StatusBadRequest, "bad_request", "days")
+	r = e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": -1500, "pool_id": plan.Pools[0].ID})
+	mustStatus(t, r, http.StatusOK)
+	r.decode(t, &sub)
+	if len(sub.Pools) != 1 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 0 {
+		t.Fatalf("traffic deduction answered %s", r.body)
+	}
+	mustField(t, e.call(t, http.MethodPost, path+"/traffic", map[string]any{"bytes": -1, "pool_id": plan.Pools[0].ID}), http.StatusBadRequest, "bad_request", "bytes")
 
 	closePath := fmt.Sprintf("/v1/admin/periods/%d/close", sub.ID)
 	mustStatus(t, e.call(t, http.MethodPost, closePath, nil), http.StatusOK)

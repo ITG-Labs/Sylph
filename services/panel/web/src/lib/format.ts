@@ -72,6 +72,14 @@ export function parseGB(s: string): number | null {
   return Math.round(v * GiB)
 }
 
+export function parseTrafficAdjustment(s: string): number | null {
+  const match = /^([+−-]?)(\d+(?:[.,]\d+)?)$/.exec(s.trim())
+  if (!match) return null
+  const bytes = parseGB(match[2])
+  if (bytes === null || bytes < 1 || bytes > 2 ** 50) return null
+  return match[1] === "-" || match[1] === "−" ? -bytes : bytes
+}
+
 export function trafficPercent(used: number, limit: number | null): number | null {
   if (limit === null) return null
   if (limit <= 0) return 100

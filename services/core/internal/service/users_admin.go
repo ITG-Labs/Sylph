@@ -37,6 +37,10 @@ func adminErr(err error) error {
 		return &ConflictError{Field: "user_id", Message: "user is banned"}
 	case errors.Is(err, store.ErrNoActivePeriod):
 		return &ConflictError{Field: "subscription", Message: "user has no active period"}
+	case errors.Is(err, store.ErrElapsedPeriod):
+		return fieldErr("days", err.Error())
+	case errors.Is(err, store.ErrNegativeLimit):
+		return fieldErr("bytes", err.Error())
 	case errors.Is(err, store.ErrUnlimitedPlan):
 		return &ConflictError{Field: "bytes", Message: "this pool of the current period has no traffic limit"}
 	case errors.Is(err, store.ErrPoolNotInPlan):
@@ -73,8 +77,8 @@ func (s *Service) UnbanUser(ctx context.Context, userID int64) (bool, error) {
 }
 
 func (s *Service) ExtendSubscription(ctx context.Context, userID int64, days int) (*model.Subscription, error) {
-	if days < 1 || days > maxExtendDays {
-		return nil, fieldErr("days", "must be 1-3650")
+	if days == 0 || days < -maxExtendDays || days > maxExtendDays {
+		return nil, fieldErr("days", "must be nonzero and within ±3650 days")
 	}
 	sub, err := s.store.ExtendPeriod(ctx, userID, days, time.Now().UTC())
 	if err != nil {
@@ -85,8 +89,8 @@ func (s *Service) ExtendSubscription(ctx context.Context, userID int64, days int
 }
 
 func (s *Service) AddTraffic(ctx context.Context, userID int64, poolID *int64, bytes int64) (*model.Subscription, error) {
-	if bytes < 1 || bytes > maxBonusBytes {
-		return nil, fieldErr("bytes", "must be 1 byte to 1 PiB")
+	if bytes == 0 || bytes < -maxBonusBytes || bytes > maxBonusBytes {
+		return nil, fieldErr("bytes", "must be nonzero and within ±1 PiB")
 	}
 	if poolID == nil || *poolID <= 0 {
 		return nil, fieldErr("pool_id", "required")

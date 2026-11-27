@@ -483,8 +483,8 @@ func keyOwners(ctx context.Context, tx pgx.Tx, deltas []model.TrafficDelta) (map
 }
 
 func satAdd(a, b int64) int64 {
-	if a > math.MaxInt64-b {
+	if b > math.MaxInt64-a {
 		return math.MaxInt64
 	}
-	return a + b
+	return max(0, a+b)
 }

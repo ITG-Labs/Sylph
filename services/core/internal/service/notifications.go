@@ -112,7 +112,7 @@ func dueFor(c store.NotifyCandidate, now time.Time, st store.Settings) []Notific
 		traffic.PeriodEnds, traffic.PaidUntil = c.PeriodEnds, c.PaidUntil
 		traffic.MultiPool, traffic.TrafficExhausted = len(c.Pools) > 1 || !c.MainIdle, c.Exhausted
 		for _, p := range c.Pools {
-			if p.Limit == nil || *p.Limit <= 0 {
+			if p.Limit == nil {
 				continue
 			}
 			used, limit, id := p.Used, *p.Limit, p.ID
@@ -243,7 +243,7 @@ func parseTrafficRef(ref string) (int64, bool) {
 	nums := make([]int64, len(parts))
 	for i, part := range parts {
 		v, err := strconv.ParseInt(part, 10, 64)
-		if err != nil || v < 0 {
+		if err != nil || (v < 0 && (i != 1 || len(parts) != 3)) {
 			return 0, false
 		}
 		nums[i] = v

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { fmtBytes, fmtRub, fmtDate, fmtDateTime, fmtShortDay, fmtTelegram, fmtUptime, fmtRelative, parseGB, plural, trafficPercent } from "./format"
+import { fmtBytes, fmtRub, fmtDate, fmtDateTime, fmtShortDay, fmtTelegram, fmtUptime, fmtRelative, parseGB, parseTrafficAdjustment, plural, trafficPercent } from "./format"
 
 describe("fmtBytes", () => {
   it("uses binary units with Russian names", () => {
@@ -94,5 +94,16 @@ describe("fmtShortDay", () => {
   it("shows a calendar day without a year or a zone shift", () => {
     expect(fmtShortDay("2026-10-01")).toBe("1 окт")
     expect(fmtShortDay("2026-12-31")).toBe("31 дек")
+  })
+})
+
+describe("parseTrafficAdjustment", () => {
+  it("accepts signed fractional amounts for admin adjustments", () => {
+    expect(parseTrafficAdjustment("-1,5")).toBe(-1610612736)
+    expect(parseTrafficAdjustment("−0.5")).toBe(-536870912)
+    expect(parseTrafficAdjustment("+1")).toBe(1073741824)
+    for (const invalid of ["--1", "-", "-0", "0.00000000001", "-1048577"]) {
+      expect(parseTrafficAdjustment(invalid)).toBeNull()
+    }
   })
 })

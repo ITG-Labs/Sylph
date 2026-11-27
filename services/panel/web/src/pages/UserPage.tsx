@@ -134,7 +134,7 @@ export function UserPage() {
             <div className="grid w-full grid-cols-[1fr_1fr_1fr_auto] gap-2 sm:flex sm:w-auto">
               <Button variant="secondary" className="max-sm:h-8 max-sm:px-2 max-sm:[&_svg]:hidden" onClick={open({ kind: "extend" })} disabled={!current}>
                 <CalendarPlus />
-                Продлить
+                Срок
               </Button>
               <Button variant="secondary" className="max-sm:h-8 max-sm:px-2 max-sm:[&_svg]:hidden" onClick={open({ kind: "traffic" })} disabled={!current || current.pools.every((x) => x.traffic_limit_bytes === null)}>
                 <Gauge />
@@ -209,6 +209,7 @@ export function UserPage() {
                       {pool.name}
                       {pool.exhausted && " · исчерпан"}
                       {pool.bonus_bytes > 0 && ` · бонус ${fmtBytes(pool.bonus_bytes)}`}
+                      {pool.bonus_bytes < 0 && ` · вычет ${fmtBytes(-pool.bonus_bytes)}`}
                     </div>
                     <TrafficBar used={pool.used_bytes} limit={pool.traffic_limit_bytes} />
                   </div>

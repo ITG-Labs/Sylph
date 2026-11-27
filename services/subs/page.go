@@ -233,11 +233,14 @@ func (s *Server) pageData(view *View, link string) pageData {
 	default:
 		d.Status = StubDenied
 	}
-	if view.TrafficLimitBytes != nil && *view.TrafficLimitBytes > 0 {
+	if view.TrafficLimitBytes != nil {
 		limit := *view.TrafficLimitBytes
 		d.Limited = true
 		d.Traffic = formatBytes(view.TrafficUsedBytes) + " из " + formatBytes(limit)
-		d.Percent = min(view.TrafficUsedBytes, limit) * 100 / limit
+		d.Percent = 100
+		if limit > 0 {
+			d.Percent = min(view.TrafficUsedBytes, limit) * 100 / limit
+		}
 	} else {
 		d.Traffic = formatBytes(view.TrafficUsedBytes) + " · без лимита"
 	}
