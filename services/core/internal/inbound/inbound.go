@@ -126,10 +126,17 @@ func Normalize(s *Spec) error {
 	if s.Reality == nil {
 		return fieldErr("reality", "is required for security reality")
 	}
+	if s.Reality.Dest == "selfsteal" {
+		if s.Transport != TransportXHTTP || len(s.Reality.ServerNames) != 1 || !netaddr.PublicHost(strings.ToLower(s.Reality.ServerNames[0])) {
+			return fieldErr("reality.dest", "selfsteal requires XHTTP and one public domain")
+		}
+	} else if err := normalizeDest(s.Reality); err != nil {
+		return err
+	}
 	return normalizeReality(s.Reality)
 }
 
-func normalizeReality(r *Reality) error {
+func normalizeDest(r *Reality) error {
 	host, port, err := net.SplitHostPort(r.Dest)
 	if err != nil {
 		return fieldErr("reality.dest", "must be host:port")
@@ -148,6 +155,10 @@ func normalizeReality(r *Reality) error {
 		return fieldErr("reality.dest", "must not point to localhost, a private, link-local or special address")
 	}
 	r.Dest = net.JoinHostPort(host, port)
+	return nil
+}
+
+func normalizeReality(r *Reality) error {
 	if len(r.ServerNames) == 0 {
 		return fieldErr("reality.server_names", "must not be empty")
 	}

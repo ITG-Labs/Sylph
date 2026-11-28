@@ -198,6 +198,12 @@ func TestSyncHidesXHTTPFromAgentsThatDoNotKnowIt(t *testing.T) {
 	mustStatus(t, e.call(t, http.MethodPost, path, realityBody("tcp", "www.example.com")), http.StatusOK)
 	mustStatus(t, e.call(t, http.MethodPost, path, tlsBody("cdn", "static.example.ru", "/api")), http.StatusOK)
 	mustStatus(t, e.call(t, http.MethodPost, path, xhttpRealityBody("rx", "www.other.com")), http.StatusOK)
+	local := xhttpRealityBody("local", "local.example.net")
+	local["reality"].(map[string]any)["dest"] = "selfsteal"
+	mustStatus(t, e.call(t, http.MethodPost, path, local), http.StatusOK)
+	external := realityBody("external", "external.example.net")
+	external["reality"].(map[string]any)["dest"] = "local.example.net:443"
+	mustField(t, e.call(t, http.MethodPost, path, external), http.StatusBadRequest, "bad_request", "reality.dest")
 	node := e.client(t, "node-1", mtls.RoleNode)
 	tags := func(body map[string]any) []string {
 		var resp struct {
@@ -225,6 +231,31 @@ func TestSyncHidesXHTTPFromAgentsThatDoNotKnowIt(t *testing.T) {
 	if got := tags(map[string]any{"known_version": -1, "per_inbound": true, "xhttp": true}); fmt.Sprint(got) != "[cdn rx tcp]" {
 		t.Fatalf("new agent got %v", got)
 	}
+	req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/sync/users", strings.NewReader(`{"known_version":-1,"per_inbound":true,"xhttp":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Sylph-Selfsteal", "1")
+	r, err := node.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var sync struct {
+		Inbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"inbounds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&sync); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range sync.Inbounds {
+		if in.Tag == "local" {
+			return
+		}
+	}
+	t.Fatal("missing negotiated selfsteal inbound")
 }
 
 func TestHeartbeatStoresCertificateStatus(t *testing.T) {

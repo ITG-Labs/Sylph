@@ -45,6 +45,7 @@ services:
     volumes:
       - caddy-admin:/run/caddy-admin
       - ./data/caddy:/data
+      - ./site:/srv/site:ro
     depends_on:
       perms:
         condition: service_completed_successfully

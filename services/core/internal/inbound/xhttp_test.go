@@ -401,3 +401,23 @@ func TestRealityDestRefusesAddressesTheAgentRefuses(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfstealRequiresOneDomainAndXHTTP(t *testing.T) {
+	s := xhttpRealitySpec()
+	s.Reality.Dest = "selfsteal"
+	s.Reality.ServerNames = []string{"Example.COM"}
+	if err := Normalize(&s); err != nil || s.Reality.ServerNames[0] != "example.com" {
+		t.Fatalf("selfsteal: %+v, %v", s, err)
+	}
+	for _, names := range [][]string{nil, {"127.0.0.1"}, {"a.example.com", "b.example.com"}} {
+		s.Reality.ServerNames = names
+		if err := Normalize(&s); err == nil {
+			t.Fatalf("accepted %v", names)
+		}
+	}
+	s = validSpec()
+	s.Reality.Dest = "selfsteal"
+	if err := Normalize(&s); err == nil {
+		t.Fatal("accepted selfsteal on TCP")
+	}
+}

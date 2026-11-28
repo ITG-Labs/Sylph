@@ -274,7 +274,8 @@ function inboundWhere(ib: Inbound) {
 function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
   const extra = Object.keys(ib.xhttp?.extra ?? {}).length
   const ep = ib.tls ? clientEndpoint(ib.tls) : null
-  const cert = ib.tls ? certLine(node, ib.tls.domain) : null
+  const domain = ib.tls?.domain ?? (ib.reality?.dest === "selfsteal" ? ib.reality.server_names[0] : null)
+  const cert = domain ? certLine(node, domain) : null
   return (
     <>
       {ib.xhttp && !agentKnowsXHTTP(node) && (
@@ -297,6 +298,7 @@ function InboundDetails({ ib, node }: { ib: Inbound; node: Node }) {
           </KV>
         </>
       )}
+      {ib.reality?.dest === "selfsteal" && cert && <KV label="Сертификат">{cert.text}</KV>}
       {ib.xhttp && (
         <>
           <KV label="Путь" mono>

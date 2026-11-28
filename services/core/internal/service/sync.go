@@ -41,6 +41,7 @@ type SyncInbound struct {
 }
 
 type AgentCaps struct {
+	Selfsteal  bool
 	PerInbound bool
 	XHTTP      bool
 }
@@ -101,6 +102,9 @@ func (s *Service) syncResponse(ctx context.Context, node *model.Node, knownVersi
 		spec, err := SpecOf(&stored[i])
 		if err != nil {
 			return nil, err
+		}
+		if spec.Reality != nil && spec.Reality.Dest == "selfsteal" && !caps.Selfsteal {
+			continue
 		}
 		if spec.Transport != inbound.TransportTCP && !caps.XHTTP {
 			continue

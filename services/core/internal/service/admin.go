@@ -333,12 +333,17 @@ func destNotOurs(spec *inbound.Spec, ours []string) error {
 }
 
 func domainNotADest(spec *inbound.Spec, dests []string) error {
-	if spec.TLS == nil {
+	var domain, field string
+	if spec.TLS != nil {
+		domain, field = spec.TLS.Domain, "tls.domain"
+	} else if spec.Reality != nil && spec.Reality.Dest == "selfsteal" {
+		domain, field = spec.Reality.ServerNames[0], "reality.server_names"
+	} else {
 		return nil
 	}
 	for _, d := range dests {
-		if inbound.DestHost(d) == spec.TLS.Domain {
-			return fieldErr("tls.domain", "is used as reality.dest of an inbound: REALITY would loop into the node")
+		if inbound.DestHost(d) == domain {
+			return fieldErr(field, "is used as reality.dest of an inbound: REALITY would loop into the node")
 		}
 	}
 	return nil

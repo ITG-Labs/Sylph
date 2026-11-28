@@ -21,6 +21,8 @@ func tlsDomains(inbounds []Inbound) map[string]int {
 	for _, in := range inbounds {
 		if in.TLS != nil {
 			domains[in.TLS.Domain] = in.Port
+		} else if in.Reality != nil && in.Reality.Dest == "selfsteal" && len(in.Reality.ServerNames) == 1 {
+			domains[in.Reality.ServerNames[0]] = in.Port
 		}
 	}
 	return domains

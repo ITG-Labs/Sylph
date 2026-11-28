@@ -412,3 +412,33 @@ func TestInstallOverOldNodeWarnsAboutCaddy(t *testing.T) {
 		t.Fatal("warning about Caddy on a node already on this build")
 	}
 }
+
+func TestNodeSiteSurvivesDeployUpdates(t *testing.T) {
+	dir := t.TempDir()
+	node, _ := role.Get("node")
+	deploy := func() {
+		t.Helper()
+		if _, err := writeDeployFiles(dir, node); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deploy()
+	index := filepath.Join(dir, "site", "index.html")
+	if b, err := os.ReadFile(index); err != nil || len(b) == 0 {
+		t.Fatalf("starter page: %v", err)
+	}
+	if err := os.WriteFile(index, []byte("custom"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deploy()
+	if b, err := os.ReadFile(index); err != nil || string(b) != "custom" {
+		t.Fatal("custom page overwritten")
+	}
+	if err := os.Remove(index); err != nil {
+		t.Fatal(err)
+	}
+	deploy()
+	if _, err := os.Stat(index); !os.IsNotExist(err) {
+		t.Fatal("starter page recreated")
+	}
+}
