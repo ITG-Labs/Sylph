@@ -37,7 +37,7 @@ test-db: test-db-up
 	status=$$?; $(MAKE) test-db-down; exit $$status
 
 xray-image:
-	docker build -q --build-arg XRAY_VERSION=$(XRAY_VERSION) -t $(XRAY_IMAGE) deploy/xray
+	docker pull $(XRAY_IMAGE) || docker build -q --build-arg XRAY_VERSION=$(XRAY_VERSION) -t $(XRAY_IMAGE) deploy/xray
 
 test-xray-up: xray-image
 	docker compose -f deploy/test/xray/docker-compose.yml up -d --wait
