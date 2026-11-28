@@ -169,7 +169,19 @@ jobs:
             echo "$out"
             exit 1
           fi
+      - name: Tag published Xray image
+        if: matrix.pin == 'XRAY_VERSION' && !steps.stable.outputs.tags
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          PINNED_VERSION: ${{ steps.stable.outputs.version }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
+          done <<< "$IMAGE_TAGS"
+          docker buildx imagetools create "${args[@]}" "ghcr.io/itg-labs/sylph-xray:$PINNED_VERSION"
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        if: matrix.pin != 'XRAY_VERSION' || steps.stable.outputs.tags != ''
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
