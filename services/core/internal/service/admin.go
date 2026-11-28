@@ -268,6 +268,10 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, patch PlanPatch) (*m
 	return s.store.GetPlan(ctx, id)
 }
 
+func (s *Service) DeletePlan(ctx context.Context, id int64) error {
+	return s.store.DeletePlan(ctx, id)
+}
+
 func (s *Service) ListPlans(ctx context.Context) ([]store.PlanRow, error) {
 	return s.store.ListAdminPlans(ctx)
 }

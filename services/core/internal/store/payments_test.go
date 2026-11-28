@@ -453,3 +453,17 @@ func TestUnbanDoesNotQueueANoticeForAPeriodItClosed(t *testing.T) {
 		t.Fatalf("queue after unban = %+v, %v; the period was closed, nothing works", got, err)
 	}
 }
+
+func TestPendingPaymentSurvivesDeletedPlan(t *testing.T) {
+	s := setupStore(t)
+	u, p := mkUser(t, s), mkPlan(t, s)
+	pm := mkProviderPayment(t, s, u.ID, p.ID)
+	ctx := context.Background()
+	if err := s.DeletePlan(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.SettlePayment(ctx, pm.PaymentID, time.Now().UTC())
+	if err != nil || !res.Applied {
+		t.Fatalf("settle pending payment: %+v, %v", res, err)
+	}
+}

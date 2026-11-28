@@ -40,7 +40,7 @@ func (s *Store) GrantTrial(ctx context.Context, userID int64, now time.Time) (Tr
 	if err := lockActiveUser(ctx, tx, userID); err != nil {
 		return TrialResult{}, err
 	}
-	plan, err := s.scanPlan(tx.QueryRow(ctx, trialOffer, userID))
+	plan, err := s.scanPlan(tx.QueryRow(ctx, trialOffer+" FOR SHARE OF p", userID))
 	if errors.Is(err, ErrNotFound) {
 		return TrialResult{}, ErrTrialUnavailable
 	}

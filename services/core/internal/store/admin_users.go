@@ -143,7 +143,7 @@ func (s *Store) ChangePeriodPlan(ctx context.Context, userID, planID int64, now 
 			return err
 		}
 		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plans WHERE id = $1)`, planID).Scan(&exists); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plans WHERE id = $1 AND NOT deleted FOR SHARE)`, planID).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {

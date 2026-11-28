@@ -71,7 +71,7 @@ func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 	defer tx.Rollback(ctx)
 	tag, err := tx.Exec(ctx,
 		`UPDATE plans SET name = $2, price_rub = $3, period_days = $4,
-		 location_group_id = $5, device_limit = $6, on_sale = $7, hwid_required = $8, trial = $9, visibility = $10, dedicated_ip = $11 WHERE id = $1`,
+		 location_group_id = $5, device_limit = $6, on_sale = $7, hwid_required = $8, trial = $9, visibility = $10, dedicated_ip = $11 WHERE id = $1 AND NOT deleted`,
 		p.ID, p.Name, p.PriceRub, p.PeriodDays, p.LocationGroupID, p.DeviceLimit, p.OnSale, p.HWIDRequired, p.Trial, p.Visibility, p.DedicatedIP)
 	if err != nil {
 		return mapWriteErr(err)
@@ -83,6 +83,32 @@ func (s *Store) UpdatePlan(ctx context.Context, p *model.Plan) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Store) DeletePlan(ctx context.Context, id int64) error {
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		var locked int64
+		err := tx.QueryRow(ctx, `SELECT id FROM plans WHERE id = $1 AND NOT deleted FOR UPDATE`, id).Scan(&locked)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		result, err := tx.Exec(ctx, `DELETE FROM plans WHERE id = $1
+			AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE plan_id = $1)
+			AND NOT EXISTS (SELECT 1 FROM payments WHERE plan_id = $1)
+			AND NOT EXISTS (SELECT 1 FROM trials WHERE plan_id = $1)
+			AND NOT EXISTS (SELECT 1 FROM routing_profiles WHERE doc @> jsonb_build_object(
+			    'rules', jsonb_build_array(jsonb_build_object('plans', jsonb_build_array($1::bigint)))))
+			AND NOT EXISTS (SELECT 1 FROM plan_access WHERE plan_id = $1)
+			AND NOT EXISTS (SELECT 1 FROM plan_invites WHERE plan_id = $1)`, id)
+		if err != nil || result.RowsAffected() > 0 {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE plans SET deleted = TRUE, on_sale = FALSE WHERE id = $1`, id)
+		return err
+	})
 }
 
 func writePools(ctx context.Context, tx pgx.Tx, p *model.Plan) error {
@@ -161,7 +187,7 @@ func (s *Store) GetPlan(ctx context.Context, id int64) (*model.Plan, error) {
 }
 
 func (s *Store) ListPlans(ctx context.Context) ([]model.Plan, error) {
-	return s.listPlans(ctx, `SELECT `+planColumns+` FROM plans ORDER BY id`)
+	return s.listPlans(ctx, `SELECT `+planColumns+` FROM plans WHERE NOT deleted ORDER BY id`)
 }
 
 type PlanRow struct {
@@ -177,7 +203,7 @@ func (s *Store) ListAdminPlans(ctx context.Context) ([]PlanRow, error) {
 		   WHERE NOT sub.canceled AND sub.starts_at <= now() AND sub.expires_at > now() AND u.status = 'active'
 		   GROUP BY sub.plan_id)
 		 SELECT `+planColumnsP+`, COALESCE(cur.n, 0)
-		 FROM plans p LEFT JOIN cur ON cur.plan_id = p.id ORDER BY p.id`)
+		 FROM plans p LEFT JOIN cur ON cur.plan_id = p.id WHERE NOT p.deleted ORDER BY p.id`)
 	if err != nil {
 		return nil, err
 	}

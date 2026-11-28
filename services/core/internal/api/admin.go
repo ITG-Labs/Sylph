@@ -14,6 +14,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.route(mux, "GET /v1/admin/groups", s.handleGroupList, mtls.RolePanel)
 	s.route(mux, "PATCH /v1/admin/groups/{id}", s.handleGroupRename, mtls.RolePanel)
 	s.route(mux, "DELETE /v1/admin/groups/{id}", s.handleGroupDelete, mtls.RolePanel)
+	s.route(mux, "DELETE /v1/admin/plans/{id}", s.handlePlanDelete, mtls.RolePanel)
 	s.route(mux, "PUT /v1/admin/groups/{id}/members", s.handleGroupMembers, mtls.RolePanel)
 	s.route(mux, "POST /v1/admin/plans", s.handlePlanCreate, mtls.RolePanel)
 	s.route(mux, "GET /v1/admin/plans", s.handlePlanList, mtls.RolePanel)
@@ -122,6 +123,19 @@ func (s *Server) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logChange(r, "group", "delete", id)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handlePlanDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.DeletePlan(r.Context(), id); err != nil {
+		s.writeServiceError(w, err, "plan")
+		return
+	}
+	s.logChange(r, "plan", "delete", id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

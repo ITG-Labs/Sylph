@@ -38,11 +38,15 @@ func (s *Store) CreatePayment(ctx context.Context, p *model.Payment) error {
 	if p.Source == "" {
 		p.Source = "manual"
 	}
-	return s.pool.QueryRow(ctx,
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source, confirmation_url)
-		 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, '')) RETURNING id, created_at`,
+		 SELECT $1, $2, id, $4, $5, $6, nullif($7, '') FROM plans WHERE id = $3 AND NOT deleted FOR SHARE RETURNING id, created_at`,
 		p.PaymentID, p.UserID, p.PlanID, p.AmountRub, p.Status, p.Source, p.ConfirmationURL,
 	).Scan(&p.ID, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) GetPayment(ctx context.Context, paymentID string) (*model.Payment, error) {
@@ -73,13 +77,16 @@ func (s *Store) RecordManualPayment(ctx context.Context, p *model.Payment, now t
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO payments (payment_id, user_id, plan_id, amount_rub, status, source)
-		 VALUES ($1, $2, $3, $4, 'pending', 'manual') ON CONFLICT (payment_id) DO NOTHING`,
+		 SELECT $1, $2, id, $4, 'pending', 'manual' FROM plans WHERE id = $3 AND NOT deleted FOR SHARE ON CONFLICT (payment_id) DO NOTHING`,
 		p.PaymentID, p.UserID, p.PlanID, p.AmountRub); err != nil {
 		return SettleResult{}, mapWriteErr(err)
 	}
 	var userID, planID, amount int64
 	var source string
 	if err := tx.QueryRow(ctx, `SELECT user_id, plan_id, amount_rub, source FROM payments WHERE payment_id = $1 FOR UPDATE`, p.PaymentID).Scan(&userID, &planID, &amount, &source); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SettleResult{}, ErrNotFound
+		}
 		return SettleResult{}, err
 	}
 	if source != "manual" || userID != p.UserID || planID != p.PlanID || amount != p.AmountRub {

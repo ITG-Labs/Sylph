@@ -79,6 +79,13 @@ func (s *Store) ApplyPayment(ctx context.Context, userID int64, planID int64, no
 		return PaymentResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plans WHERE id = $1 AND NOT deleted FOR SHARE)`, planID).Scan(&exists); err != nil {
+		return PaymentResult{}, err
+	}
+	if !exists {
+		return PaymentResult{}, ErrNotFound
+	}
 	res, err := applyPaymentTx(ctx, tx, userID, planID, now)
 	if err != nil {
 		return PaymentResult{}, err

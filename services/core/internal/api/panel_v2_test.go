@@ -258,3 +258,37 @@ func TestAdminNodesCountInbounds(t *testing.T) {
 		t.Fatalf("inbounds = %d", c)
 	}
 }
+
+func TestDeletePlan(t *testing.T) {
+	e := newAdminEnv(t)
+	ctx := context.Background()
+	u, used := botUserAndPlan(t, e.apiEnv, 9101, 100)
+	_, free := botUserAndPlan(t, e.apiEnv, 9102, 100)
+	if _, err := e.svc.RecordPayment(ctx, "manual-delete-test", u.ID, used.ID, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{used.ID, free.ID} {
+		path := fmt.Sprintf("/v1/admin/plans/%d", id)
+		mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusOK)
+		mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusNotFound)
+	}
+	var count int
+	if err := e.pool.QueryRow(ctx, "SELECT count(*) FROM plans WHERE id=$1", free.ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("unused plan still present: %d, %v", count, err)
+	}
+	st, err := e.svc.GetUserStatus(ctx, *u.TelegramID)
+	if err != nil || st.Subscription == nil || st.Plan == nil || st.Plan.ID != used.ID {
+		t.Fatalf("subscription after deletion: %+v, %v", st, err)
+	}
+	plans, err := e.svc.ListPlans(ctx)
+	if err != nil || len(plans) != 0 {
+		t.Fatalf("catalog after deletion: %+v, %v", plans, err)
+	}
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", used.ID), map[string]any{"on_sale": true}), http.StatusNotFound)
+	if _, err := e.svc.RecordPayment(ctx, "another-manual-payment", u.ID, used.ID, 0); err == nil {
+		t.Fatal("archived plan accepted a new manual payment")
+	}
+	if err := e.svc.CreatePlan(ctx, used); err != nil {
+		t.Fatalf("reuse deleted name: %v", err)
+	}
+}

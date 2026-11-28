@@ -37,6 +37,7 @@ var coreAllowlist = buildAllowlist(
 	"GET /v1/admin/groups",
 	"PATCH /v1/admin/groups/{id}",
 	"DELETE /v1/admin/groups/{id}",
+	"DELETE /v1/admin/plans/{id}",
 	"PUT /v1/admin/groups/{id}/members",
 	"POST /v1/admin/plans",
 	"GET /v1/admin/plans",
