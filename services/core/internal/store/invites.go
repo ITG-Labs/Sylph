@@ -67,12 +67,17 @@ func (s *Store) HasPlanAccess(ctx context.Context, planID, userID int64) (bool, 
 }
 
 func (s *Store) GrantPlanAccess(ctx context.Context, planID, userID int64, source string, inviteID *int64) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO plan_access (plan_id, user_id, source, invite_id) VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (plan_id, user_id) DO UPDATE SET source = EXCLUDED.source, invite_id = EXCLUDED.invite_id,
-		   granted_at = now(), revoked_at = NULL
-		 WHERE plan_access.revoked_at IS NOT NULL`,
-		planID, userID, source, inviteID)
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`WITH plan AS (SELECT id FROM plans WHERE id = $1 AND NOT deleted FOR SHARE),
+		 grant_access AS (
+		   INSERT INTO plan_access (plan_id, user_id, source, invite_id) SELECT id, $2, $3, $4 FROM plan
+		   ON CONFLICT (plan_id, user_id) DO UPDATE SET source = EXCLUDED.source, invite_id = EXCLUDED.invite_id,
+		     granted_at = now(), revoked_at = NULL WHERE plan_access.revoked_at IS NOT NULL)
+		 SELECT EXISTS (SELECT 1 FROM plan)`, planID, userID, source, inviteID).Scan(&exists)
+	if err == nil && !exists {
+		return ErrNotFound
+	}
 	return mapWriteErr(err)
 }
 
@@ -109,9 +114,12 @@ func (s *Store) ListPlanAccess(ctx context.Context, planID int64) ([]model.PlanA
 
 func (s *Store) CreateInvite(ctx context.Context, inv *model.Invite) error {
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO plan_invites (code, plan_id, max_uses, expires_at) VALUES ($1, $2, $3, $4)
+		`INSERT INTO plan_invites (code, plan_id, max_uses, expires_at) SELECT $1, id, $3, $4 FROM plans WHERE id = $2 AND NOT deleted FOR SHARE
 		 RETURNING id, uses, created_at`,
 		inv.Code, inv.PlanID, inv.MaxUses, inv.ExpiresAt).Scan(&inv.ID, &inv.Uses, &inv.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
 	return mapWriteErr(err)
 }
 
@@ -146,7 +154,7 @@ func (s *Store) RedeemInvite(ctx context.Context, code string, userID int64, now
 	if err := lockActiveUser(ctx, tx, userID); err != nil {
 		return RedeemResult{}, err
 	}
-	inv, err := scanInvite(tx.QueryRow(ctx, `SELECT `+inviteColumns+` FROM plan_invites WHERE code = $1 FOR UPDATE`, code))
+	inv, err := scanInvite(tx.QueryRow(ctx, `SELECT `+inviteColumns+` FROM plan_invites WHERE code = $1 AND plan_id IN (SELECT id FROM plans WHERE NOT deleted) FOR UPDATE`, code))
 	if err != nil {
 		return RedeemResult{}, err
 	}

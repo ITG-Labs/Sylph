@@ -11,6 +11,8 @@ import (
 )
 
 var (
+	ErrNegativeLimit  = errors.New("resulting traffic limit would be negative")
+	ErrElapsedPeriod  = errors.New("resulting expiration must be in the future")
 	ErrUserBanned     = errors.New("user is banned")
 	ErrNoActivePeriod = errors.New("user has no active period")
 	ErrUnlimitedPlan  = errors.New("plan has no traffic limit")
@@ -80,7 +82,11 @@ func (s *Store) AddTrafficBonus(ctx context.Context, userID int64, poolID int64,
 
 func addPoolBonus(ctx context.Context, tx pgx.Tx, cur *period, poolID, bytes int64) error {
 	var limit *int64
-	err := tx.QueryRow(ctx, `SELECT traffic_limit_bytes FROM plan_pools WHERE id = $1 AND plan_id = $2`, poolID, cur.planID).Scan(&limit)
+	var bonus int64
+	err := tx.QueryRow(ctx,
+		`SELECT pp.traffic_limit_bytes, COALESCE(u.bonus_bytes, 0)
+		 FROM plan_pools pp LEFT JOIN period_pool_usage u ON u.pool_id = pp.id AND u.period_id = $3
+		 WHERE pp.id = $1 AND pp.plan_id = $2 FOR SHARE OF pp`, poolID, cur.planID, cur.id).Scan(&limit, &bonus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrPoolNotInPlan
 	}
@@ -90,11 +96,16 @@ func addPoolBonus(ctx context.Context, tx pgx.Tx, cur *period, poolID, bytes int
 	if limit == nil {
 		return ErrUnlimitedPlan
 	}
+	currentLimit := satAdd(*limit, bonus)
+	if bytes < -currentLimit {
+		return ErrNegativeLimit
+	}
+	newBonus := satAdd(currentLimit, bytes) - *limit
 	_, err = tx.Exec(ctx,
 		`INSERT INTO period_pool_usage (period_id, pool_id, bonus_bytes) VALUES ($1, $2, $3)
 		 ON CONFLICT (period_id, pool_id) DO UPDATE
-		 SET bonus_bytes = LEAST(period_pool_usage.bonus_bytes::numeric + EXCLUDED.bonus_bytes, 9223372036854775807)::bigint`,
-		cur.id, poolID, bytes)
+		 SET bonus_bytes = EXCLUDED.bonus_bytes`,
+		cur.id, poolID, newBonus)
 	return err
 }
 
@@ -104,14 +115,17 @@ func (s *Store) ExtendPeriod(ctx context.Context, userID int64, days int, now ti
 		if err != nil {
 			return err
 		}
+		if days < 0 && !cur.expires.Add(time.Duration(days)*24*time.Hour).After(now) {
+			return ErrElapsedPeriod
+		}
 		ids := make([]int64, 0, len(timeline))
 		for _, p := range timeline {
 			ids = append(ids, p.id)
 		}
 		_, err = tx.Exec(ctx,
 			`UPDATE subscriptions
-			 SET starts_at = CASE WHEN id = $2 THEN starts_at ELSE starts_at + $3::int * interval '1 day' END,
-			     expires_at = expires_at + $3::int * interval '1 day'
+			 SET starts_at = CASE WHEN id = $2 THEN starts_at ELSE starts_at + $3::int * interval '24 hours' END,
+			     expires_at = expires_at + $3::int * interval '24 hours'
 			 WHERE id = ANY($1)`, ids, cur.id, days)
 		return err
 	})
@@ -129,7 +143,7 @@ func (s *Store) ChangePeriodPlan(ctx context.Context, userID, planID int64, now 
 			return err
 		}
 		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plans WHERE id = $1)`, planID).Scan(&exists); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plans WHERE id = $1 AND NOT deleted FOR SHARE)`, planID).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {

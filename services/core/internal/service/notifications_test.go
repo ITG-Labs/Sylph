@@ -54,6 +54,7 @@ func TestDueForTrafficBoundaries(t *testing.T) {
 		used, limit int64
 		want        []string
 	}{
+		{0, 0, []string{"traffic_out"}},
 		{799, 1000, nil},
 		{800, 1000, []string{"traffic_80"}},
 		{949, 1000, []string{"traffic_80"}},
@@ -73,6 +74,9 @@ func TestDueForTrafficBoundaries(t *testing.T) {
 	n := dueFor(trafficCand(800, 1000), now, allOn)[0]
 	if n.Ref != "7:0:1" || *n.TrafficUsedBytes != 800 || *n.TrafficLimitBytes != 1000 || n.PeriodEnds == nil || n.PaidUntil == nil || n.UserID != 1 || n.TelegramID != 10 {
 		t.Fatalf("traffic notification = %+v", n)
+	}
+	if id, ok := parseTrafficRef("7:-400:1"); !ok || id != 7 {
+		t.Fatal("notification with a pool deduction cannot be acknowledged")
 	}
 	off := allOn
 	off.NotifyTraffic = false

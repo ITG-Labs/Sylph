@@ -251,6 +251,25 @@ func sameFile(path string, data []byte) bool {
 }
 
 func writeDeployFiles(dir string, r *role.Role) ([]string, error) {
+	if r.Name == "node" {
+		site := filepath.Join(dir, "site")
+		if err := os.Mkdir(site, 0o755); err == nil {
+			index := filepath.Join(site, "index.html")
+			if err := os.WriteFile(index, []byte("<!doctype html><html><head><meta charset=utf-8><title>Welcome</title></head><body><h1>Welcome</h1></body></html>\n"), 0o644); err != nil {
+				return nil, err
+			}
+			if err := chownToSudoUser(index); err != nil {
+				return nil, err
+			}
+			if err := chownToSudoUser(site); err != nil {
+				return nil, err
+			}
+		} else if !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		} else if info, err := os.Stat(site); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("%s must be a directory", site)
+		}
+	}
 	var backups []string
 	for _, name := range r.DeployFiles() {
 		data, err := r.File(name)

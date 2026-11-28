@@ -11,6 +11,7 @@ import (
 )
 
 type Cache struct {
+	Selfsteal   bool               `json:"selfsteal"`
 	Version     int64              `json:"version"`
 	PerInbound  bool               `json:"per_inbound"`
 	XHTTP       bool               `json:"xhttp"`

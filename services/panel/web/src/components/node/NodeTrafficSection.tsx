@@ -7,8 +7,8 @@ import { TrafficChart } from "@/components/node/TrafficChart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { core } from "@/lib/api"
-import { fmtBytes, fmtTelegram } from "@/lib/format"
-import type { NodeTraffic } from "@/lib/types"
+import { fmtBytes, fmtShortDay, fmtTelegram } from "@/lib/format"
+import type { NodeTraffic, TopUser } from "@/lib/types"
 
 const ALL = "*all"
 const NONE = "*none"
@@ -26,12 +26,23 @@ const windows: { key: Win; label: string; days: number; top: string }[] = [
 export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbounds: { tag: string; label: string }[] }) {
   const [win, setWin] = useState<Win>("today")
   const [inbound, setInbound] = useState(ALL)
+  const [day, setDay] = useState<string | null>(null)
+  const filter = inbound === ALL ? "" : `inbound=${encodeURIComponent(tagOf(inbound))}`
+  const statsPath = `/v1/admin/nodes/${nodeId}/stats`
   const stats = useQuery({
     queryKey: ["node-traffic", nodeId, inbound],
-    queryFn: () => core.get<NodeTraffic>(`/v1/admin/nodes/${nodeId}/stats${inbound === ALL ? "" : `?inbound=${encodeURIComponent(tagOf(inbound))}`}`),
+    queryFn: () => core.get<NodeTraffic>(`${statsPath}${filter ? `?${filter}` : ""}`),
     refetchInterval: 60_000,
-    placeholderData: (prev) => prev,
   })
+  const selected = stats.data?.daily.find((d) => d.day === day)
+  const dayTop = useQuery({
+    queryKey: ["node-traffic-top", nodeId, inbound, day],
+    queryFn: () => core.get<TopUser[]>(`${statsPath}/top?day=${day}${filter ? `&${filter}` : ""}`),
+    enabled: !!selected,
+    refetchInterval: 60_000,
+  })
+  const totals = selected ?? stats.data?.[win]
+  const top = selected ? dayTop.data : stats.data?.top[win]
   const w = windows.find((x) => x.key === win) ?? windows[0]
   const options = [...inbounds.map((i) => ({ tag: i.tag, title: i.label ? `${i.label} · ${i.tag}` : i.tag }))]
   for (const x of stats.data?.inbounds ?? []) {
@@ -65,7 +76,10 @@ export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbou
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="flex min-w-0 flex-col gap-4">
-            <Tabs value={win} onValueChange={(v) => setWin(v as Win)}>
+            <Tabs value={selected ? "day" : win} onValueChange={(v) => {
+              setDay(null)
+              setWin(v as Win)
+            }}>
               <TabsList>
                 {windows.map((x) => (
                   <TabsTrigger key={x.key} value={x.key}>
@@ -75,22 +89,27 @@ export function NodeTrafficSection({ nodeId, inbounds }: { nodeId: number; inbou
               </TabsList>
             </Tabs>
             <div>
-              <div className="text-3xl font-semibold tracking-tight tabular-nums">{fmtBytes(stats.data[win].up + stats.data[win].down)}</div>
+              {selected && <div className="text-sm text-muted-foreground">За {fmtShortDay(selected.day)}</div>}
+              <div className="text-3xl font-semibold tracking-tight tabular-nums">{fmtBytes((totals?.up ?? 0) + (totals?.down ?? 0))}</div>
               <div className="mt-0.5 text-sm text-muted-foreground tabular-nums">
-                ↓ {fmtBytes(stats.data[win].down)} · ↑ {fmtBytes(stats.data[win].up)}
+                ↓ {fmtBytes(totals?.down ?? 0)} · ↑ {fmtBytes(totals?.up ?? 0)}
               </div>
             </div>
-            <TrafficChart days={stats.data.daily} highlight={w.days} />
+            <TrafficChart days={stats.data.daily} highlight={selected ? 0 : w.days} selectedDay={selected?.day} onSelectDay={setDay} />
           </div>
           <div className="flex min-w-0 flex-col gap-2">
             <div className="text-sm font-medium">
-              Наибольший трафик <span className="font-normal text-muted-foreground">{w.top}</span>
+              Наибольший трафик <span className="font-normal text-muted-foreground">{selected ? `за ${fmtShortDay(selected.day)}` : w.top}</span>
             </div>
-            {stats.data.top[win].length === 0 ? (
+            {selected && dayTop.isError ? (
+              <LoadError error={dayTop.error} onRetry={() => dayTop.refetch()} />
+            ) : !top ? (
+              <LoadingBlock rows={2} />
+            ) : top.length === 0 ? (
               <Empty>Нет данных</Empty>
             ) : (
               <ol className="flex flex-col">
-                {stats.data.top[win].map((u, i) => {
+                {top.map((u, i) => {
                   const tg = fmtTelegram(u.telegram_username, u.telegram_name)
                   return (
                     <li key={u.user_id}>

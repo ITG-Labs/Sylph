@@ -23,6 +23,7 @@ services:
       - "dest.test:127.0.0.1"
     volumes:
       - caddy-admin:/run/caddy-admin
+      - ./site:/srv/site:ro
       - ./pebble/minica.pem:/etc/pebble/minica.pem:ro
     networks:
       default:
@@ -80,6 +81,7 @@ services:
       SYLPH_ACME_CA: https://pebble:14000/dir
       SYLPH_ACME_CA_ROOT: /etc/pebble/minica.pem
     volumes:
+      - roots:/roots:ro
       - xray-config:/etc/xray
       - caddy-admin:/run/caddy-admin
     depends_on:

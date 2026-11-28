@@ -61,7 +61,7 @@ func (s *Store) NotifyCandidates(ctx context.Context, now time.Time) ([]NotifyCa
 		                'used', used_bytes, 'bonus', bonus_bytes, 'limit', limit_bytes) ORDER BY position, pool_id)
 		              FILTER (WHERE pool_id IS NOT NULL), '[]') AS list,
 		            bool_or(pool_id IS NULL) AS main_used,
-		            bool_or(pool_id IS NOT NULL AND limit_bytes > 0 AND used_bytes::numeric * 100 >= limit_bytes::numeric * 80) AS hot,
+		            bool_or(pool_id IS NOT NULL AND limit_bytes IS NOT NULL AND used_bytes::numeric * 100 >= limit_bytes::numeric * 80) AS hot,
 		            bool_and(spent) AS spent
 		     FROM used GROUP BY period_id
 		 ), tail AS (

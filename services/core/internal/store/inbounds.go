@@ -238,6 +238,7 @@ func (s *Store) ListPeriodEndpoints(ctx context.Context, periodID int64) ([]Endp
 		 JOIN nodes n ON n.id = i.node_id
 		 WHERE sub.id = $1 AND n.enabled AND n.address <> '' AND n.last_sync_at IS NOT NULL
 		   AND (n.applied_inbounds IS NULL OR i.tag = ANY(n.applied_inbounds))
+		   AND (i.settings->>'dest' IS DISTINCT FROM 'selfsteal' OR i.settings->'server_names'->>0 = ANY(n.tls_ready))
 		   AND (i.security <> 'tls' OR i.settings->'tls'->>'domain' = ANY(n.tls_ready))
 		   AND (x.limit_bytes IS NULL OR x.used_bytes < x.limit_bytes)
 		 ORDER BY n.name, n.id, i.tag`,
@@ -268,7 +269,7 @@ func (s *Store) NodeAddresses(ctx context.Context) ([]string, error) {
 }
 
 func (s *Store) RealityDests(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT coalesce(settings->>'dest', '') FROM node_inbounds`)
+	rows, err := s.pool.Query(ctx, `SELECT settings->>'dest' FROM node_inbounds WHERE settings->>'dest' <> 'selfsteal'`)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +277,8 @@ func (s *Store) RealityDests(ctx context.Context) ([]string, error) {
 }
 
 func (s *Store) TLSDomains(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT settings->'tls'->>'domain' FROM node_inbounds WHERE settings->'tls'->>'domain' IS NOT NULL`)
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT settings->'tls'->>'domain' FROM node_inbounds WHERE settings->'tls'->>'domain' IS NOT NULL
+         UNION SELECT settings->'server_names'->>0 FROM node_inbounds WHERE settings->>'dest' = 'selfsteal'`)
 	if err != nil {
 		return nil, err
 	}

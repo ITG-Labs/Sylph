@@ -36,7 +36,8 @@ type caddyMatch struct {
 }
 
 type caddyTLSMatch struct {
-	SNI []string `json:"sni"`
+	ALPN []string `json:"alpn,omitempty"`
+	SNI  []string `json:"sni"`
 }
 
 type caddyHandler struct {
@@ -83,6 +84,12 @@ func BuildCaddyWith(in CaddyInput) ([]byte, error) {
 		}
 		switch {
 		case ib.TLS == nil:
+			if ib.Reality.Dest == "selfsteal" {
+				srv.Routes = append(srv.Routes, caddyRoute{
+					Match:  []caddyMatch{{TLS: caddyTLSMatch{SNI: ib.Reality.ServerNames, ALPN: []string{"acme-tls/1"}}}},
+					Handle: proxyTo(tlsFrontPort),
+				})
+			}
 			srv.Routes = append(srv.Routes, caddyRoute{
 				Match:  []caddyMatch{{TLS: caddyTLSMatch{SNI: ib.Reality.ServerNames}}},
 				Handle: proxyTo(internal),

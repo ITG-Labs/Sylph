@@ -1,7 +1,7 @@
 import { useState } from "react"
-import { Link, useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, Link2, Pencil, Plus, UserPlus, X } from "lucide-react"
+import { ArrowLeft, Link2, Pencil, Trash2, Plus, UserPlus, X } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { ActionDialog } from "@/components/common/ActionDialog"
 import { CopyButton } from "@/components/common/CopyButton"
@@ -20,7 +20,7 @@ import { useGroups, useInvalidate, usePlans } from "@/lib/queries"
 import type { Access, Invite } from "@/lib/types"
 import { useWorld } from "@/lib/world"
 
-type Dialog = { kind: "edit" } | { kind: "invite" } | { kind: "revokeInvite"; invite: Invite } | { kind: "grant" } | { kind: "revokeAccess"; access: Access }
+type Dialog = { kind: "delete" } | { kind: "edit" } | { kind: "invite" } | { kind: "revokeInvite"; invite: Invite } | { kind: "grant" } | { kind: "revokeAccess"; access: Access }
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -32,6 +32,7 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export function PlanPage() {
+  const navigate = useNavigate()
   const { id } = useParams()
   const plans = usePlans()
   const groups = useGroups()
@@ -85,10 +86,16 @@ export function PlanPage() {
         }
         description={`создан ${fmtDate(plan.created_at)}`}
         actions={
-          <Button variant="secondary" onClick={() => open({ kind: "edit" })}>
-            <Pencil />
-            Изменить
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => open({ kind: "edit" })}>
+              <Pencil />
+              Изменить
+            </Button>
+            <Button variant="destructive" onClick={() => open({ kind: "delete" })}>
+              <Trash2 />
+              Удалить
+            </Button>
+          </div>
         }
       />
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -221,6 +228,20 @@ export function PlanPage() {
         <Empty>Тариф публичный и доступен всем в меню бота{plan.on_sale ? "" : ", но сейчас снят с продажи"}. Приглашения и доступы используются только для приватных тарифов.</Empty>
       )}
 
+      <ActionDialog
+        open={dialog?.kind === "delete"}
+        onOpenChange={close}
+        title={`Удалить тариф «${plan.name}»?`}
+        description="Тариф исчезнет из каталога и продажи. Оплаченные периоды и история платежей сохранятся."
+        confirmLabel="Удалить"
+        destructive
+        success="Тариф удалён"
+        onConfirm={async () => {
+          await core.del(`/v1/admin/plans/${plan.id}`)
+          navigate("/plans", { replace: true })
+          await invalidate(["plans"], ["overview"])
+        }}
+      />
       <PlanFormDialog open={dialog?.kind === "edit"} onOpenChange={close} plan={plan} groups={groups.data ?? []} onDone={() => invalidate(["plans"], ["overview"])} />
       <ActionDialog
         open={dialog?.kind === "invite"}

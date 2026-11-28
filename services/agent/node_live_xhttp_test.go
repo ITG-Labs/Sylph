@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,7 +36,7 @@ func liveXHTTPInbounds() []Inbound {
 	extra := json.RawMessage(ownerExtraJSON)
 	rx := Inbound{
 		Tag: "rx", Port: 443, Protocol: "vless", Transport: "xhttp", Security: "reality",
-		Reality: &Reality{Dest: "dest.test:28443", ServerNames: []string{liveRXServerNm}, ShortIDs: []string{"a1b2c3d4e5f60718"}, Fingerprint: "chrome", PrivateKey: liveAlphaKey},
+		Reality: &Reality{Dest: "selfsteal", ServerNames: []string{liveRXServerNm}, ShortIDs: []string{"a1b2c3d4e5f60718"}, Fingerprint: "chrome", PrivateKey: liveAlphaKey},
 		XHTTP:   &XHTTP{Path: "/sync", Mode: "auto", ClientMode: "auto"},
 	}
 	cdn := Inbound{
@@ -185,6 +186,32 @@ func TestNodeLiveXHTTP(t *testing.T) {
 				}
 			}
 			return nil
+		})
+	})
+
+	t.Run("selfsteal serves the operator site with a trusted certificate", func(t *testing.T) {
+		pem, err := os.ReadFile("/roots/root.pem")
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(pem) {
+			t.Fatal("invalid test CA")
+		}
+		tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}
+		defer tr.CloseIdleConnections()
+		c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+		within(t, "selfsteal HTTPS", 60*time.Second, func() error {
+			r, err := c.Get("https://" + liveRXServerNm + "/")
+			if err != nil {
+				return err
+			}
+			defer r.Body.Close()
+			data, err := io.ReadAll(r.Body)
+			if err == nil && !strings.Contains(string(data), "Operator site") {
+				return fmt.Errorf("unexpected site: %s", data)
+			}
+			return err
 		})
 	})
 

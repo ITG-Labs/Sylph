@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { core } from "@/lib/api"
-import { fmtBytes, fmtDate, fmtPlanTraffic, fmtRub, parseGB } from "@/lib/format"
+import { fmtBytes, fmtDate, fmtDateTime, fmtPlanTraffic, fmtRub, parseTrafficAdjustment } from "@/lib/format"
 import { assignable } from "@/lib/addresses"
 import type { NodeAddress, Period, Plan, UserAddress, UserCard } from "@/lib/types"
 
@@ -79,9 +79,14 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
     await p
     onDone()
   }
-  const daysN = Number(days)
-  const daysOK = Number.isInteger(daysN) && daysN >= 1 && daysN <= 3650
-  const bytes = parseGB(gb)
+  const daysN = Number(days.trim().replace("−", "-"))
+  const validDays = /^[+−-]?\d+$/.test(days.trim()) && daysN !== 0 && Math.abs(daysN) <= 3650
+  const newExpiry = current && validDays ? Date.parse(current.expires_at) + daysN * 86_400_000 : null
+  const daysOK = newExpiry !== null && newExpiry > Date.now()
+  const bytes = parseTrafficAdjustment(gb)
+  const selectedPool = current?.pools.find((x) => String(x.pool_id) === pool)
+  const limit = selectedPool?.traffic_limit_bytes
+  const newLimit = limit != null && bytes !== null ? limit + bytes : null
   const pickedPlan = plans.find((p) => String(p.id) === planId)
   const amountN = Number(amount)
   const amountOK = amount !== "" && Number.isInteger(amountN) && amountN >= 0
@@ -93,24 +98,25 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       <ActionDialog
         open={open("extend")}
         onOpenChange={close}
-        title="Продлить подписку"
+        title="Изменить срок подписки"
         description={current ? `Сейчас: ${current.plan_name}, до ${fmtDate(current.expires_at)}` : undefined}
         consequences={
           <>
-            <p>Окончание текущего периода сдвинется на указанное число дней, периоды в очереди — вслед за ним.</p>
-            {current?.traffic_exhausted && (
+            <p>Минус вычитает дни. Периоды в очереди сдвинутся на столько же.</p>
+            {newExpiry !== null && <p>{daysOK ? `Новое окончание периода — ${fmtDateTime(new Date(newExpiry).toISOString())}` : "Чтобы завершить период сейчас, закройте его в карточке пользователя."}</p>}
+            {daysN > 0 && current?.traffic_exhausted && (
               <p className="text-warning">Трафик периода исчерпан: продление не восстановит доступ. Сначала добавьте трафик.</p>
             )}
           </>
         }
-        confirmLabel="Продлить"
+        confirmLabel={daysN < 0 ? "Сократить" : "Продлить"}
         canConfirm={daysOK}
-        success="Подписка продлена"
+        success="Срок подписки изменён"
         onConfirm={() => run(core.post(`/v1/admin/users/${uid}/extend`, { days: daysN }))}
       >
         <div className="flex flex-col gap-2">
           <Label htmlFor="days">На сколько дней</Label>
-          <Input id="days" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ""))} placeholder="7" autoFocus />
+          <Input id="days" value={days} onChange={(e) => setDays(e.target.value)} placeholder="7 или -7" autoFocus />
           <Chips values={[["1", "1 день"], ["3", "3 дня"], ["7", "неделя"], ["30", "месяц"]].map(([value, label]) => ({ label, value }))} onPick={setDays} />
         </div>
       </ActionDialog>
@@ -118,12 +124,16 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       <ActionDialog
         open={open("traffic")}
         onOpenChange={close}
-        title="Добавить трафик"
+        title="Изменить лимит трафика"
         description={current ? `Период: ${current.plan_name}, ${poolUsage(current, pool)}` : undefined}
-        consequences={<p>Бонус увеличит лимит выбранного пула в текущем периоде; тариф не изменится. Если пул был исчерпан, доступ к его входам восстановится при следующей синхронизации нод.</p>}
-        confirmLabel={bytes ? `Добавить ${fmtBytes(bytes)}` : "Добавить"}
-        canConfirm={bytes !== null && !!current && poolLimited(current, pool)}
-        success="Трафик добавлен"
+        consequences={<>
+          <p>Минус уменьшает лимит выбранного пула на текущий период. Уже использованный трафик сохраняется.</p>
+          {newLimit !== null && <p>{newLimit < 0 ? "Вычет превышает лимит пула." : `Новый лимит — ${fmtBytes(newLimit)}`}</p>}
+          {newLimit !== null && newLimit >= 0 && selectedPool && newLimit <= selectedPool.used_bytes && <p>Лимит будет исчерпан.</p>}
+        </>}
+        confirmLabel={bytes === null ? "Применить" : `${bytes < 0 ? "Вычесть" : "Добавить"} ${fmtBytes(Math.abs(bytes))}`}
+        canConfirm={newLimit !== null && newLimit >= 0}
+        success="Лимит трафика изменён"
         onConfirm={() => run(core.post(`/v1/admin/users/${uid}/traffic`, { bytes, pool_id: Number(pool) }))}
       >
         {current && current.pools.length > 0 && (
@@ -146,7 +156,7 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
         )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="gb">Объём, ГБ</Label>
-          <Input id="gb" inputMode="decimal" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="10" autoFocus />
+          <Input id="gb" value={gb} onChange={(e) => setGb(e.target.value)} placeholder="10 или -10" autoFocus />
           <Chips values={["5", "10", "50", "100"].map((v) => ({ label: `${v} ГБ`, value: v }))} onPick={setGb} />
         </div>
       </ActionDialog>
@@ -361,10 +371,6 @@ export function UserDialogs({ dialog, onClose, card, plans, addresses, onDone }:
       />
     </>
   )
-}
-
-function poolLimited(p: Period, pool: string): boolean {
-  return p.pools.some((x) => String(x.pool_id) === pool && x.traffic_limit_bytes !== null)
 }
 
 function poolUsage(p: Period, pool: string): string {

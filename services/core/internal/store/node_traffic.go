@@ -3,6 +3,9 @@ package store
 import (
 	"context"
 	"math"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -160,4 +163,24 @@ func (s *Store) NodeTraffic(ctx context.Context, nodeID int64, tag *string) (Nod
 		}
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) NodeDayTop(ctx context.Context, nodeID int64, tag *string, date time.Time) ([]TopUser, error) {
+	rows, err := s.pool.Query(ctx,
+		`WITH ranked AS (
+		    SELECT user_id, sum(bytes_up::numeric + bytes_down) AS bytes
+		    FROM traffic_daily
+		    WHERE node_id = $1 AND day = $2::date AND ($3::text IS NULL OR inbound_tag = $3)
+		    GROUP BY user_id HAVING sum(bytes_up::numeric + bytes_down) > 0
+		    ORDER BY bytes DESC, user_id LIMIT $4
+		 )
+		 SELECT r.user_id, u.telegram_id, tp.username, `+telegramNameSQL+`,
+		        LEAST(r.bytes, 9223372036854775807)::bigint
+		 FROM ranked r JOIN users u ON u.id = r.user_id LEFT JOIN telegram_profiles tp ON tp.user_id = r.user_id
+		 ORDER BY r.bytes DESC, r.user_id`,
+		nodeID, date, tag, nodeTopSize)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[TopUser])
 }

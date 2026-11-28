@@ -123,12 +123,12 @@ func TestManualSubscriptionInputIsChecked(t *testing.T) {
 	f := newSubFixture(t, nil, nil)
 	ctx := context.Background()
 	var fe *FieldError
-	for _, days := range []int{0, -1, 3651} {
+	for _, days := range []int{0, -3651, 3651} {
 		if _, err := f.svc.ExtendSubscription(ctx, f.user.ID, days); !errors.As(err, &fe) || fe.Field != "days" {
 			t.Fatalf("days %d: %v", days, err)
 		}
 	}
-	for _, b := range []int64{0, -1, 1<<50 + 1} {
+	for _, b := range []int64{0, -(1<<50 + 1), 1<<50 + 1} {
 		if _, err := f.svc.AddTraffic(ctx, f.user.ID, nil, b); !errors.As(err, &fe) || fe.Field != "bytes" {
 			t.Fatalf("bytes %d: %v", b, err)
 		}

@@ -118,6 +118,7 @@ type xrayXHTTP struct {
 }
 
 type xrayReality struct {
+	Xver        int      `json:"xver,omitempty"`
 	Target      string   `json:"target"`
 	ServerNames []string `json:"serverNames"`
 	PrivateKey  string   `json:"privateKey"`
@@ -213,6 +214,10 @@ func streamOf(in Inbound) xrayStream {
 	}
 	if r := in.Reality; r != nil {
 		st.RealitySettings = &xrayReality{Target: r.Dest, ServerNames: r.ServerNames, PrivateKey: r.PrivateKey, ShortIDs: r.ShortIDs}
+		if r.Dest == "selfsteal" {
+			st.RealitySettings.Target = fmt.Sprintf("127.0.0.1:%d", tlsFrontPort)
+			st.RealitySettings.Xver = 2
+		}
 	}
 	if in.TLS != nil {
 		st.Security = "none"
@@ -295,6 +300,9 @@ func checkInbound(in Inbound) error {
 	r := in.Reality
 	if r == nil || r.Dest == "" || r.PrivateKey == "" || len(r.ServerNames) == 0 || len(r.ShortIDs) == 0 {
 		return fmt.Errorf("inbound %q: incomplete reality settings", in.Tag)
+	}
+	if r.Dest == "selfsteal" && in.Transport == "xhttp" && len(r.ServerNames) == 1 {
+		return checkTLS(&TLS{Domain: r.ServerNames[0]})
 	}
 	if !publicDest(r.Dest) {
 		return fmt.Errorf("inbound %q: reality dest %q must be a public site", in.Tag, r.Dest)

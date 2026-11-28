@@ -117,6 +117,7 @@ func decoyDial(u *url.URL) string {
 }
 
 type tlsSite struct {
+	local  bool
 	domain string
 	decoy  string
 	paths  []sitePathRoute
@@ -146,6 +147,9 @@ func tlsSites(sorted []Inbound) []tlsSite {
 	var sites []tlsSite
 	for i, in := range sorted {
 		if in.TLS == nil {
+			if in.Reality != nil && in.Reality.Dest == "selfsteal" {
+				sites = append(sites, tlsSite{domain: in.Reality.ServerNames[0], local: true})
+			}
 			continue
 		}
 		route := sitePathRoute{match: xrayPathMatch(in.XHTTP), port: firstInternalPort + i}
@@ -190,7 +194,11 @@ func buildTLSFront(sites []tlsSite, in CaddyInput) (*caddyHTTPApp, *caddyTLSApp)
 				"handle": []map[string]any{xrayProxy(p.port, s.decoy)},
 			})
 		}
-		inner = append(inner, map[string]any{"handle": []map[string]any{decoyHandler(s.decoy, false)}})
+		siteHandler := decoyHandler(s.decoy, false)
+		if s.local {
+			siteHandler = map[string]any{"handler": "file_server", "root": "/srv/site"}
+		}
+		inner = append(inner, map[string]any{"handle": []map[string]any{siteHandler}})
 		routes = append(routes, map[string]any{
 			"match":    []map[string]any{{"vars": map[string][]string{"{http.request.tls.server_name}": {s.domain}}}},
 			"handle":   []map[string]any{{"handler": "subroute", "routes": inner}},

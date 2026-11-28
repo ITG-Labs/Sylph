@@ -162,6 +162,38 @@ func TestAdminNodeStats(t *testing.T) {
 		t.Fatalf("filtered stats = %s", r.body)
 	}
 	mustField(t, e.call(t, http.MethodGet, fmt.Sprintf("/v1/admin/nodes/%d/stats?inbound=%s", nodeID, strings.Repeat("x", 65)), nil), http.StatusBadRequest, "bad_request", "inbound")
+
+	topPath := fmt.Sprintf("/v1/admin/nodes/%d/stats/top?day=", nodeID)
+	mustField(t, e.call(t, http.MethodGet, topPath+"2026-02-30", nil), http.StatusBadRequest, "bad_request", "day")
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO traffic_daily (user_id, node_id, day, inbound_tag, bytes_up, bytes_down)
+		SELECT id, $1, $2::date, 'cdn', 4, 3 FROM users WHERE telegram_id = 77`, nodeID, st.Daily[28].Day); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query string
+		bytes int64
+	}{
+		{st.Daily[29].Day, 14},
+		{st.Daily[29].Day + "&inbound=cdn", 9},
+		{st.Daily[28].Day, 7},
+		{st.Daily[29].Day + "&inbound=", 0},
+		{st.Daily[27].Day, 0},
+	} {
+		r := e.call(t, http.MethodGet, topPath+tc.query, nil)
+		mustStatus(t, r, http.StatusOK)
+		var users []struct {
+			TelegramID int64 `json:"telegram_id"`
+			Bytes      int64 `json:"bytes"`
+		}
+		r.decode(t, &users)
+		if tc.bytes == 0 {
+			if users == nil || len(users) != 0 {
+				t.Fatalf("expected empty top for %s: %s", tc.query, r.body)
+			}
+		} else if len(users) != 1 || users[0].Bytes != tc.bytes || users[0].TelegramID != 77 {
+			t.Fatalf("top for %s: %s", tc.query, r.body)
+		}
+	}
 }
 
 func TestAdminSettingsReachTheSubscription(t *testing.T) {
@@ -256,5 +288,39 @@ func TestAdminNodesCountInbounds(t *testing.T) {
 	mustStatus(t, e.call(t, http.MethodPost, fmt.Sprintf("/v1/admin/nodes/%d/inbounds", id), realityBody("main", "www.microsoft.com")), http.StatusOK)
 	if c := count(); c != 1 {
 		t.Fatalf("inbounds = %d", c)
+	}
+}
+
+func TestDeletePlan(t *testing.T) {
+	e := newAdminEnv(t)
+	ctx := context.Background()
+	u, used := botUserAndPlan(t, e.apiEnv, 9101, 100)
+	_, free := botUserAndPlan(t, e.apiEnv, 9102, 100)
+	if _, err := e.svc.RecordPayment(ctx, "manual-delete-test", u.ID, used.ID, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{used.ID, free.ID} {
+		path := fmt.Sprintf("/v1/admin/plans/%d", id)
+		mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusOK)
+		mustStatus(t, e.call(t, http.MethodDelete, path, nil), http.StatusNotFound)
+	}
+	var count int
+	if err := e.pool.QueryRow(ctx, "SELECT count(*) FROM plans WHERE id=$1", free.ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("unused plan still present: %d, %v", count, err)
+	}
+	st, err := e.svc.GetUserStatus(ctx, *u.TelegramID)
+	if err != nil || st.Subscription == nil || st.Plan == nil || st.Plan.ID != used.ID {
+		t.Fatalf("subscription after deletion: %+v, %v", st, err)
+	}
+	plans, err := e.svc.ListPlans(ctx)
+	if err != nil || len(plans) != 0 {
+		t.Fatalf("catalog after deletion: %+v, %v", plans, err)
+	}
+	mustStatus(t, e.call(t, http.MethodPatch, fmt.Sprintf("/v1/admin/plans/%d", used.ID), map[string]any{"on_sale": true}), http.StatusNotFound)
+	if _, err := e.svc.RecordPayment(ctx, "another-manual-payment", u.ID, used.ID, 0); err == nil {
+		t.Fatal("archived plan accepted a new manual payment")
+	}
+	if err := e.svc.CreatePlan(ctx, used); err != nil {
+		t.Fatalf("reuse deleted name: %v", err)
 	}
 }

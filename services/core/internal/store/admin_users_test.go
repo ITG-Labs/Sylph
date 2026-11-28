@@ -50,6 +50,32 @@ func TestTrafficBonusBringsExhaustedUserBack(t *testing.T) {
 	}
 }
 
+func TestTrafficDeductionOnFreshPool(t *testing.T) {
+	s := setupStore(t)
+	ctx := context.Background()
+	u, key := userWithKey(t, s)
+	n := deltaNode(t, s)
+	p := mkLimitedPlan(t, s, 30, 1000)
+	now := time.Now().UTC()
+	pay(t, s, u.ID, p.ID, now)
+	version := nodeVersion(t, s, n.CertCN)
+	sub, err := s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), -400, now)
+	if err != nil || len(sub.Pools) != 1 || sub.Pools[0].TrafficLimitBytes == nil || *sub.Pools[0].TrafficLimitBytes != 600 || sub.Pools[0].UsedBytes != 0 {
+		t.Fatalf("deduction: %+v, %v", sub, err)
+	}
+	if nodeVersion(t, s, n.CertCN) <= version {
+		t.Fatal("first deduction did not bump the node")
+	}
+	res := record(t, s, n.ID, "reduced", model.TrafficDelta{KeyUUID: key, BytesUp: 600})
+	if len(res.Exhausted) != 1 || res.Exhausted[0].Limit != 600 {
+		t.Fatalf("reduced quota: %+v", res.Exhausted)
+	}
+	sub, err = s.AddTrafficBonus(ctx, u.ID, mainPool(t, s, p.ID), -100, now)
+	if err != nil || len(sub.Pools) != 1 || sub.Pools[0].UsedBytes != 600 || !sub.Pools[0].Exhausted {
+		t.Fatalf("deduction below usage: %+v, %v", sub, err)
+	}
+}
+
 func TestTrafficBonusSaturates(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
@@ -134,6 +160,15 @@ func TestExtendShiftsTheQueue(t *testing.T) {
 	}
 	if sub.PaidUntil == nil || !sameTime(*sub.PaidUntil, before[1].ExpiresAt.Add(shift)) {
 		t.Fatalf("paid until = %v", sub.PaidUntil)
+	}
+	if _, err := s.ExtendPeriod(ctx, u.ID, -5, now); err != nil {
+		t.Fatal(err)
+	}
+	restored := userPeriods(t, s, u.ID)
+	for i := range before {
+		if !sameTime(restored[i].StartsAt, before[i].StartsAt) || !sameTime(restored[i].ExpiresAt, before[i].ExpiresAt) {
+			t.Fatalf("queue after deduction: %+v", restored)
+		}
 	}
 	if _, err := s.ExtendPeriod(ctx, mkUser(t, s).ID, 5, now); !errors.Is(err, ErrNoActivePeriod) {
 		t.Fatalf("without a period: %v", err)

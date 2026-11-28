@@ -149,6 +149,7 @@ export function InboundFormDialog({
   const [kind, setKind] = useState<InboundKind>("reality-tcp")
   const [tag, setTag] = useState("")
   const [label, setLabel] = useState("")
+  const [localSite, setLocalSite] = useState(false)
   const [dest, setDest] = useState("")
   const [sni, setSni] = useState("")
   const [sids, setSids] = useState("")
@@ -172,7 +173,8 @@ export function InboundFormDialog({
     setKind(k)
     setTag(inbound?.tag ?? "reality-tcp")
     setLabel(inbound?.label ?? "")
-    setDest(inbound?.reality?.dest ?? "")
+    setLocalSite(inbound?.reality?.dest === "selfsteal")
+    setDest(inbound?.reality?.dest === "selfsteal" ? "" : inbound?.reality?.dest ?? "")
     setSni(inbound?.reality?.server_names.join("\n") ?? "")
     setSids(inbound?.reality?.short_ids.join("\n") ?? "")
     setFp(inbound?.reality?.fingerprint ?? "chrome")
@@ -197,13 +199,14 @@ export function InboundFormDialog({
 
   const reality = kind !== "tls-xhttp"
   const xhttp = kind !== "reality-tcp"
+  const selfsteal = kind === "reality-xhttp" && localSite
   const tls = kind === "tls-xhttp"
   const agentBehind = xhttp && !!node && !agentKnowsXHTTP(node)
   const xrayBehind = xhttp && !!node && olderThan(node.xray_version, minXrayForXHTTP)
   const problems = [...(xhttp ? extraProblems(extra) : []), ...(tls && portProblem(port) ? ["Порт"] : [])]
   const ok =
     tag.trim() !== "" &&
-    (!reality || (dest.trim() !== "" && lines(sni).length > 0)) &&
+    (!reality || (selfsteal ? lines(sni).length === 1 : dest.trim() !== "" && lines(sni).length > 0)) &&
     (!xhttp || path.trim().startsWith("/")) &&
     (!tls || domain.trim() !== "") &&
     problems.length === 0 &&
@@ -254,7 +257,7 @@ export function InboundFormDialog({
       onConfirm={async () => {
         const body: Record<string, unknown> = { tag: tag.trim(), label: label.trim() }
         if (reality) {
-          const r: Record<string, unknown> = { dest: dest.trim(), server_names: lines(sni), fingerprint: fp }
+          const r: Record<string, unknown> = { dest: selfsteal ? "selfsteal" : dest.trim(), server_names: lines(sni), fingerprint: fp }
           if (lines(sids).length > 0) r.short_ids = lines(sids)
           body.reality = r
         }
@@ -301,12 +304,24 @@ export function InboundFormDialog({
       </div>
       {reality && (
         <>
-          <Field id="dest" label="Сайт для маскировки (dest)" hint="host:port реального сайта; не допускаются localhost, внутренние адреса и адреса нод">
-            <Input id="dest" value={dest} onChange={(e) => setDest(e.target.value)} placeholder="www.example.com:443" />
-          </Field>
-          <Field id="sni" label="SNI (server names)" hint="по одному в строке; не повторяются среди входов ноды">
-            <Textarea id="sni" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="www.example.com" rows={2} />
-          </Field>
+          {xhttp && <label className="flex items-center gap-3">
+            <Switch checked={localSite} onCheckedChange={setLocalSite} />
+            Локальный сайт (selfsteal)
+          </label>}
+          {selfsteal ? (
+            <Field id="site-domain" label="Домен сайта" hint="Направьте домен на IP ноды. Caddy выпустит сертификат. Файлы сайта лежат в каталоге site/ ноды.">
+              <Input id="site-domain" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="site.example.com" />
+            </Field>
+          ) : (
+            <>
+              <Field id="dest" label="Сайт для маскировки (dest)" hint="host:port реального сайта; не допускаются localhost, внутренние адреса и адреса нод">
+                <Input id="dest" value={dest} onChange={(e) => setDest(e.target.value)} placeholder="www.example.com:443" />
+              </Field>
+              <Field id="sni" label="SNI (server names)" hint="по одному в строке; не повторяются среди входов ноды">
+                <Textarea id="sni" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="www.example.com" rows={2} />
+              </Field>
+            </>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field id="sids" label="shortId" hint={inbound ? "hex, от 2 до 16 символов; если не заполнено, значение не изменится" : "hex, от 2 до 16 символов; если не заполнено, значение сгенерирует ядро"}>
               <Textarea id="sids" value={sids} onChange={(e) => setSids(e.target.value)} rows={2} className="font-mono" />
