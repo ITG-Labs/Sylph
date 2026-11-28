@@ -1,7 +1,7 @@
 name: sylph-test-node
 services:
   pebble:
-    image: ghcr.io/letsencrypt/pebble:2.10.1
+    image: ghcr.io/letsencrypt/pebble:2.10.3
     command: ["-config", "/etc/pebble/pebble-config.json"]
     environment:
       PEBBLE_VA_NOSLEEP: "1"
