@@ -302,7 +302,7 @@ func TestRunningAtIgnoresCaddyTag(t *testing.T) {
 	fakeDocker(t, map[string]string{
 		"compose ps -a --format json": `{"ID":"a","Service":"agent","State":"running","Image":"ghcr.io/itg-labs/sylph-agent:0.3.0"}
 {"ID":"b","Service":"caddy","State":"running","Image":"ghcr.io/itg-labs/sylph-caddy:2.11.7-l4.0.1.2"}
-{"ID":"c","Service":"xray","State":"running","Image":"ghcr.io/itg-labs/sylph-xray:26.11.9"}`,
+{"ID":"c","Service":"xray","State":"running","Image":"ghcr.io/xtls/xray-core:26.11.9"}`,
 	})
 	pins := func(caddy, xray string) map[string]string {
 		return map[string]string{role.KeyCaddyVersion: caddy, role.KeyXrayVersion: xray}
@@ -318,7 +318,16 @@ func TestRunningAtIgnoresCaddyTag(t *testing.T) {
 	}
 }
 
-func TestOldNodeMovesToOwnXrayImage(t *testing.T) {
+func TestLegacyXrayWithCurrentTagNeedsUpdate(t *testing.T) {
+	fakeDocker(t, map[string]string{
+		"compose ps -a --format json": `{"ID":"c","Service":"xray","State":"running","Image":"ghcr.io/itg-labs/sylph-xray:26.11.9"}`,
+	})
+	if runningAt(context.Background(), "/x", "0.3.0", map[string]string{role.KeyXrayVersion: "26.11.9"}) {
+		t.Fatal("node still running the legacy Xray image counted as up to date")
+	}
+}
+
+func TestOldNodeMovesToUpstreamXrayImage(t *testing.T) {
 	r, _ := role.Get("node")
 	tmpl, _, err := r.Template()
 	if err != nil {
@@ -333,14 +342,14 @@ func TestOldNodeMovesToOwnXrayImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := env.Get(role.KeyXrayVersion), tmpl.Get(role.KeyXrayVersion); got != want {
-		t.Fatalf("XRAY_VERSION after update = %s, want %s: only own sylph-xray tags are published", got, want)
+		t.Fatalf("XRAY_VERSION after update = %s, want %s", got, want)
 	}
 	compose, err := r.File("compose.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(compose), "ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION:?") || strings.Contains(string(compose), "xtls/xray-core") {
-		t.Fatal("node compose must run xray from ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION}")
+	if !strings.Contains(string(compose), "ghcr.io/xtls/xray-core:${XRAY_VERSION:?") {
+		t.Fatal("node compose must run xray from ghcr.io/xtls/xray-core:${XRAY_VERSION}")
 	}
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SYLPH_VERSION=0.2.0\nXRAY_VERSION=26.10.21\nCADDY_VERSION="+tmpl.Get(role.KeyCaddyVersion)+"\nSYLPH_CORE_URL=https://203.0.113.10:443\n"), 0o600); err != nil {
