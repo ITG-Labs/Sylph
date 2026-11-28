@@ -121,10 +121,6 @@ jobs:
             file: deploy/caddy/Dockerfile
             context: deploy/caddy
             pin: CADDY_VERSION
-          - image: sylph-xray
-            file: deploy/xray/Dockerfile
-            context: deploy/xray
-            pin: XRAY_VERSION
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -159,7 +155,6 @@ jobs:
         run: |
           tag=$(sed -n "s/^$PIN=//p" deploy/prod/node/.env.example)
           test -n "$tag"
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
           ref="ghcr.io/itg-labs/$IMAGE:$tag"
           if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
             echo "$ref is already published: never re-push it, nodes would recreate Caddy and xray"
@@ -169,19 +164,7 @@ jobs:
             echo "$out"
             exit 1
           fi
-      - name: Tag published Xray image
-        if: matrix.pin == 'XRAY_VERSION' && !steps.stable.outputs.tags
-        env:
-          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
-          PINNED_VERSION: ${{ steps.stable.outputs.version }}
-        run: |
-          args=()
-          while IFS= read -r tag; do
-            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
-          done <<< "$IMAGE_TAGS"
-          docker buildx imagetools create "${args[@]}" "ghcr.io/itg-labs/sylph-xray:$PINNED_VERSION"
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
-        if: matrix.pin != 'XRAY_VERSION' || steps.stable.outputs.tags != ''
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -189,7 +172,6 @@ jobs:
           build-args: |
             SERVICE=${{ matrix.service }}
             VERSION=${{ steps.version.outputs.value }}
-            XRAY_VERSION=${{ matrix.pin == 'XRAY_VERSION' && steps.stable.outputs.version || '' }}
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}

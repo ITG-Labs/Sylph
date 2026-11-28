@@ -1,7 +1,7 @@
 .PHONY: build test vet lint ca-init cert revoke proto test-db-up test-db-down test-db xray-image test-xray-up test-xray-down test-xray test-node test-subs
 
 XRAY_VERSION := $(shell sed -n 's/^XRAY_VERSION=//p' deploy/prod/node/.env.example)
-XRAY_IMAGE := ghcr.io/itg-labs/sylph-xray:$(XRAY_VERSION)
+XRAY_IMAGE := ghcr.io/xtls/xray-core:$(XRAY_VERSION)
 
 PKGS := ./... ./services/core/... ./services/agent/... ./services/cron/... ./services/subs/... ./services/bot/... ./services/panel/... ./services/monitor/... ./tools/sylph/...
 
@@ -37,7 +37,10 @@ test-db: test-db-up
 	status=$$?; $(MAKE) test-db-down; exit $$status
 
 xray-image:
-	docker pull $(XRAY_IMAGE) || docker build -q --build-arg XRAY_VERSION=$(XRAY_VERSION) -t $(XRAY_IMAGE) deploy/xray
+	@docker image inspect $(XRAY_IMAGE) >/dev/null 2>&1 || { \
+		for attempt in 1 2 3; do docker pull $(XRAY_IMAGE) && exit 0; [ $$attempt -eq 3 ] || sleep 5; done; \
+		exit 1; \
+	}
 
 test-xray-up: xray-image
 	docker compose -f deploy/test/xray/docker-compose.yml up -d --wait

@@ -112,18 +112,21 @@ func statusCard(ctx context.Context, in installed, now time.Time) (string, bool)
 
 var pinnedImages = map[string]string{
 	"ghcr.io/itg-labs/sylph-caddy": role.KeyCaddyVersion,
-	"ghcr.io/itg-labs/sylph-xray":  role.KeyXrayVersion,
+	"ghcr.io/xtls/xray-core":       role.KeyXrayVersion,
 }
 
 func sylphTag(image string, release string, pins map[string]string) (string, string, bool) {
 	name, tag, ok := strings.Cut(image, ":")
-	if !ok || !strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-") {
+	if !ok {
 		return "", "", false
 	}
 	if key, pinned := pinnedImages[name]; pinned {
 		return tag, pins[key], true
 	}
-	return tag, release, true
+	if name == "ghcr.io/itg-labs/sylph-xray" {
+		return image, "ghcr.io/xtls/xray-core:" + pins[role.KeyXrayVersion], true
+	}
+	return tag, release, strings.HasPrefix(name, "ghcr.io/itg-labs/sylph-")
 }
 
 func certStatus(dir string, now time.Time) ([]string, bool) {

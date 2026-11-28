@@ -181,7 +181,7 @@ func TestPinOverridesOurVersionsOnly(t *testing.T) {
 		t.Fatalf("node template %s: %v", KeyXrayVersion, err)
 	}
 	if _, asked := node.Field(KeyXrayVersion); asked {
-		t.Fatalf("%s is pinned by sylph: only its own sylph-xray tags exist, the wizard must not ask for it", KeyXrayVersion)
+		t.Fatalf("%s is pinned by sylph: the wizard must not ask for it", KeyXrayVersion)
 	}
 	if pins := node.Pins(); pins[KeyCaddyVersion] != want || pins[KeyXrayVersion] != tmpl.Get(KeyXrayVersion) || len(pins) != 2 {
 		t.Fatalf("node pins = %v", pins)

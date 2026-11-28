@@ -83,11 +83,7 @@ func TestCaddyTagFollowsItsBuild(t *testing.T) {
 	}
 }
 
-var xrayBuilds = map[string]string{
-	"26.11.9": "dd92859649612c0168ca3a54d4d1267eada101f27dc6dfe7cfe8e31e3050c6c5",
-}
-
-func TestXrayTagFollowsItsBuild(t *testing.T) {
+func TestXrayImageMatchesNodePin(t *testing.T) {
 	env, err := fs.ReadFile(Files, "node/.env.example")
 	if err != nil {
 		t.Fatal(err)
@@ -97,47 +93,12 @@ func TestXrayTagFollowsItsBuild(t *testing.T) {
 		t.Fatal("node/.env.example: no XRAY_VERSION")
 	}
 	tag := string(m[1])
-	dockerfile, err := os.ReadFile("../xray/Dockerfile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	arg := func(name, pattern string) string {
-		m := regexp.MustCompile(`(?m)^ARG ` + name + `=(\S+)$`).FindSubmatch(dockerfile)
-		if m == nil || !regexp.MustCompile(`^`+pattern+`$`).Match(m[1]) {
-			t.Fatalf("deploy/xray/Dockerfile: ARG %s must have a default matching %s", name, pattern)
-		}
-		return string(m[1])
-	}
-	if v := arg("XRAY_VERSION", `[0-9]+\.[0-9]+\.[0-9]+`); v != tag {
-		t.Fatalf("deploy/xray/Dockerfile builds xray %s, node/.env.example pins XRAY_VERSION=%s", v, tag)
-	}
-	arg("XRAY_COMMIT", `[0-9a-f]{40}`)
-	arg("RULES_DAT", `[0-9]{14}`)
-	arg("GEOIP_SHA256", `[0-9a-f]{64}`)
-	arg("GEOSITE_SHA256", `[0-9a-f]{64}`)
-	for _, re := range []string{`(?m)^FROM golang:[0-9]+\.[0-9]+\.[0-9]+-alpine AS build$`, `rev-parse HEAD`, `sha256sum -c`, `(?m)^FROM gcr\.io/distroless/static-debian12:nonroot$`, `(?m)^USER 65532:65532$`} {
-		if !regexp.MustCompile(re).Match(dockerfile) {
-			t.Fatalf("deploy/xray/Dockerfile: no match for %s", re)
-		}
-	}
-	if strings.Contains(string(dockerfile), "latest") {
-		t.Fatal("deploy/xray/Dockerfile must not fetch anything by latest: the build has to be reproducible")
-	}
-	sum := sha256.Sum256(dockerfile)
-	got := hex.EncodeToString(sum[:])
-	recorded, known := xrayBuilds[tag]
-	switch {
-	case !known:
-		t.Fatalf("new Xray tag %s: record xrayBuilds[%q] = %q", tag, tag, got)
-	case recorded != got:
-		t.Fatalf("deploy/xray changed but XRAY_VERSION is still %s, which is already published and is never re-pushed: ship the change with a new Xray version and record its hash, keep the old entry as it is", tag)
-	}
 	compose, err := fs.ReadFile(Files, "node/compose.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(serviceBlock(t, string(compose), "xray"), "image: ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION:?") {
-		t.Fatal("node/compose.yml: xray image must be ghcr.io/itg-labs/sylph-xray:${XRAY_VERSION}")
+	if !strings.Contains(serviceBlock(t, string(compose), "xray"), "image: ghcr.io/xtls/xray-core:${XRAY_VERSION:?") {
+		t.Fatal("node/compose.yml: xray image must be ghcr.io/xtls/xray-core:${XRAY_VERSION}")
 	}
 	for _, name := range []string{"../test/xray/docker-compose.yml", "../test/node/docker-compose.yml", "../test/node/agent.Dockerfile", "../../Makefile", "node/compose.yml"} {
 		path := name
@@ -148,12 +109,15 @@ func TestXrayTagFollowsItsBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(data), "xtls/xray-core") {
-			t.Fatalf("%s: stands and nodes run the own image ghcr.io/itg-labs/sylph-xray, not ghcr.io/xtls/xray-core", name)
+		refs := regexp.MustCompile(`ghcr.io/xtls/xray-core:(\$\{[^}]+\}|\S+)`).FindAllSubmatch(data, -1)
+		if len(refs) == 0 {
+			t.Fatalf("%s: missing upstream Xray image", name)
 		}
-		for _, m := range regexp.MustCompile(`sylph-xray:(\S+)`).FindAllSubmatch(data, -1) {
-			if v := string(m[1]); v != tag && !strings.HasPrefix(v, "$") {
-				t.Fatalf("%s: sylph-xray:%s, want the pinned %s", name, v, tag)
+		for _, ref := range refs {
+			switch string(ref[1]) {
+			case tag, "$(XRAY_VERSION)", "${XRAY_VERSION:?set XRAY_VERSION in .env}":
+			default:
+				t.Fatalf("%s: unexpected Xray image %s", name, ref[0])
 			}
 		}
 	}
