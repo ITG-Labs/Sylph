@@ -27,7 +27,7 @@ services:
       - ./pebble/minica.pem:/etc/pebble/minica.pem:ro
     networks:
       default:
-        aliases: [cdn.test, rx.test]
+        aliases: [cdn.test, rx.test, beta.test]
   bootstrap:
     build:
       context: .

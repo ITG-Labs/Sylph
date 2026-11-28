@@ -127,8 +127,8 @@ func Normalize(s *Spec) error {
 		return fieldErr("reality", "is required for security reality")
 	}
 	if s.Reality.Dest == "selfsteal" {
-		if s.Transport != TransportXHTTP || len(s.Reality.ServerNames) != 1 || !netaddr.PublicHost(strings.ToLower(s.Reality.ServerNames[0])) {
-			return fieldErr("reality.dest", "selfsteal requires XHTTP and one public domain")
+		if len(s.Reality.ServerNames) != 1 || !netaddr.PublicHost(strings.ToLower(s.Reality.ServerNames[0])) {
+			return fieldErr("reality.dest", "selfsteal requires one public domain")
 		}
 	} else if err := normalizeDest(s.Reality); err != nil {
 		return err

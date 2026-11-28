@@ -243,7 +243,7 @@ func TestXrayRestartReappliesUsers(t *testing.T) {
 func TestLoadStateRestoresUsersAndInboundsWithoutTouchingXray(t *testing.T) {
 	fx := newFakeXray()
 	cachePath := filepath.Join(t.TempDir(), "c.json")
-	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, XHTTP: true, Selfsteal: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
+	if err := SaveCache(cachePath, &Cache{Version: 9, PerInbound: true, XHTTP: true, TCPSelfsteal: true, Users: users("cached-user"), Inbounds: mainIn}); err != nil {
 		t.Fatal(err)
 	}
 	e := deadEngine(t, fx, cachePath)

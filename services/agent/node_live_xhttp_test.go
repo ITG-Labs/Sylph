@@ -49,7 +49,13 @@ func liveXHTTPInbounds() []Inbound {
 		XHTTP: &XHTTP{Path: "/feed", Mode: "auto", ClientMode: "auto"},
 		TLS:   &TLS{Domain: liveCDNDomain, Decoy: liveDecoySite},
 	}
-	return append(liveNodeInbounds(), rx, cdn, feed)
+	tcp := liveNodeInbounds()
+	for _, in := range tcp {
+		if in.Tag == "beta" {
+			in.Reality.Dest = "selfsteal"
+		}
+	}
+	return append(tcp, rx, cdn, feed)
 }
 
 func serveDecoy(t *testing.T) {
@@ -201,18 +207,20 @@ func TestNodeLiveXHTTP(t *testing.T) {
 		tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}
 		defer tr.CloseIdleConnections()
 		c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
-		within(t, "selfsteal HTTPS", 60*time.Second, func() error {
-			r, err := c.Get("https://" + liveRXServerNm + "/")
-			if err != nil {
+		for _, domain := range []string{liveRXServerNm, "beta.test"} {
+			within(t, "selfsteal HTTPS "+domain, 60*time.Second, func() error {
+				r, err := c.Get("https://" + domain + "/")
+				if err != nil {
+					return err
+				}
+				defer r.Body.Close()
+				data, err := io.ReadAll(r.Body)
+				if err == nil && !strings.Contains(string(data), "Operator site") {
+					return fmt.Errorf("unexpected site: %s", data)
+				}
 				return err
-			}
-			defer r.Body.Close()
-			data, err := io.ReadAll(r.Body)
-			if err == nil && !strings.Contains(string(data), "Operator site") {
-				return fmt.Errorf("unexpected site: %s", data)
-			}
-			return err
-		})
+			})
+		}
 	})
 
 	t.Run("xhttp over reality goes through caddy by sni", func(t *testing.T) {
@@ -221,6 +229,7 @@ func TestNodeLiveXHTTP(t *testing.T) {
 
 	t.Run("reality over tcp still works next to them", func(t *testing.T) {
 		within(t, "alpha", 10*time.Second, func() error { return echoVia(liveClientA, "hello-alpha") })
+		within(t, "tcp selfsteal", 10*time.Second, func() error { return echoVia(liveClientB, "hello-beta") })
 	})
 
 	t.Run("scanners get the decoy site without xray traces", func(t *testing.T) {

@@ -301,7 +301,7 @@ func checkInbound(in Inbound) error {
 	if r == nil || r.Dest == "" || r.PrivateKey == "" || len(r.ServerNames) == 0 || len(r.ShortIDs) == 0 {
 		return fmt.Errorf("inbound %q: incomplete reality settings", in.Tag)
 	}
-	if r.Dest == "selfsteal" && in.Transport == "xhttp" && len(r.ServerNames) == 1 {
+	if r.Dest == "selfsteal" && len(r.ServerNames) == 1 {
 		return checkTLS(&TLS{Domain: r.ServerNames[0]})
 	}
 	if !publicDest(r.Dest) {

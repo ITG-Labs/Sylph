@@ -11,15 +11,15 @@ import (
 )
 
 type Cache struct {
-	Selfsteal   bool               `json:"selfsteal"`
-	Version     int64              `json:"version"`
-	PerInbound  bool               `json:"per_inbound"`
-	XHTTP       bool               `json:"xhttp"`
-	Users       []SyncUser         `json:"users"`
-	Inbounds    []Inbound          `json:"inbounds"`
-	Routing     *noderoute.Profile `json:"routing,omitempty"`
-	ServiceKeys []string           `json:"service_keys,omitempty"`
-	Geo         *SyncGeo           `json:"geo,omitempty"`
+	TCPSelfsteal bool               `json:"tcp_selfsteal"`
+	Version      int64              `json:"version"`
+	PerInbound   bool               `json:"per_inbound"`
+	XHTTP        bool               `json:"xhttp"`
+	Users        []SyncUser         `json:"users"`
+	Inbounds     []Inbound          `json:"inbounds"`
+	Routing      *noderoute.Profile `json:"routing,omitempty"`
+	ServiceKeys  []string           `json:"service_keys,omitempty"`
+	Geo          *SyncGeo           `json:"geo,omitempty"`
 }
 
 func LoadCache(path string) (*Cache, error) {

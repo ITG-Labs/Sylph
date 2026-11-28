@@ -91,7 +91,13 @@ func (s *Server) handleSyncUsers(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body, maxBodyBytes, false) {
 		return
 	}
-	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion, service.AgentCaps{Selfsteal: r.Header.Get("X-Sylph-Selfsteal") == "1", PerInbound: body.PerInbound, XHTTP: body.XHTTP})
+	caps := service.AgentCaps{
+		PerInbound:   body.PerInbound,
+		XHTTP:        body.XHTTP,
+		Selfsteal:    r.Header.Get("X-Sylph-Selfsteal") == "1",
+		TCPSelfsteal: r.Header.Get("X-Sylph-TCP-Selfsteal") == "1",
+	}
+	resp, err := s.svc.SyncNodeUsers(r.Context(), cn, body.KnownVersion, caps)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusForbidden, "unknown_node", "node not registered")

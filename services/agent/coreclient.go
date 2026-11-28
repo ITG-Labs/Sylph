@@ -136,7 +136,7 @@ func newCoreClientForTest(cfg *Config, logger *slog.Logger) *CoreClient {
 func (c *CoreClient) SyncUsers(ctx context.Context, knownVersion int64) (*SyncResp, error) {
 	var resp SyncResp
 	body := map[string]any{"known_version": knownVersion, "per_inbound": true, "xhttp": true}
-	if err := c.api.DoWith(ctx, http.MethodPost, "/v1/sync/users", http.Header{"X-Sylph-Selfsteal": {"1"}}, body, &resp); err != nil {
+	if err := c.api.DoWith(ctx, http.MethodPost, "/v1/sync/users", http.Header{"X-Sylph-Selfsteal": {"1"}, "X-Sylph-TCP-Selfsteal": {"1"}}, body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

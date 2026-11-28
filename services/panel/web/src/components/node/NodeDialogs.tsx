@@ -199,7 +199,7 @@ export function InboundFormDialog({
 
   const reality = kind !== "tls-xhttp"
   const xhttp = kind !== "reality-tcp"
-  const selfsteal = kind === "reality-xhttp" && localSite
+  const selfsteal = reality && localSite
   const tls = kind === "tls-xhttp"
   const agentBehind = xhttp && !!node && !agentKnowsXHTTP(node)
   const xrayBehind = xhttp && !!node && olderThan(node.xray_version, minXrayForXHTTP)
@@ -304,10 +304,10 @@ export function InboundFormDialog({
       </div>
       {reality && (
         <>
-          {xhttp && <label className="flex items-center gap-3">
+          <label className="flex items-center gap-3">
             <Switch checked={localSite} onCheckedChange={setLocalSite} />
             Локальный сайт (selfsteal)
-          </label>}
+          </label>
           {selfsteal ? (
             <Field id="site-domain" label="Домен сайта" hint="Направьте домен на IP ноды. Caddy выпустит сертификат. Файлы сайта лежат в каталоге site/ ноды.">
               <Input id="site-domain" value={sni} onChange={(e) => setSni(e.target.value)} placeholder="site.example.com" />

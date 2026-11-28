@@ -402,7 +402,7 @@ func TestRealityDestRefusesAddressesTheAgentRefuses(t *testing.T) {
 	}
 }
 
-func TestSelfstealRequiresOneDomainAndXHTTP(t *testing.T) {
+func TestSelfstealRequiresOneDomain(t *testing.T) {
 	s := xhttpRealitySpec()
 	s.Reality.Dest = "selfsteal"
 	s.Reality.ServerNames = []string{"Example.COM"}
@@ -417,7 +417,7 @@ func TestSelfstealRequiresOneDomainAndXHTTP(t *testing.T) {
 	}
 	s = validSpec()
 	s.Reality.Dest = "selfsteal"
-	if err := Normalize(&s); err == nil {
-		t.Fatal("accepted selfsteal on TCP")
+	if err := Normalize(&s); err != nil {
+		t.Fatalf("TCP selfsteal: %v", err)
 	}
 }

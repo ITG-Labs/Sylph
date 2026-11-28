@@ -201,6 +201,9 @@ func TestSyncHidesXHTTPFromAgentsThatDoNotKnowIt(t *testing.T) {
 	local := xhttpRealityBody("local", "local.example.net")
 	local["reality"].(map[string]any)["dest"] = "selfsteal"
 	mustStatus(t, e.call(t, http.MethodPost, path, local), http.StatusOK)
+	localTCP := realityBody("localtcp", "tcp.example.net")
+	localTCP["reality"].(map[string]any)["dest"] = "selfsteal"
+	mustStatus(t, e.call(t, http.MethodPost, path, localTCP), http.StatusOK)
 	external := realityBody("external", "external.example.net")
 	external["reality"].(map[string]any)["dest"] = "local.example.net:443"
 	mustField(t, e.call(t, http.MethodPost, path, external), http.StatusBadRequest, "bad_request", "reality.dest")
@@ -231,31 +234,38 @@ func TestSyncHidesXHTTPFromAgentsThatDoNotKnowIt(t *testing.T) {
 	if got := tags(map[string]any{"known_version": -1, "per_inbound": true, "xhttp": true}); fmt.Sprint(got) != "[cdn rx tcp]" {
 		t.Fatalf("new agent got %v", got)
 	}
-	req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/sync/users", strings.NewReader(`{"known_version":-1,"per_inbound":true,"xhttp":true}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Sylph-Selfsteal", "1")
-	r, err := node.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Body.Close()
-	var sync struct {
-		Inbounds []struct {
-			Tag string `json:"tag"`
-		} `json:"inbounds"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&sync); err != nil {
-		t.Fatal(err)
-	}
-	for _, in := range sync.Inbounds {
-		if in.Tag == "local" {
-			return
+	for _, tcp := range []bool{false, true} {
+		req, err := http.NewRequest(http.MethodPost, e.ts.URL+"/v1/sync/users", strings.NewReader(`{"known_version":-1,"per_inbound":true,"xhttp":true}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Sylph-Selfsteal", "1")
+		if tcp {
+			req.Header.Set("X-Sylph-TCP-Selfsteal", "1")
+		}
+		r, err := node.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sync struct {
+			Inbounds []struct {
+				Tag string `json:"tag"`
+			} `json:"inbounds"`
+		}
+		err = json.NewDecoder(r.Body).Decode(&sync)
+		r.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, in := range sync.Inbounds {
+			seen[in.Tag] = true
+		}
+		if !seen["local"] || seen["localtcp"] != tcp {
+			t.Fatalf("TCP selfsteal capability %v: got %v", tcp, seen)
 		}
 	}
-	t.Fatal("missing negotiated selfsteal inbound")
 }
 
 func TestHeartbeatStoresCertificateStatus(t *testing.T) {
